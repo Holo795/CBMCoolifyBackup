@@ -110,6 +110,38 @@ export class CoolifyClient {
     return this.get<DbConfig>(`/api/v1/databases/${uuid}`);
   }
 
+  /**
+   * Authoritative dump/restore credentials for a database, read from Coolify's
+   * config (the container env isn't always reliably introspectable). mysql /
+   * mariadb use root so the dump has full privileges.
+   */
+  async getDbCredentials(
+    uuid: string,
+    type: DbEngine,
+  ): Promise<{ user?: string; password?: string; database?: string } | undefined> {
+    const s = await this.getDatabase(uuid).catch(() => null);
+    if (!s) return undefined;
+    const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+    switch (type) {
+      case "postgresql":
+        return { user: str(s.postgres_user), password: str(s.postgres_password), database: str(s.postgres_db) };
+      case "mysql":
+        return { user: "root", password: str(s.mysql_root_password), database: str(s.mysql_database) };
+      case "mariadb":
+        return {
+          user: "root",
+          password: str(s.mariadb_root_password) ?? str(s.mysql_root_password),
+          database: str(s.mariadb_database) ?? str(s.mysql_database),
+        };
+      case "mongodb":
+        return {
+          user: str(s.mongo_initdb_root_username),
+          password: str(s.mongo_initdb_root_password),
+          database: str(s.mongo_initdb_database),
+        };
+    }
+  }
+
   /** Find a project's uuid by its display name. */
   async findProjectUuid(name: string): Promise<string | undefined> {
     const projects = await this.get<{ name: string; uuid: string }[]>("/api/v1/projects").catch(() => []);

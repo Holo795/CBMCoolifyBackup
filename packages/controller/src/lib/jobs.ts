@@ -69,6 +69,17 @@ export async function enqueueBackup(resourceId: string, policyId?: string) {
   const iso = new Date().toISOString();
   const dir = snapshotDir(resource.coolifyUuid, mode, iso);
 
+  // For real Coolify databases, read the dump credentials from the Coolify API
+  // (authoritative) rather than relying on the container's env at backup time.
+  let db: { user?: string; password?: string; database?: string } | undefined;
+  if (DUMP_ENGINES.includes(resource.type as DbEngine) && !resource.coolifyUuid.startsWith("coolify-self")) {
+    const instance = await prisma.coolifyInstance.findUnique({ where: { id: resource.instanceId } });
+    if (instance) {
+      const client = new CoolifyClient(instance.baseUrl, decryptSecret(instance.apiTokenEnc));
+      db = await client.getDbCredentials(resource.coolifyUuid, resource.type as DbEngine).catch(() => undefined);
+    }
+  }
+
   const snapshot = await prisma.snapshot.create({
     data: {
       resourceId: resource.id,
@@ -105,6 +116,7 @@ export async function enqueueBackup(resourceId: string, policyId?: string) {
       containerName: resource.containerName ?? undefined,
       containerNames: resource.containerNames,
       volumes: resource.volumes,
+      db,
     },
     destination: resolveDestination(dest),
     encryption: resolveEncryption(dest),
