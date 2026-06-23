@@ -33,6 +33,13 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
 
   const canHot = DUMPABLE_DB_TYPES.includes(resource.type as never);
 
+  // Backups/restores need a live agent on this resource's instance.
+  const liveAgent = await prisma.agent.findFirst({
+    where: { instanceId: resource.instanceId, status: "online", lastSeenAt: { gte: new Date(Date.now() - 90_000) } },
+    select: { id: true },
+  });
+  const agentDown = !liveAgent;
+
   return (
     <>
       <Link href="/resources" className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
@@ -42,11 +49,24 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
         title={resource.name}
         description={`${resource.type} · ${resource.instance.name}${resource.projectName ? " · " + resource.projectName : ""}`}
         action={
-          <ActionButton action={backupNow.bind(null, resource.id)} variant="primary" size="md" successMsg="Backup queued">
-            <Play className="h-4 w-4" /> Back up now
-          </ActionButton>
+          agentDown ? (
+            <Button variant="primary" size="md" disabled title="No live agent for this instance">
+              <Play className="h-4 w-4" /> Back up now
+            </Button>
+          ) : (
+            <ActionButton action={backupNow.bind(null, resource.id)} variant="primary" size="md" successMsg="Backup queued">
+              <Play className="h-4 w-4" /> Back up now
+            </ActionButton>
+          )
         }
       />
+
+      {agentDown && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-sm text-[var(--color-warning)]">
+          No live agent for <b>{resource.instance.name}</b> — backups and restores can&apos;t run until an agent is
+          installed on this Coolify host.
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
@@ -168,21 +188,26 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
                     <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{formatBytes(s.sizeBytes)}</td>
                     <td className="px-4 py-2.5 text-muted-foreground">{s.destination.name}</td>
                     <td className="px-4 py-2.5">
-                      {s.status === "succeeded" && (
-                        <div className="flex gap-1.5">
-                          <ActionButton
-                            action={restoreSnapshot.bind(null, s.id, "in_place")}
-                            variant="outline"
-                            size="sm"
-                            confirm="Restore this snapshot in place? This overwrites current data."
-                          >
-                            <RotateCcw className="h-3.5 w-3.5" /> Restore
-                          </ActionButton>
-                          <ActionButton action={restoreSnapshot.bind(null, s.id, "new_resource")} variant="ghost" size="sm">
-                            → new
-                          </ActionButton>
-                        </div>
-                      )}
+                      {s.status === "succeeded" &&
+                        (agentDown ? (
+                          <span className="text-xs text-muted-foreground" title="No live agent for this instance">
+                            restore unavailable
+                          </span>
+                        ) : (
+                          <div className="flex gap-1.5">
+                            <ActionButton
+                              action={restoreSnapshot.bind(null, s.id, "in_place")}
+                              variant="outline"
+                              size="sm"
+                              confirm="Restore this snapshot in place? This overwrites current data."
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" /> Restore
+                            </ActionButton>
+                            <ActionButton action={restoreSnapshot.bind(null, s.id, "new_resource")} variant="ghost" size="sm">
+                              → new
+                            </ActionButton>
+                          </div>
+                        ))}
                     </td>
                   </tr>
                 ))}

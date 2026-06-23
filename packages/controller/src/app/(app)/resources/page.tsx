@@ -31,6 +31,14 @@ export default async function ResourcesPage({
       take: PER_PAGE,
     }),
   ]);
+  // Which instances have a live agent (recent heartbeat)? Resources whose
+  // instance has none can't be backed up, so we grey them out + disable backup.
+  const liveAgents = await prisma.agent.findMany({
+    where: { status: "online", lastSeenAt: { gte: new Date(Date.now() - 90_000) } },
+    select: { instanceId: true },
+  });
+  const liveInstanceIds = new Set(liveAgents.map((a) => a.instanceId).filter(Boolean));
+
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
   const qs = (p: number) =>
     `/resources?${new URLSearchParams({ ...(q ? { q } : {}), ...(type ? { type } : {}), page: String(p) }).toString()}`;
@@ -66,8 +74,9 @@ export default async function ResourcesPage({
               <tbody>
                 {resources.map((r) => {
                   const canHot = DUMPABLE_DB_TYPES.includes(r.type as never);
+                  const agentDown = !liveInstanceIds.has(r.instanceId);
                   return (
-                    <tr key={r.id} className="border-b last:border-0 align-middle">
+                    <tr key={r.id} className={`border-b last:border-0 align-middle${agentDown ? " opacity-60" : ""}`}>
                       <td className="px-4 py-2.5 font-medium">
                         <a href={`/resources/${r.id}`} className="hover:underline">
                           {r.name}
@@ -78,7 +87,10 @@ export default async function ResourcesPage({
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground">{r.projectName || "—"}</td>
                       <td className="px-4 py-2.5">
-                        <Badge tone={statusTone(r.status)}>{r.status}</Badge>
+                        <div className="flex flex-col items-start gap-1">
+                          <Badge tone={statusTone(r.status)}>{r.status}</Badge>
+                          {agentDown && <Badge tone="warning">agent unavailable</Badge>}
+                        </div>
                       </td>
                       <td className="px-4 py-2.5">
                         <form action={updateResourceSettings.bind(null, r.id)} className="flex items-center gap-2">
@@ -97,9 +109,20 @@ export default async function ResourcesPage({
                         </form>
                       </td>
                       <td className="px-4 py-2.5">
-                        <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg="Queued">
-                          <Play className="h-3.5 w-3.5" /> Backup
-                        </ActionButton>
+                        {agentDown ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled
+                            title="No live agent for this instance — install or relink an agent to run backups"
+                          >
+                            <Play className="h-3.5 w-3.5" /> Backup
+                          </Button>
+                        ) : (
+                          <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg="Queued">
+                            <Play className="h-3.5 w-3.5" /> Backup
+                          </ActionButton>
+                        )}
                       </td>
                     </tr>
                   );

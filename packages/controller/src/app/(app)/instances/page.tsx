@@ -17,7 +17,8 @@ export default async function InstancesPage() {
     prisma.coolifyInstance.findMany({
       orderBy: { createdAt: "asc" },
       include: {
-        _count: { select: { resources: true, agents: true } },
+        _count: { select: { resources: true } },
+        agents: { select: { status: true, lastSeenAt: true } },
         policies: { where: { resourceId: null }, include: { destination: true }, take: 1 },
       },
     }),
@@ -37,7 +38,14 @@ export default async function InstancesPage() {
               hint="Add your first Coolify instance with its base URL and an API token."
             />
           ) : (
-            instances.map((i) => (
+            instances.map((i) => {
+              // "Connected" must mean a live agent (recent heartbeat), not just a
+              // lingering Agent row left behind by a removed/old agent.
+              const liveAgents = i.agents.filter(
+                (a) => a.status === "online" && a.lastSeenAt && Date.now() - new Date(a.lastSeenAt).getTime() < 90_000,
+              ).length;
+              const staleAgents = i.agents.length - liveAgents;
+              return (
               <Card key={i.id}>
                 <CardContent className="flex flex-col gap-4 p-5">
                   <div className="flex items-center justify-between gap-4">
@@ -45,7 +53,8 @@ export default async function InstancesPage() {
                       <div className="font-medium">{i.name}</div>
                       <div className="truncate font-mono text-xs text-muted-foreground">{i.baseUrl}</div>
                       <div className="text-xs text-muted-foreground">
-                        {i._count.resources} resources · {i._count.agents} agents · synced {timeAgo(i.lastSyncedAt)}
+                        {i._count.resources} resources · {liveAgents} agent{liveAgents === 1 ? "" : "s"} online · synced{" "}
+                        {timeAgo(i.lastSyncedAt)}
                       </div>
                     </div>
                     <div className="flex shrink-0 gap-2">
@@ -64,17 +73,23 @@ export default async function InstancesPage() {
                   <div className="flex flex-col gap-3 border-t pt-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-xs text-muted-foreground">Agent:</span>
-                      <Badge tone={statusTone(i._count.agents > 0 ? "online" : "pending")}>
-                        {i._count.agents > 0 ? "connected" : "not installed"}
+                      <Badge tone={statusTone(liveAgents > 0 ? "online" : staleAgents > 0 ? "offline" : "pending")}>
+                        {liveAgents > 0 ? "connected" : staleAgents > 0 ? "agent offline" : "not installed"}
                       </Badge>
                       {i.enrollTokenHash && (
                         <span className="font-mono text-xs text-muted-foreground" title="Current enrollment token (masked)">
                           {i.enrollTokenHint}
                         </span>
                       )}
-                      <ActionButton action={backupCoolifyInstance.bind(null, i.id)} variant="outline" size="sm" successMsg="Queued">
-                        <ShieldCheck className="h-3.5 w-3.5" /> Back up Coolify
-                      </ActionButton>
+                      {liveAgents > 0 ? (
+                        <ActionButton action={backupCoolifyInstance.bind(null, i.id)} variant="outline" size="sm" successMsg="Queued">
+                          <ShieldCheck className="h-3.5 w-3.5" /> Back up Coolify
+                        </ActionButton>
+                      ) : (
+                        <Button variant="outline" size="sm" disabled title="No live agent — install the agent below first">
+                          <ShieldCheck className="h-3.5 w-3.5" /> Back up Coolify
+                        </Button>
+                      )}
                     </div>
                     <RevealInstall instanceId={i.id} hasToken={!!i.enrollTokenHash} />
                   </div>
@@ -126,7 +141,8 @@ export default async function InstancesPage() {
                   </div>
                 </CardContent>
               </Card>
-            ))
+              );
+            })
           )}
         </div>
 
