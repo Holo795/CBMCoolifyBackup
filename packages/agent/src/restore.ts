@@ -37,6 +37,17 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
     const dumps = manifest.artifacts.filter((a) => a.kind === "db-dump");
     const volumes = manifest.artifacts.filter((a) => a.kind === "volume");
 
+    // Safety: "restore → new" must never touch the original. The volume-restore
+    // path below overwrites the live volume in place, so until cloning to a real
+    // new Coolify resource lands, refuse new-target restores that carry volumes
+    // instead of silently destroying the source data.
+    if (job.target === "new_resource" && volumes.length > 0) {
+      throw new Error(
+        "Restore → new resource is not yet available for resources with volumes (it would overwrite the original). " +
+          "Use in-place restore, or restore a database dump into a new database.",
+      );
+    }
+
     // Restore DB dumps into the target container (logical restore, no downtime).
     if (dumps.length > 0) {
       // Re-resolve container + credentials from the live Docker host (manifest
