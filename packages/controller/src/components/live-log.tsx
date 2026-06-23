@@ -4,7 +4,15 @@ import { useEffect, useRef, useState } from "react";
 
 type Event = { ts: string; level: string; message: string; progress: number | null };
 
-export function LiveLog({ snapshotId, initialStatus }: { snapshotId: string; initialStatus: string }) {
+export function LiveLog({
+  id,
+  kind = "snapshot",
+  initialStatus,
+}: {
+  id: string;
+  kind?: "snapshot" | "restore";
+  initialStatus: string;
+}) {
   const [events, setEvents] = useState<Event[]>([]);
   const [status, setStatus] = useState(initialStatus);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -15,7 +23,7 @@ export function LiveLog({ snapshotId, initialStatus }: { snapshotId: string; ini
 
     async function poll() {
       try {
-        const res = await fetch(`/api/snapshots/${snapshotId}/events`, { cache: "no-store" });
+        const res = await fetch(`/api/${kind}s/${id}/events`, { cache: "no-store" });
         if (res.ok && active) {
           const data = (await res.json()) as { status: string; events: Event[] };
           setEvents(data.events);
@@ -34,7 +42,7 @@ export function LiveLog({ snapshotId, initialStatus }: { snapshotId: string; ini
       active = false;
       clearTimeout(timer);
     };
-  }, [snapshotId]);
+  }, [id, kind]);
 
   // Auto-scroll to the latest line.
   useEffect(() => {

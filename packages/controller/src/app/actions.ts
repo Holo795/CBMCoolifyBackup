@@ -397,6 +397,7 @@ export async function restoreSnapshot(
     return { error: (e as Error).message };
   }
   revalidatePath("/snapshots");
+  revalidatePath(`/snapshots/${snapshotId}`);
   return { ok: true, detail: target === "in_place" ? "Restore queued" : "Restore → new queued" };
 }
 

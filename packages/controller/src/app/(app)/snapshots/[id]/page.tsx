@@ -18,6 +18,12 @@ export default async function SnapshotDetail({ params }: { params: Promise<{ id:
   });
   if (!snapshot) notFound();
 
+  const restores = await prisma.restoreJob.findMany({
+    where: { snapshotId: id },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+  });
+
   const manifest = snapshot.manifest as { provenance?: { gitCommitSha?: string; imageDigest?: string } } | null;
 
   return (
@@ -87,12 +93,34 @@ export default async function SnapshotDetail({ params }: { params: Promise<{ id:
 
       <Card className="mt-6">
         <CardHeader>
-          <CardTitle>Log</CardTitle>
+          <CardTitle>Backup log</CardTitle>
         </CardHeader>
         <CardContent>
-          <LiveLog snapshotId={snapshot.id} initialStatus={snapshot.status} />
+          <LiveLog id={snapshot.id} initialStatus={snapshot.status} />
         </CardContent>
       </Card>
+
+      {restores.length > 0 && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Restores</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-5">
+            {restores.map((r) => (
+              <div key={r.id} className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <Badge tone={statusTone(r.status)}>{r.status}</Badge>
+                  <span className="text-muted-foreground">
+                    {r.target === "new_resource" ? "→ new resource" : "in place"} · {r.createdAt.toISOString().slice(0, 19).replace("T", " ")}
+                  </span>
+                  {r.error && <span className="text-xs text-[var(--color-danger)]">{r.error}</span>}
+                </div>
+                <LiveLog id={r.id} kind="restore" initialStatus={r.status} />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
     </>
   );
 }
