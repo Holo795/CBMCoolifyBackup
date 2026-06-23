@@ -4,36 +4,12 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { requireUser } from "@/lib/session";
-import { encryptSecret, decryptSecret, generateAesKeyB64, randomToken } from "@/lib/crypto";
+import { encryptSecret, decryptSecret, generateAesKeyB64, randomToken, sha256Hex } from "@/lib/crypto";
 import { CoolifyClient } from "@/lib/coolify";
 import { syncInstance } from "@/lib/discovery";
 import { enqueueBackup, enqueueRestore, resolveDestination } from "@/lib/jobs";
 import { isValidCron } from "@/lib/cron";
 import { freqToCron } from "@/lib/schedule";
-
-/** Deploy (or redeploy) the agent for an instance via the Coolify API. */
-async function deployAgentForInstance(instanceId: string): Promise<{ ok: boolean; error?: string }> {
-  const instance = await prisma.coolifyInstance.findUniqueOrThrow({ where: { id: instanceId } });
-  const client = new CoolifyClient(instance.baseUrl, decryptSecret(instance.apiTokenEnc));
-  await prisma.coolifyInstance.update({ where: { id: instanceId }, data: { agentDeployStatus: "deploying" } });
-  try {
-    const { uuid } = await client.deployAgent({
-      image: env.agentImage,
-      tag: env.agentImageTag,
-      controllerUrl: env.agentControllerUrl || env.authUrl,
-      enrollToken: instance.enrollToken,
-      existingUuid: instance.agentResourceUuid ?? undefined,
-    });
-    await prisma.coolifyInstance.update({
-      where: { id: instanceId },
-      data: { agentResourceUuid: uuid, agentDeployStatus: "deployed" },
-    });
-    return { ok: true };
-  } catch (e) {
-    await prisma.coolifyInstance.update({ where: { id: instanceId }, data: { agentDeployStatus: "failed" } });
-    return { ok: false, error: (e as Error).message };
-  }
-}
 
 function s(fd: FormData, key: string): string {
   return (fd.get(key) ?? "").toString().trim();
@@ -52,7 +28,7 @@ export async function connectInstance(fd: FormData) {
   if (!ping.ok) return { error: `Cannot reach Coolify: ${ping.error}` };
 
   const instance = await prisma.coolifyInstance.create({
-    data: { name, baseUrl, apiTokenEnc: encryptSecret(token), enrollToken: randomToken() },
+    data: { name, baseUrl, apiTokenEnc: encryptSecret(token) },
   });
 
   let warning: string | undefined;
@@ -62,31 +38,45 @@ export async function connectInstance(fd: FormData) {
     warning = `Connected, but sync failed: ${(e as Error).message}`;
   }
 
-  // Zero-config: auto-deploy the agent on this instance's host when requested.
-  if (fd.get("autoDeploy") === "on") {
-    const dep = await deployAgentForInstance(instance.id);
-    if (!dep.ok) {
-      warning = `${warning ? warning + " " : ""}Agent auto-deploy failed: ${dep.error}. You can retry from the instance card.`;
-    }
-  }
-
   revalidatePath("/instances");
   revalidatePath("/resources");
   revalidatePath("/agents");
   return warning ? { ok: true, warning } : { ok: true };
 }
 
-export async function deployAgentAction(instanceId: string): Promise<void> {
+/**
+ * Generate a fresh per-instance enrollment token and return the install
+ * command containing it. The plaintext is shown to the operator exactly once:
+ * only its sha256 hash + a masked hint are stored, so it can never be
+ * re-displayed. Revealing again rotates the token, invalidating the previous
+ * one (the agent on that host must then be reconfigured with the new command).
+ */
+export async function revealInstallCommand(
+  instanceId: string,
+): Promise<{ oneLiner: string; raw: string; hint: string }> {
   await requireUser();
-  await deployAgentForInstance(instanceId);
-  revalidatePath("/instances");
-  revalidatePath("/agents");
-}
+  const token = "cbm_" + randomToken(24);
+  const hint = `${token.slice(0, 8)}…${token.slice(-4)}`;
+  await prisma.coolifyInstance.update({
+    where: { id: instanceId },
+    data: { enrollTokenHash: sha256Hex(token), enrollTokenHint: hint, enrollTokenSetAt: new Date() },
+  });
 
-export async function regenerateEnrollToken(instanceId: string): Promise<void> {
-  await requireUser();
-  await prisma.coolifyInstance.update({ where: { id: instanceId }, data: { enrollToken: randomToken() } });
+  const base = (env.agentControllerUrl || env.authUrl).replace(/\/$/, "");
+  const image = `${env.agentImage}:${env.agentImageTag}`;
+  const oneLiner = `curl -fsSL ${base}/install.sh | CBM_TOKEN=${token} sh`;
+  const raw = [
+    "docker rm -f cbm-agent 2>/dev/null",
+    "docker run -d --name cbm-agent --restart unless-stopped \\",
+    "  -v /var/run/docker.sock:/var/run/docker.sock \\",
+    `  -e CONTROLLER_URL=${base} \\`,
+    `  -e ENROLLMENT_TOKEN=${token} \\`,
+    '  -e AGENT_HOSTNAME="$(hostname)" \\',
+    `  ${image}`,
+  ].join("\n");
+
   revalidatePath("/instances");
+  return { oneLiner, raw, hint };
 }
 
 /** Back up the Coolify control plane itself (its Postgres + /data/coolify). */

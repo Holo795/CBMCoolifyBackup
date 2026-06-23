@@ -73,9 +73,9 @@ model CoolifyInstance {
   name              String
   baseUrl           String
   apiTokenEnc       String     // encrypted at rest
-  enrollToken       String     @unique // per-instance agent enrollment token (zero-config self-link)
-  agentResourceUuid String?    // Coolify resource uuid of the auto-deployed agent
-  agentDeployStatus String     @default("none") // none | deploying | deployed | failed
+  enrollTokenHash   String?    @unique // sha256 of the per-instance enrollment token; plaintext is shown once and never stored
+  enrollTokenHint   String     @default("") // masked display of the current token, e.g. cbm_ab12…7f4c
+  enrollTokenSetAt  DateTime?  // when the current enrollment token was last generated
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
   lastSyncedAt      DateTime?

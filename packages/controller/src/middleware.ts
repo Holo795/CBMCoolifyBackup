@@ -12,7 +12,8 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Protect everything except auth, login, static assets, and the agent API
-  // (agents authenticate with a bearer token, not a session cookie).
-  matcher: ["/((?!api/auth|api/agents|login|_next/static|_next/image|favicon.ico).*)"],
+  // Protect everything except auth, login, static assets, the agent API
+  // (agents authenticate with a bearer token, not a session cookie), and the
+  // public /install.sh agent installer script.
+  matcher: ["/((?!api/auth|api/agents|login|install.sh|_next/static|_next/image|favicon.ico).*)"],
 };

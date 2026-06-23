@@ -33,21 +33,6 @@ export class CoolifyClient {
     return (await res.json()) as T;
   }
 
-  private async post<T>(path: string, body: unknown): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${this.token}`,
-        accept: "application/json",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    if (!res.ok) throw new Error(`Coolify POST ${path} -> ${res.status} ${text.slice(0, 300)}`);
-    return (text ? JSON.parse(text) : {}) as T;
-  }
-
   private async patch<T>(path: string, body: unknown): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method: "PATCH",
@@ -67,72 +52,6 @@ export class CoolifyClient {
   async repinCommit(appUuid: string, commitSha: string): Promise<void> {
     await this.patch(`/api/v1/applications/${appUuid}`, { git_commit_sha: commitSha });
     await this.get(`/api/v1/deploy?uuid=${appUuid}&force=true`);
-  }
-
-  async getCoolifyHostServerUuid(): Promise<string> {
-    const servers = await this.get<any[]>("/api/v1/servers");
-    const host = (servers ?? []).find((s) => s.is_coolify_host) ?? (servers ?? [])[0];
-    if (!host?.uuid) throw new Error("No Coolify server found to deploy the agent on");
-    return host.uuid;
-  }
-
-  /** Find or create a project, returning its uuid + first environment name. */
-  async ensureProject(name: string): Promise<{ projectUuid: string; environmentName: string }> {
-    const projects = await this.get<any[]>("/api/v1/projects").catch(() => []);
-    let proj = (projects ?? []).find((p) => p.name === name);
-    if (!proj) {
-      proj = await this.post<any>("/api/v1/projects", { name, description: "Coolify Backup Manager agents" });
-    }
-    const detail = await this.get<any>(`/api/v1/projects/${proj.uuid}`).catch(() => null);
-    const environmentName = detail?.environments?.[0]?.name ?? "production";
-    return { projectUuid: proj.uuid, environmentName };
-  }
-
-  /**
-   * Deploy the backup agent as a docker-image application on this instance's
-   * Docker host, with the socket mounted and CONTROLLER_URL + token preset.
-   * Returns the created resource uuid.
-   */
-  async deployAgent(opts: {
-    image: string;
-    tag: string;
-    controllerUrl: string;
-    enrollToken: string;
-    existingUuid?: string;
-  }): Promise<{ uuid: string }> {
-    let uuid = opts.existingUuid;
-    if (!uuid) {
-      const { projectUuid, environmentName } = await this.ensureProject("Backup Manager");
-      const serverUuid = await this.getCoolifyHostServerUuid();
-      const created = await this.post<any>("/api/v1/applications/dockerimage", {
-        project_uuid: projectUuid,
-        server_uuid: serverUuid,
-        environment_name: environmentName,
-        name: "cbm-agent",
-        docker_registry_image_name: opts.image,
-        docker_registry_image_tag: opts.tag,
-        ports_exposes: "3000",
-        custom_docker_run_options: "-v /var/run/docker.sock:/var/run/docker.sock",
-        instant_deploy: false,
-      });
-      uuid = created.uuid;
-      if (!uuid) throw new Error("Coolify did not return an application uuid");
-
-      // Inject configuration as env vars.
-      const envs: Record<string, string> = {
-        CONTROLLER_URL: opts.controllerUrl,
-        ENROLLMENT_TOKEN: opts.enrollToken,
-      };
-      for (const [key, value] of Object.entries(envs)) {
-        await this.post(`/api/v1/applications/${uuid}/envs`, { key, value, is_preview: false }).catch(
-          () => undefined,
-        );
-      }
-    }
-
-    // Trigger a deploy.
-    await this.get(`/api/v1/deploy?uuid=${uuid}`);
-    return { uuid };
   }
 
   /** Quick connectivity / auth check. The version endpoint returns plain text. */

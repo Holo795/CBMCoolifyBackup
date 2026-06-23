@@ -13,9 +13,11 @@ export const env = {
   authUrl: optional("BETTER_AUTH_URL", optional("APP_URL", "http://localhost:3000")),
   // Master key (base64, 32 bytes) used to encrypt secrets at rest.
   masterKey: optional("MASTER_KEY"),
-  // Shared token agents present to enroll. If empty, enrollment is open in dev.
+  // Optional shared fallback token agents may present to enroll (dev/manual link).
+  // Per-instance enrollment tokens are the primary path; if this is empty,
+  // unrecognized tokens that aren't per-instance are open in dev.
   enrollmentToken: optional("ENROLLMENT_TOKEN"),
-  // Agent image used for one-click auto-deploy via the Coolify API.
+  // Agent image referenced by the manual install command + /install.sh.
   agentImage: optional("AGENT_IMAGE", "ghcr.io/your-org/cbm-agent"),
   agentImageTag: optional("AGENT_IMAGE_TAG", "latest"),
   // URL agents should reach the controller at (may differ from the browser URL,

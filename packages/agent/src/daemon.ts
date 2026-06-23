@@ -17,10 +17,20 @@ export async function startDaemon(): Promise<void> {
     if (!cfg.enrollmentToken) {
       throw new Error("No AGENT_TOKEN and no ENROLLMENT_TOKEN — cannot register");
     }
-    await withRetry("register", () => client.register(cfg)).then((res) => {
+    try {
+      const res = await withRetry("register", () => client.register(cfg));
       cfg.agentToken = res.agentToken;
       logger.info(`Registered as agent ${res.agentId}`);
-    });
+    } catch (e) {
+      if (/\b401\b/.test((e as Error).message)) {
+        logger.error(
+          "Enrollment token was rejected (invalid or rotated). Reveal a NEW install command in the " +
+            "controller UI and re-run it on this host to reconfigure the agent.",
+        );
+        process.exit(1);
+      }
+      throw e;
+    }
   }
 
   // Background heartbeat.
@@ -65,6 +75,8 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 30):
       return await fn();
     } catch (e) {
       lastErr = e;
+      // Auth failures aren't transient — don't burn retries on a bad token.
+      if (/\b401\b/.test((e as Error).message)) throw e;
       logger.warn(`${label} attempt ${i + 1} failed: ${(e as Error).message}`);
       await sleep(2000);
     }

@@ -1,14 +1,14 @@
 import { prisma } from "@/lib/prisma";
-import { env } from "@/lib/env";
 import { PageHeader } from "@/components/page-header";
 import { ActionForm } from "@/components/action-form";
 import { ScheduleForm } from "@/components/schedule-form";
 import { Card, CardContent, CardHeader, CardTitle, Input, Label, Button, Badge, statusTone, EmptyState } from "@/components/ui";
-import { connectInstance, syncInstanceAction, deleteInstance, deployAgentAction, regenerateEnrollToken, setInstanceSchedule, removeInstanceSchedule, backupCoolifyInstance } from "@/app/actions";
+import { connectInstance, syncInstanceAction, deleteInstance, setInstanceSchedule, removeInstanceSchedule, backupCoolifyInstance } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
+import { RevealInstall } from "@/components/reveal-install";
 import { timeAgo } from "@/lib/cn";
 import { describeCron, cronToFrequency } from "@/lib/schedule";
-import { Server, RefreshCw, Trash2, Rocket, KeyRound, CalendarClock, ShieldCheck } from "lucide-react";
+import { Server, RefreshCw, Trash2, CalendarClock, ShieldCheck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -61,24 +61,22 @@ export default async function InstancesPage() {
                       </form>
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 border-t pt-3">
-                    <span className="text-xs text-muted-foreground">Agent:</span>
-                    <Badge tone={statusTone(i.agentDeployStatus === "deployed" ? "online" : i.agentDeployStatus)}>
-                      {i._count.agents > 0 ? "connected" : i.agentDeployStatus}
-                    </Badge>
-                    <form action={deployAgentAction.bind(null, i.id)}>
-                      <Button size="sm" variant="outline" type="submit">
-                        <Rocket className="h-3.5 w-3.5" /> {i.agentResourceUuid ? "Redeploy" : "Deploy"} agent
-                      </Button>
-                    </form>
-                    <form action={regenerateEnrollToken.bind(null, i.id)}>
-                      <Button size="sm" variant="ghost" type="submit" title="Rotate the enrollment token">
-                        <KeyRound className="h-3.5 w-3.5" /> Regenerate token
-                      </Button>
-                    </form>
-                    <ActionButton action={backupCoolifyInstance.bind(null, i.id)} variant="outline" size="sm" successMsg="Queued">
-                      <ShieldCheck className="h-3.5 w-3.5" /> Back up Coolify
-                    </ActionButton>
+                  <div className="flex flex-col gap-3 border-t pt-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-muted-foreground">Agent:</span>
+                      <Badge tone={statusTone(i._count.agents > 0 ? "online" : "pending")}>
+                        {i._count.agents > 0 ? "connected" : "not installed"}
+                      </Badge>
+                      {i.enrollTokenHash && (
+                        <span className="font-mono text-xs text-muted-foreground" title="Current enrollment token (masked)">
+                          {i.enrollTokenHint}
+                        </span>
+                      )}
+                      <ActionButton action={backupCoolifyInstance.bind(null, i.id)} variant="outline" size="sm" successMsg="Queued">
+                        <ShieldCheck className="h-3.5 w-3.5" /> Back up Coolify
+                      </ActionButton>
+                    </div>
+                    <RevealInstall instanceId={i.id} hasToken={!!i.enrollTokenHash} />
                   </div>
                   <div className="border-t pt-3">
                     <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
@@ -126,16 +124,6 @@ export default async function InstancesPage() {
                       </div>
                     </details>
                   </div>
-                  <details className="text-xs">
-                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                      Manual install (zero-config — the token identifies this instance)
-                    </summary>
-                    <pre className="mt-2 overflow-auto rounded-md bg-muted/40 p-3 font-mono leading-relaxed">{`docker run -d --name cbm-agent --restart unless-stopped \\
-  -v /var/run/docker.sock:/var/run/docker.sock \\
-  -e CONTROLLER_URL=${env.agentControllerUrl || env.authUrl} \\
-  -e ENROLLMENT_TOKEN=${i.enrollToken} \\
-  ${env.agentImage}:${env.agentImageTag}`}</pre>
-                  </details>
                 </CardContent>
               </Card>
             ))
@@ -160,9 +148,10 @@ export default async function InstancesPage() {
                 <Label htmlFor="apiToken">API token</Label>
                 <Input id="apiToken" name="apiToken" type="password" placeholder="cf_…" required />
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" name="autoDeploy" defaultChecked /> Auto-deploy the backup agent on this host
-              </label>
+              <p className="text-xs text-muted-foreground">
+                After connecting, reveal the install command on the instance card and run it on the Coolify host to
+                start the agent.
+              </p>
             </ActionForm>
           </CardContent>
         </Card>
