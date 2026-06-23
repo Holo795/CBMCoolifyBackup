@@ -2,11 +2,12 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, Badge, Button, statusTone, EmptyState } from "@/components/ui";
-import { restoreSnapshot, retrySnapshot, cancelSnapshot, deleteSnapshot } from "@/app/actions";
+import { retrySnapshot, cancelSnapshot, deleteSnapshot } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
+import { RestoreActions } from "@/components/restore-actions";
 import { formatBytes, timeAgo } from "@/lib/cn";
-import { Archive, RotateCcw, RefreshCw, X } from "lucide-react";
+import { Archive, RefreshCw, X } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -66,21 +67,7 @@ export default async function SnapshotsPage() {
                     <td className="px-4 py-2.5 text-muted-foreground">{timeAgo(s.startedAt)}</td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center justify-end gap-1.5">
-                        {s.status === "succeeded" &&
-                          (hasAgent ? (
-                            <ActionButton
-                              action={restoreSnapshot.bind(null, s.id, "in_place")}
-                              variant="outline"
-                              size="sm"
-                              confirm="Restore this snapshot in place? This overwrites current data."
-                            >
-                              <RotateCcw className="h-3.5 w-3.5" /> Restore
-                            </ActionButton>
-                          ) : (
-                            <Button variant="outline" size="sm" disabled title="No live agent for this resource's instance — restore needs one">
-                              <RotateCcw className="h-3.5 w-3.5" /> Restore
-                            </Button>
-                          ))}
+                        {s.status === "succeeded" && <RestoreActions snapshotId={s.id} hasAgent={hasAgent} />}
                         {s.status === "failed" &&
                           (hasAgent ? (
                             <ActionButton action={retrySnapshot.bind(null, s.id)} variant="outline" size="sm" successMsg="Retried">

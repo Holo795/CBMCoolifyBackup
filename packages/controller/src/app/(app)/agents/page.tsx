@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/page-header";
-import { Card, CardContent, Badge, Button, statusTone, EmptyState } from "@/components/ui";
+import { Card, CardContent, Badge, statusTone, EmptyState } from "@/components/ui";
 import { deleteAgent } from "@/app/actions";
+import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { timeAgo } from "@/lib/cn";
-import { Cpu, Trash2 } from "lucide-react";
+import { Cpu } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -59,11 +60,18 @@ export default async function AgentsPage() {
                     <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{a.containers ?? 0}</td>
                     <td className="px-4 py-2.5 text-muted-foreground">{timeAgo(a.lastSeenAt)}</td>
                     <td className="px-4 py-2.5">
-                      <form action={deleteAgent.bind(null, a.id)}>
-                        <Button size="sm" variant="danger" type="submit" aria-label="Remove">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </form>
+                      <ConfirmDeleteButton
+                        action={deleteAgent.bind(null, a.id)}
+                        confirmWord={a.hostname}
+                        title={`Remove agent “${a.hostname}”?`}
+                        body={
+                          <>
+                            Removes this agent from the controller. If it&apos;s still running on{" "}
+                            <b>{a.hostname}</b>, it will keep failing until you reconfigure it (re-run the install
+                            command).
+                          </>
+                        }
+                      />
                     </td>
                   </tr>
                 ))}

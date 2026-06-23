@@ -6,12 +6,13 @@ import { ActionForm } from "@/components/action-form";
 import { ScheduleForm } from "@/components/schedule-form";
 import { ActionButton } from "@/components/action-button";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Select, Label, statusTone } from "@/components/ui";
-import { setResourceOptions, setResourceSchedule, removeResourceOverride, backupNow, restoreSnapshot, deleteSnapshot } from "@/app/actions";
+import { setResourceOptions, setResourceSchedule, removeResourceOverride, backupNow, deleteSnapshot } from "@/app/actions";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
+import { RestoreActions } from "@/components/restore-actions";
 import { effectivePolicy, describeCron, cronToFrequency } from "@/lib/schedule";
 import { formatBytes, timeAgo } from "@/lib/cn";
 import { DUMPABLE_DB_TYPES } from "@cbm/shared";
-import { Play, RotateCcw, ArrowLeft, Unplug } from "lucide-react";
+import { Play, ArrowLeft, Unplug } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -184,21 +185,7 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
                     <td className="px-4 py-2.5 text-muted-foreground">{s.destination.name}</td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center justify-end gap-1.5">
-                        {s.status === "succeeded" && (
-                          <>
-                            <ActionButton
-                              action={restoreSnapshot.bind(null, s.id, "in_place")}
-                              variant="outline"
-                              size="sm"
-                              confirm="Restore this snapshot in place? This overwrites current data."
-                            >
-                              <RotateCcw className="h-3.5 w-3.5" /> Restore
-                            </ActionButton>
-                            <ActionButton action={restoreSnapshot.bind(null, s.id, "new_resource")} variant="ghost" size="sm">
-                              → new
-                            </ActionButton>
-                          </>
-                        )}
+                        {s.status === "succeeded" && <RestoreActions snapshotId={s.id} hasAgent={!agentDown} />}
                         <ConfirmDeleteButton
                           action={deleteSnapshot.bind(null, s.id)}
                           confirmWord="DELETE"

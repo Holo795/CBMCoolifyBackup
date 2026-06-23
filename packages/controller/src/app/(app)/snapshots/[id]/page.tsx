@@ -1,13 +1,14 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/page-header";
-import { Card, CardContent, CardHeader, CardTitle, Badge, Button, statusTone } from "@/components/ui";
-import { restoreSnapshot, repinDeployment, deleteSnapshot } from "@/app/actions";
+import { Card, CardContent, CardHeader, CardTitle, Badge, statusTone } from "@/components/ui";
+import { repinDeployment, deleteSnapshot } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
+import { RestoreActions } from "@/components/restore-actions";
 import { LiveLog } from "@/components/live-log";
 import { formatBytes } from "@/lib/cn";
-import { RotateCcw, GitCommitHorizontal } from "lucide-react";
+import { GitCommitHorizontal } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -54,21 +55,7 @@ export default async function SnapshotDetail({ params }: { params: Promise<{ id:
                   <GitCommitHorizontal className="h-4 w-4" /> Re-pin code
                 </ActionButton>
               )}
-            {snapshot.status === "succeeded" &&
-              (agentDown ? (
-                <Button variant="primary" size="md" disabled title="No live agent for this instance — restore needs one">
-                  <RotateCcw className="h-4 w-4" /> Restore in place
-                </Button>
-              ) : (
-                <ActionButton
-                  action={restoreSnapshot.bind(null, snapshot.id, "in_place")}
-                  variant="primary"
-                  size="md"
-                  confirm="Restore this snapshot in place? This overwrites current data."
-                >
-                  <RotateCcw className="h-4 w-4" /> Restore in place
-                </ActionButton>
-              ))}
+            {snapshot.status === "succeeded" && <RestoreActions snapshotId={snapshot.id} hasAgent={!agentDown} size="md" />}
             <ConfirmDeleteButton
               action={deleteSnapshot.bind(null, snapshot.id)}
               confirmWord="DELETE"
