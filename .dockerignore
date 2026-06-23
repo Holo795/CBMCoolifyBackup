@@ -1,0 +1,13 @@
+# Keep build context small AND keep secrets out of images.
+**/node_modules
+**/.next
+**/dist
+**/generated
+**/.env
+**/.env.*
+.git
+.github
+**/*.log
+/tmp-test
+coverage
+**/*.tsbuildinfo

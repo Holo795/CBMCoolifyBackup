@@ -8,6 +8,9 @@ COPY packages/agent/package.json packages/agent/
 RUN npm install --ignore-scripts
 COPY packages/shared packages/shared
 COPY packages/controller packages/controller
+# A dummy URL lets `prisma generate` load prisma.config.ts at build time.
+# No DB connection happens during generate/build; the real URL is set at runtime.
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 RUN npm run build --workspace @cbm/shared \
   && npm run build --workspace @cbm/controller
 
