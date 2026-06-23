@@ -3,7 +3,7 @@ import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, Badge, Button, Input, Select, statusTone, EmptyState } from "@/components/ui";
 import { updateResourceSettings, backupNow } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
-import { Boxes, Play } from "lucide-react";
+import { Boxes, Play, Unplug } from "lucide-react";
 import { DUMPABLE_DB_TYPES } from "@cbm/shared";
 
 export const dynamic = "force-dynamic";
@@ -75,8 +75,34 @@ export default async function ResourcesPage({
                 {resources.map((r) => {
                   const canHot = DUMPABLE_DB_TYPES.includes(r.type as never);
                   const agentDown = !liveInstanceIds.has(r.instanceId);
+
+                  // No live agent -> the whole row is blurred and non-interactive,
+                  // with a centered "Agent unavailable" overlay.
+                  if (agentDown) {
+                    return (
+                      <tr key={r.id} className="border-b last:border-0">
+                        <td colSpan={6} className="p-0">
+                          <div className="relative">
+                            <div className="pointer-events-none flex select-none flex-wrap items-center gap-3 px-4 py-3 blur-[2px]">
+                              <span className="font-medium">{r.name}</span>
+                              <Badge>{r.type}</Badge>
+                              <span className="text-xs text-muted-foreground">{r.projectName || "—"}</span>
+                              <Badge tone={statusTone(r.status)}>{r.status}</Badge>
+                            </div>
+                            <div className="absolute inset-0 flex items-center justify-center px-4">
+                              <span className="flex items-center gap-1.5 text-sm font-medium text-[var(--color-warning)]">
+                                <Unplug className="h-4 w-4 shrink-0" /> Agent unavailable — cette ressource n&apos;est pas
+                                disponible
+                              </span>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
                   return (
-                    <tr key={r.id} className={`border-b last:border-0 align-middle${agentDown ? " opacity-60" : ""}`}>
+                    <tr key={r.id} className="border-b align-middle last:border-0">
                       <td className="px-4 py-2.5 font-medium">
                         <a href={`/resources/${r.id}`} className="hover:underline">
                           {r.name}
@@ -87,10 +113,7 @@ export default async function ResourcesPage({
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground">{r.projectName || "—"}</td>
                       <td className="px-4 py-2.5">
-                        <div className="flex flex-col items-start gap-1">
-                          <Badge tone={statusTone(r.status)}>{r.status}</Badge>
-                          {agentDown && <Badge tone="warning">agent unavailable</Badge>}
-                        </div>
+                        <Badge tone={statusTone(r.status)}>{r.status}</Badge>
                       </td>
                       <td className="px-4 py-2.5">
                         <form action={updateResourceSettings.bind(null, r.id)} className="flex items-center gap-2">
@@ -109,20 +132,9 @@ export default async function ResourcesPage({
                         </form>
                       </td>
                       <td className="px-4 py-2.5">
-                        {agentDown ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled
-                            title="No live agent for this instance — install or relink an agent to run backups"
-                          >
-                            <Play className="h-3.5 w-3.5" /> Backup
-                          </Button>
-                        ) : (
-                          <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg="Queued">
-                            <Play className="h-3.5 w-3.5" /> Backup
-                          </ActionButton>
-                        )}
+                        <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg="Queued">
+                          <Play className="h-3.5 w-3.5" /> Backup
+                        </ActionButton>
                       </td>
                     </tr>
                   );
