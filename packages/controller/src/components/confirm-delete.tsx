@@ -1,54 +1,63 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { deleteDestination } from "@/app/actions";
 import { Button } from "@/components/ui";
 import { Trash2, AlertTriangle } from "lucide-react";
 
 /**
- * Destructive delete with a typed confirmation: deleting a destination also
- * drops every backup record stored against it, so the operator must type the
- * destination name to proceed.
+ * Destructive delete gated by a typed confirmation. The operator must type
+ * `confirmWord` (e.g. the resource name, or "DELETE") before the action fires.
  */
-export function DeleteDestinationButton({
-  id,
-  name,
-  snapshots,
-  sizeLabel,
+export function ConfirmDeleteButton({
+  action,
+  confirmWord,
+  title,
+  body,
+  label,
+  variant = "danger",
+  size = "sm",
+  redirectTo,
 }: {
-  id: string;
-  name: string;
-  snapshots: number;
-  sizeLabel: string;
+  action: () => Promise<unknown>;
+  confirmWord: string;
+  title: string;
+  body: ReactNode;
+  label?: string;
+  variant?: "danger" | "ghost" | "outline";
+  size?: "sm" | "md" | "icon";
+  /** Navigate here after a successful delete (e.g. when the current page is the deleted item). */
+  redirectTo?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [pending, start] = useTransition();
   const router = useRouter();
-  const ok = text.trim() === name;
+  const ok = text.trim() === confirmWord;
 
   function confirm() {
     if (!ok) return;
     start(async () => {
-      await deleteDestination(id);
+      await action();
       setOpen(false);
-      router.refresh();
+      if (redirectTo) router.push(redirectTo);
+      else router.refresh();
     });
   }
 
   return (
     <>
       <Button
-        size="sm"
-        variant="danger"
-        aria-label="Delete destination"
+        size={size}
+        variant={variant}
+        aria-label={title}
         onClick={() => {
           setText("");
           setOpen(true);
         }}
       >
         <Trash2 className="h-3.5 w-3.5" />
+        {label ? <span className="ml-1">{label}</span> : null}
       </Button>
 
       {open && (
@@ -62,21 +71,18 @@ export function DeleteDestinationButton({
           >
             <div className="mb-3 flex items-center gap-2 text-[var(--color-danger)]">
               <AlertTriangle className="h-5 w-5 shrink-0" />
-              <h3 className="font-medium">Delete destination “{name}”?</h3>
+              <h3 className="font-medium">{title}</h3>
             </div>
-            <p className="mb-4 text-sm text-muted-foreground">
-              This permanently removes the destination <b>and all {snapshots} backup{snapshots === 1 ? "" : "s"}</b>{" "}
-              recorded against it ({sizeLabel}). <span className="text-foreground">This cannot be undone.</span>
-            </p>
+            <div className="mb-4 text-sm text-muted-foreground">{body}</div>
             <label className="mb-1.5 block text-xs text-muted-foreground">
-              Type <span className="font-mono text-foreground">{name}</span> to confirm:
+              Type <span className="font-mono text-foreground">{confirmWord}</span> to confirm:
             </label>
             <input
               autoFocus
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && confirm()}
-              placeholder={name}
+              placeholder={confirmWord}
               className="mb-4 w-full rounded-md border bg-background px-3 py-2 font-mono text-sm outline-none focus:border-[var(--color-danger)]"
             />
             <div className="flex justify-end gap-2">
@@ -84,7 +90,7 @@ export function DeleteDestinationButton({
                 Cancel
               </Button>
               <Button size="sm" variant="danger" disabled={!ok || pending} onClick={confirm}>
-                {pending ? "Deleting…" : "Delete destination"}
+                {pending ? "Deleting…" : "Delete"}
               </Button>
             </div>
           </div>

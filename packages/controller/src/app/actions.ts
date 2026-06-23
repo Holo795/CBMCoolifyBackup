@@ -219,6 +219,17 @@ export async function cancelSnapshot(snapshotId: string): Promise<void> {
   revalidatePath("/snapshots");
 }
 
+/** Delete a snapshot (and its artifact/restore records). Files on the remote
+ * destination are not touched. */
+export async function deleteSnapshot(snapshotId: string): Promise<void> {
+  await requireUser();
+  const snap = await prisma.snapshot.findUnique({ where: { id: snapshotId }, select: { resourceId: true } });
+  await prisma.snapshot.delete({ where: { id: snapshotId } });
+  revalidatePath("/snapshots");
+  revalidatePath("/destinations");
+  if (snap) revalidatePath(`/resources/${snap.resourceId}`);
+}
+
 /** Re-pin a Git app to the commit captured in a snapshot, then redeploy. */
 export async function repinDeployment(snapshotId: string): Promise<{ ok?: boolean; error?: string; detail?: string }> {
   await requireUser();

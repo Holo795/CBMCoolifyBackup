@@ -3,9 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/page-header";
 import { DestinationForm } from "@/components/destination-form";
 import { Card, CardContent, CardHeader, CardTitle, Badge, EmptyState } from "@/components/ui";
-import { testDestinationAction } from "@/app/actions";
+import { testDestinationAction, deleteDestination } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
-import { DeleteDestinationButton } from "@/components/delete-destination";
+import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { formatBytes } from "@/lib/cn";
 import { HardDrive, Lock, PlugZap, ChevronRight } from "lucide-react";
 
@@ -61,11 +61,20 @@ export default async function DestinationsPage() {
                       <ActionButton action={testDestinationAction.bind(null, d.id)} variant="outline" size="sm" successMsg="Reachable ✓">
                         <PlugZap className="h-3.5 w-3.5" /> Test
                       </ActionButton>
-                      <DeleteDestinationButton
-                        id={d.id}
-                        name={d.name}
-                        snapshots={d._count.snapshots}
-                        sizeLabel={formatBytes(bytes)}
+                      <ConfirmDeleteButton
+                        action={deleteDestination.bind(null, d.id)}
+                        confirmWord={d.name}
+                        title={`Delete destination “${d.name}”?`}
+                        body={
+                          <>
+                            This permanently removes the destination{" "}
+                            <b>
+                              and all {d._count.snapshots} backup{d._count.snapshots === 1 ? "" : "s"}
+                            </b>{" "}
+                            recorded against it ({formatBytes(bytes)}).{" "}
+                            <span className="text-foreground">This cannot be undone.</span>
+                          </>
+                        }
                       />
                       <Link
                         href={`/destinations/${d.id}`}

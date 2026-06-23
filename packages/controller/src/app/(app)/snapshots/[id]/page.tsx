@@ -2,8 +2,9 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button, statusTone } from "@/components/ui";
-import { restoreSnapshot, repinDeployment } from "@/app/actions";
+import { restoreSnapshot, repinDeployment, deleteSnapshot } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
+import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { LiveLog } from "@/components/live-log";
 import { formatBytes } from "@/lib/cn";
 import { RotateCcw, GitCommitHorizontal } from "lucide-react";
@@ -24,6 +25,13 @@ export default async function SnapshotDetail({ params }: { params: Promise<{ id:
     take: 10,
   });
 
+  // Restore (and re-pin) need a live agent to execute on the host.
+  const liveAgent = await prisma.agent.findFirst({
+    where: { instanceId: snapshot.resource.instanceId, status: "online", lastSeenAt: { gte: new Date(Date.now() - 90_000) } },
+    select: { id: true },
+  });
+  const agentDown = !liveAgent;
+
   const manifest = snapshot.manifest as { provenance?: { gitCommitSha?: string; imageDigest?: string } } | null;
 
   return (
@@ -32,9 +40,11 @@ export default async function SnapshotDetail({ params }: { params: Promise<{ id:
         title={snapshot.resource.name}
         description={`${snapshot.mode} · ${snapshot.captureMode} · ${snapshot.destination.name}`}
         action={
-          snapshot.status === "succeeded" ? (
-            <div className="flex items-center gap-2">
-              {manifest?.provenance?.gitCommitSha && manifest.provenance.gitCommitSha !== "HEAD" && (
+          <div className="flex items-center gap-2">
+            {snapshot.status === "succeeded" &&
+              !agentDown &&
+              manifest?.provenance?.gitCommitSha &&
+              manifest.provenance.gitCommitSha !== "HEAD" && (
                 <ActionButton
                   action={repinDeployment.bind(null, snapshot.id)}
                   variant="outline"
@@ -44,16 +54,37 @@ export default async function SnapshotDetail({ params }: { params: Promise<{ id:
                   <GitCommitHorizontal className="h-4 w-4" /> Re-pin code
                 </ActionButton>
               )}
-              <ActionButton
-                action={restoreSnapshot.bind(null, snapshot.id, "in_place")}
-                variant="primary"
-                size="md"
-                confirm="Restore this snapshot in place? This overwrites current data."
-              >
-                <RotateCcw className="h-4 w-4" /> Restore in place
-              </ActionButton>
-            </div>
-          ) : null
+            {snapshot.status === "succeeded" &&
+              (agentDown ? (
+                <Button variant="primary" size="md" disabled title="No live agent for this instance — restore needs one">
+                  <RotateCcw className="h-4 w-4" /> Restore in place
+                </Button>
+              ) : (
+                <ActionButton
+                  action={restoreSnapshot.bind(null, snapshot.id, "in_place")}
+                  variant="primary"
+                  size="md"
+                  confirm="Restore this snapshot in place? This overwrites current data."
+                >
+                  <RotateCcw className="h-4 w-4" /> Restore in place
+                </ActionButton>
+              ))}
+            <ConfirmDeleteButton
+              action={deleteSnapshot.bind(null, snapshot.id)}
+              confirmWord="DELETE"
+              title="Delete this snapshot?"
+              variant="outline"
+              size="md"
+              label="Delete"
+              redirectTo="/snapshots"
+              body={
+                <>
+                  Permanently removes this snapshot ({formatBytes(snapshot.sizeBytes)}) and its records. Files already
+                  written to the destination are not deleted.
+                </>
+              }
+            />
+          </div>
         }
       />
 
