@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { DatabaseBackup } from "lucide-react";
+import { DatabaseBackup, Github } from "lucide-react";
 import { NAV } from "./nav";
 import { cn } from "@/lib/cn";
 
@@ -37,6 +37,20 @@ export function Sidebar() {
           );
         })}
       </nav>
+      <div className="border-t p-3 text-xs text-muted-foreground">
+        <a
+          href="https://github.com/Holo795/Coolify-Backup-Manager"
+          target="_blank"
+          rel="noreferrer noopener"
+          className="flex items-center gap-1.5 hover:text-foreground"
+        >
+          <Github className="h-3.5 w-3.5" />
+          <span>
+            Built by <span className="font-medium text-foreground">Holo795</span>
+          </span>
+        </a>
+        <p className="mt-1 text-[10px]">Coolify Backup Manager · Apache-2.0</p>
+      </div>
     </aside>
   );
 }

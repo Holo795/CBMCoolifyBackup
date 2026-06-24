@@ -10,3 +10,6 @@ coverage/
 .DS_Store
 /tmp-test/
 *.tsbuildinfo
+
+# Internal planning, kept local (not published)
+ROADMAP.md
