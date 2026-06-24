@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, Badge, Button, Input, statusTone, EmptyState } from "@/components/ui";
-import { updateResourceSettings, backupNow } from "@/app/actions";
+import { backupNow } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
+import { ResourceToggles } from "@/components/resource-toggles";
 import { Boxes, Play, Unplug } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -121,20 +122,7 @@ export default async function ResourcesPage({
                         <Badge tone={statusTone(r.status)}>{r.status}</Badge>
                       </td>
                       <td className="px-4 py-2.5">
-                        <form action={updateResourceSettings.bind(null, r.id)} className="flex items-center gap-3">
-                          <label className="flex items-center gap-1.5 text-xs">
-                            <input type="checkbox" name="backupEnabled" defaultChecked={r.backupEnabled} /> on
-                          </label>
-                          <label
-                            className="flex items-center gap-1.5 text-xs"
-                            title="Copier les fichiers sans figer les conteneurs (zéro interruption, mais risque d'incohérence)"
-                          >
-                            <input type="checkbox" name="liveBackup" defaultChecked={r.liveBackup} /> live
-                          </label>
-                          <Button type="submit" size="sm" variant="outline">
-                            Save
-                          </Button>
-                        </form>
+                        <ResourceToggles id={r.id} backupEnabled={r.backupEnabled} liveBackup={r.liveBackup} />
                       </td>
                       <td className="px-4 py-2.5">
                         <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg="Queued">

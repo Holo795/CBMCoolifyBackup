@@ -58,7 +58,7 @@ export async function syncInstance(instanceId: string): Promise<{ synced: number
       // it counting for any backup (it shows in a separate "removed" table).
       await prisma.resource.updateMany({
         where: { id: { in: toOrphan } },
-        data: { status: "deleted", excluded: true, backupEnabled: false },
+        data: { status: "deleted", backupEnabled: false },
       });
     }
   }

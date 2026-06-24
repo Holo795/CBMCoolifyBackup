@@ -8,7 +8,6 @@ import { encryptSecret, decryptSecret, generateAesKeyB64, randomToken, sha256Hex
 import { CoolifyClient } from "@/lib/coolify";
 import { syncInstance } from "@/lib/discovery";
 import { enqueueBackup, enqueueRestore, enqueuePrune, resolveDestination } from "@/lib/jobs";
-import { isValidCron } from "@/lib/cron";
 import { freqToCron } from "@/lib/schedule";
 import { setTimezone, isValidTimezone } from "@/lib/settings";
 
@@ -312,38 +311,6 @@ export async function retrySnapshot(snapshotId: string): Promise<void> {
   revalidatePath("/snapshots");
 }
 
-/* ----------------------------- policies ----------------------------- */
-
-export async function createPolicy(fd: FormData) {
-  await requireUser();
-  const name = s(fd, "name");
-  const cron = s(fd, "cron") || "0 2 * * *";
-  const destinationId = s(fd, "destinationId");
-  if (!name || !destinationId) return { error: "Name and destination required" };
-  if (!isValidCron(cron)) return { error: "Invalid cron expression" };
-
-  await prisma.backupPolicy.create({
-    data: {
-      name,
-      mode: s(fd, "mode") || "backup",
-      cron,
-      destinationId,
-      resourceId: s(fd, "resourceId") || null,
-      retentionDaily: Number(s(fd, "retentionDaily") || "7"),
-      retentionWeekly: Number(s(fd, "retentionWeekly") || "4"),
-      retentionMonthly: Number(s(fd, "retentionMonthly") || "6"),
-    },
-  });
-  revalidatePath("/policies");
-  return { ok: true };
-}
-
-export async function deletePolicy(id: string) {
-  await requireUser();
-  await prisma.backupPolicy.delete({ where: { id } });
-  revalidatePath("/policies");
-}
-
 /* ------------------------- schedules (inheritance) ------------------------- */
 
 function scheduleData(fd: FormData) {
@@ -392,6 +359,8 @@ export async function setResourceSchedule(resourceId: string, fd: FormData) {
   } else {
     await prisma.backupPolicy.create({ data: { ...data, name: `${resource.name} override`, resourceId } });
   }
+  // Setting a schedule on a resource implies it should be backed up.
+  await prisma.resource.update({ where: { id: resourceId }, data: { backupEnabled: true } });
   revalidatePath(`/resources/${resourceId}`);
   return { ok: true };
 }
@@ -405,34 +374,18 @@ export async function removeResourceOverride(resourceId: string): Promise<void> 
 
 /* ----------------------------- resources ----------------------------- */
 
+/** Update a resource's per-resource backup settings (auto-saved from the UI). */
 export async function updateResourceSettings(resourceId: string, fd: FormData): Promise<void> {
   await requireUser();
   await prisma.resource.update({
     where: { id: resourceId },
     data: {
       backupEnabled: fd.get("backupEnabled") === "on",
-      excluded: fd.get("excluded") === "on",
       liveBackup: fd.get("liveBackup") === "on",
     },
   });
   revalidatePath("/resources");
   revalidatePath(`/resources/${resourceId}`);
-}
-
-/** Capture mode + exclusion for a resource (used by the resource detail page). */
-export async function setResourceOptions(resourceId: string, fd: FormData) {
-  await requireUser();
-  await prisma.resource.update({
-    where: { id: resourceId },
-    data: {
-      liveBackup: fd.get("liveBackup") === "on",
-      excluded: fd.get("excluded") === "on",
-      backupEnabled: true,
-    },
-  });
-  revalidatePath(`/resources/${resourceId}`);
-  revalidatePath("/resources");
-  return { ok: true };
 }
 
 export async function backupNow(resourceId: string): Promise<{ ok?: boolean; error?: string; detail?: string }> {

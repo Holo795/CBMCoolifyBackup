@@ -10,7 +10,7 @@ export default async function OverviewPage() {
   const [instances, resources, enabled, snapshots, agentsOnline, recent] = await Promise.all([
     prisma.coolifyInstance.count(),
     prisma.resource.count(),
-    prisma.resource.count({ where: { backupEnabled: true, excluded: false } }),
+    prisma.resource.count({ where: { backupEnabled: true } }),
     prisma.snapshot.count({ where: { status: "succeeded" } }),
     prisma.agent.count({ where: { status: "online" } }),
     prisma.snapshot.findMany({

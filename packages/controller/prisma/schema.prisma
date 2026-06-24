@@ -115,7 +115,6 @@ model Resource {
   // copied live without even a brief freeze (at the operator's risk); otherwise
   // the agent briefly freezes the writing containers for a consistent copy.
   liveBackup   Boolean       @default(false)
-  excluded     Boolean       @default(false)
   retentionOverride Int?
   // Agent-discovered docker facts (cached)
   containerName String?

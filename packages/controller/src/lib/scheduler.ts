@@ -32,22 +32,24 @@ export async function tick(now = new Date()): Promise<number> {
     }
     if (!due) continue;
 
+    // backupEnabled is the single gate: a resource is in scheduled backups only
+    // when it's enabled.
     let resources;
     if (p.resourceId) {
       // Resource override.
-      resources = await prisma.resource.findMany({ where: { id: p.resourceId, excluded: false } });
+      resources = await prisma.resource.findMany({ where: { id: p.resourceId, backupEnabled: true } });
     } else if (p.instanceId) {
-      // Whole instance: all non-excluded resources WITHOUT their own override policy.
+      // Whole instance: all enabled resources WITHOUT their own override policy.
       const overrides = await prisma.backupPolicy.findMany({
         where: { resourceId: { not: null }, resource: { instanceId: p.instanceId }, enabled: true },
         select: { resourceId: true },
       });
       const skip = new Set(overrides.map((o) => o.resourceId));
-      const all = await prisma.resource.findMany({ where: { instanceId: p.instanceId, excluded: false } });
+      const all = await prisma.resource.findMany({ where: { instanceId: p.instanceId, backupEnabled: true } });
       resources = all.filter((r) => !skip.has(r.id));
     } else {
-      // Global fallback.
-      resources = await prisma.resource.findMany({ where: { backupEnabled: true, excluded: false } });
+      // A policy with neither a resource nor an instance is not used anymore.
+      continue;
     }
 
     const runId = randomUUID();
