@@ -424,13 +424,15 @@ export class CoolifyClient {
     const envs = await this.get<any[]>(`/api/v1/${srcKind}/${srcUuid}/envs`).catch(() => []);
     let n = 0;
     for (const e of envs ?? []) {
-      if (!e?.key) continue;
+      if (!e?.key || e.is_coolify) continue; // skip Coolify-managed vars
+      // Coolify's field is `is_buildtime` (not `is_build_time` — that 500s).
       const ok = await this.post(`/api/v1/${destKind}/${destUuid}/envs`, {
         key: e.key,
         value: e.value ?? "",
         is_preview: false,
-        is_build_time: !!e.is_build_time,
+        is_buildtime: !!e.is_buildtime,
         is_literal: !!e.is_literal,
+        is_multiline: !!e.is_multiline,
       })
         .then(() => true)
         .catch(() => false);
