@@ -54,7 +54,7 @@ export default async function DestinationsPage() {
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">
                         <span className="font-medium text-foreground">{formatBytes(bytes)}</span> · {d._count.snapshots}{" "}
-                        snapshots · {d._count.policies} policies
+                        snapshots · {d._count.policies} schedule{d._count.policies === 1 ? "" : "s"}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
