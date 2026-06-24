@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { JobResult } from "@cbm/shared";
 import { prisma } from "@/lib/prisma";
 import { authenticateAgentFromRequest } from "@/lib/agent-auth";
+import { notifyBackupFailed } from "@/lib/notify";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const agent = await authenticateAgentFromRequest(req);
@@ -63,6 +64,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         where: { id: job.snapshotId },
         data: { status: "failed", finishedAt: new Date(), error: result.error ?? "unknown error" },
       });
+      await notifyBackupFailed(job.snapshotId).catch(() => undefined);
     }
   }
 

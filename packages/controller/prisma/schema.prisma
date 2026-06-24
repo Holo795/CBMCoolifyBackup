@@ -245,5 +245,7 @@ model Setting {
   id        String   @id @default("global")
   // IANA timezone used for schedule evaluation + timestamp display.
   timezone  String   @default("Europe/Paris")
+  // Optional webhook (Discord/Slack/custom) notified when a backup fails.
+  alertWebhookUrl String?
   updatedAt DateTime @updatedAt
 }

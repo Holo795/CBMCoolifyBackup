@@ -28,6 +28,29 @@ export async function updateTimezone(fd: FormData) {
   return { ok: true };
 }
 
+/** Set (or clear) the webhook notified when a backup fails. */
+export async function updateAlertWebhook(fd: FormData) {
+  await requireUser();
+  const url = s(fd, "alertWebhookUrl");
+  if (url && !/^https?:\/\//i.test(url)) return { error: "Enter a valid http(s) URL, or leave blank to disable" };
+  await prisma.setting.upsert({
+    where: { id: "global" },
+    create: { id: "global", alertWebhookUrl: url || null },
+    update: { alertWebhookUrl: url || null },
+  });
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+/** Send a test message to a webhook URL (without saving it). */
+export async function testAlertWebhook(url: string) {
+  await requireUser();
+  if (!url || !/^https?:\/\//i.test(url)) return { error: "Enter a valid http(s) URL first" };
+  const { sendTestAlert } = await import("@/lib/notify");
+  const ok = await sendTestAlert(url);
+  return ok ? { ok: true, detail: "Test notification sent" } : { error: "The webhook did not accept the message" };
+}
+
 /* ----------------------------- instances ----------------------------- */
 
 export async function connectInstance(fd: FormData) {

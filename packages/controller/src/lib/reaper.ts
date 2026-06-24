@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { notifyBackupFailed } from "./notify";
 
 export interface ReaperOptions {
   /** Mark an agent offline after this long without a heartbeat. */
@@ -29,10 +30,11 @@ export async function reaper(now = new Date(), opts: ReaperOptions = {}): Promis
       data: { status: "failed", error: "agent timed out", finishedAt: now },
     });
     if (j.snapshotId) {
-      await prisma.snapshot.updateMany({
+      const upd = await prisma.snapshot.updateMany({
         where: { id: j.snapshotId, status: "running" },
         data: { status: "failed", error: "agent timed out", finishedAt: now },
       });
+      if (upd.count > 0) await notifyBackupFailed(j.snapshotId).catch(() => undefined);
     }
     if (j.restoreId) {
       await prisma.restoreJob.updateMany({
