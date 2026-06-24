@@ -51,7 +51,16 @@ export async function syncInstance(instanceId: string): Promise<{ synced: number
       select: { id: true, _count: { select: { snapshots: true } } },
     });
     const toDelete = stale.filter((r) => r._count.snapshots === 0).map((r) => r.id);
+    const toOrphan = stale.filter((r) => r._count.snapshots > 0).map((r) => r.id);
     if (toDelete.length) await prisma.resource.deleteMany({ where: { id: { in: toDelete } } });
+    if (toOrphan.length) {
+      // Gone from Coolify but has backups -> keep it, mark it removed, and stop
+      // it counting for any backup (it shows in a separate "removed" table).
+      await prisma.resource.updateMany({
+        where: { id: { in: toOrphan } },
+        data: { status: "deleted", excluded: true, backupEnabled: false },
+      });
+    }
   }
 
   await prisma.coolifyInstance.update({

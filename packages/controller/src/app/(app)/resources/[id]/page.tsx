@@ -41,6 +41,7 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
     select: { id: true },
   });
   const agentDown = !liveAgent;
+  const removed = resource.status === "deleted"; // no longer in Coolify
 
   return (
     <>
@@ -51,13 +52,20 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
         title={resource.name}
         description={`${resource.type} · ${resource.instance.name}${resource.projectName ? " · " + resource.projectName : ""}`}
         action={
-          agentDown ? undefined : (
+          agentDown || removed ? undefined : (
             <ActionButton action={backupNow.bind(null, resource.id)} variant="primary" size="md" successMsg="Backup queued">
               <Play className="h-4 w-4" /> Back up now
             </ActionButton>
           )
         }
       />
+
+      {removed && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-3 py-2 text-sm text-[var(--color-danger)]">
+          This resource no longer exists in Coolify. You can&apos;t back it up, but its snapshots below can still be
+          restored (use “→ new” to recreate it).
+        </div>
+      )}
 
       <div className="relative">
         <div

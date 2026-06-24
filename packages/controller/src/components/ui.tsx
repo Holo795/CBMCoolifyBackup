@@ -114,7 +114,7 @@ export function Badge({
 
 export function statusTone(status: string): "neutral" | "success" | "warning" | "danger" | "accent" {
   if (/heal|online|succ|running:heal/i.test(status)) return "success";
-  if (/fail|error|unhealthy|offline|exited/i.test(status)) return "danger";
+  if (/fail|error|unhealthy|offline|exited|delet|removed/i.test(status)) return "danger";
   if (/run|progress|queue|pend/i.test(status)) return "accent";
   return "neutral";
 }

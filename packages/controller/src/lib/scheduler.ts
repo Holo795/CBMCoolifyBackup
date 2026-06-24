@@ -4,6 +4,16 @@ import { cronMatches } from "./cron";
 import { enqueueBackup } from "./jobs";
 import { applyRetention } from "./retention";
 import { reaper } from "./reaper";
+import { syncInstance } from "./discovery";
+
+/** Re-discover every instance so statuses refresh and removed resources are
+ * pruned/marked without a manual Sync. */
+async function syncAllInstances(): Promise<void> {
+  const instances = await prisma.coolifyInstance.findMany({ select: { id: true } });
+  for (const i of instances) {
+    await syncInstance(i.id).catch((e) => console.error(`[scheduler] sync ${i.id} failed:`, (e as Error).message));
+  }
+}
 
 const globalForSched = globalThis as unknown as { cbmSchedulerStarted?: boolean };
 
@@ -71,6 +81,12 @@ export function startScheduler(): void {
         await reaper(new Date());
       } catch (e) {
         console.error("[scheduler] reaper error", e);
+      }
+      try {
+        // Refresh discovery every 5 minutes (status + prune/mark removed).
+        if (new Date().getMinutes() % 5 === 0) await syncAllInstances();
+      } catch (e) {
+        console.error("[scheduler] auto-sync error", e);
       }
       schedule();
     }, msToNextMinute);

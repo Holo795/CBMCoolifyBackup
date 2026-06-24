@@ -18,10 +18,11 @@ export default async function ResourcesPage({
   const { q, type, page: pageParam } = await searchParams;
   const page = Math.max(1, Number(pageParam || "1"));
   const where = {
+    status: { not: "deleted" },
     ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}),
     ...(type ? { type } : {}),
   };
-  const [total, resources] = await Promise.all([
+  const [total, resources, orphaned] = await Promise.all([
     prisma.resource.count({ where }),
     prisma.resource.findMany({
       where,
@@ -29,6 +30,12 @@ export default async function ResourcesPage({
       include: { instance: true },
       skip: (page - 1) * PER_PAGE,
       take: PER_PAGE,
+    }),
+    // Resources removed from Coolify but kept for their backups.
+    prisma.resource.findMany({
+      where: { status: "deleted" },
+      orderBy: [{ projectName: "asc" }, { name: "asc" }],
+      include: { instance: true, _count: { select: { snapshots: true } } },
     }),
   ]);
   // Which instances have a live agent (recent heartbeat)? Resources whose
@@ -161,6 +168,54 @@ export default async function ResourcesPage({
           )}
         </div>
       </div>
+
+      {orphaned.length > 0 && (
+        <details className="mt-8">
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
+            Removed from Coolify · {orphaned.length} — kept for their backups
+          </summary>
+          <Card className="mt-3">
+            <CardContent className="p-0">
+              <table className="w-full text-sm">
+                <thead className="border-b text-left text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2.5 font-medium">Name</th>
+                    <th className="px-4 py-2.5 font-medium">Type</th>
+                    <th className="px-4 py-2.5 font-medium">Project</th>
+                    <th className="px-4 py-2.5 font-medium">Snapshots</th>
+                    <th className="px-4 py-2.5"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orphaned.map((r) => (
+                    <tr key={r.id} className="border-b last:border-0">
+                      <td className="px-4 py-2.5 font-medium">
+                        <a href={`/resources/${r.id}`} className="hover:underline">
+                          {r.name}
+                        </a>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <Badge>{r.type}</Badge>
+                      </td>
+                      <td className="px-4 py-2.5 text-muted-foreground">{r.projectName || "—"}</td>
+                      <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{r._count.snapshots}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <a href={`/resources/${r.id}`} className="text-xs text-accent hover:underline">
+                          View / restore →
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+          <p className="mt-2 text-xs text-muted-foreground">
+            These no longer exist in Coolify. You can&apos;t back them up, but their snapshots are kept — restore them
+            (e.g. “→ new” to recreate the resource).
+          </p>
+        </details>
+      )}
     </>
   );
 }
