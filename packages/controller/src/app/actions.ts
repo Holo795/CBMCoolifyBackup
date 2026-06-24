@@ -69,7 +69,7 @@ export async function revealInstallCommand(
     "docker rm -f cbm-agent 2>/dev/null",
     "docker run -d --name cbm-agent --restart unless-stopped \\",
     "  -v /var/run/docker.sock:/var/run/docker.sock \\",
-    "  -v cbm-backups:/backups \\",
+    "  -v /backups:/backups \\",
     `  -e CONTROLLER_URL=${base} \\`,
     `  -e ENROLLMENT_TOKEN=${token} \\`,
     '  -e AGENT_HOSTNAME="$(hostname)" \\',

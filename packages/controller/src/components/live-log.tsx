@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type Event = { ts: string; level: string; message: string; progress: number | null };
 
@@ -16,6 +17,8 @@ export function LiveLog({
   const [events, setEvents] = useState<Event[]>([]);
   const [status, setStatus] = useState(initialStatus);
   const boxRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const refreshed = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -28,8 +31,15 @@ export function LiveLog({
           const data = (await res.json()) as { status: string; events: Event[] };
           setEvents(data.events);
           setStatus(data.status);
-          // Keep polling only while the job is still running.
-          if (data.status === "running") timer = setTimeout(poll, 1500);
+          if (data.status === "running") {
+            // Keep polling only while the job is still running.
+            timer = setTimeout(poll, 1500);
+          } else if (!refreshed.current) {
+            // Job finished: refresh the server components once so the status
+            // badge (server-rendered) flips from "running" without a manual reload.
+            refreshed.current = true;
+            router.refresh();
+          }
           return;
         }
       } catch {
@@ -42,7 +52,7 @@ export function LiveLog({
       active = false;
       clearTimeout(timer);
     };
-  }, [id, kind]);
+  }, [id, kind, router]);
 
   // Auto-scroll to the latest line.
   useEffect(() => {

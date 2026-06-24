@@ -39,9 +39,9 @@ export function DestinationForm() {
 
       {type === "local" && (
         <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-          Stored on the <b className="text-foreground">agent host</b> in a persistent volume — the path is fixed to{" "}
-          <span className="font-mono text-foreground">/backups</span> (the <span className="font-mono">cbm-backups</span>{" "}
-          Docker volume mounted by the install command), so it survives agent restarts. Nothing to configure.
+          Stored directly on the <b className="text-foreground">agent host</b> at{" "}
+          <span className="font-mono text-foreground">/backups</span> (bind-mounted by the install command), so you can{" "}
+          <span className="font-mono">ls /backups</span> on the host and it survives agent restarts. Nothing to configure.
         </div>
       )}
 
