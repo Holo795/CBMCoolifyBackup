@@ -292,7 +292,7 @@ export default async function InstancesPage() {
             <ActionForm action={connectInstance} submitLabel="Connect & sync">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="name">Name</Label>
-                <Input id="name" name="name" placeholder="michelle" required />
+                <Input id="name" name="name" placeholder="production" required />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="baseUrl">Base URL</Label>

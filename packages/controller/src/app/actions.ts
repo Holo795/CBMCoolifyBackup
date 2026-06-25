@@ -232,6 +232,7 @@ export async function createDestination(fd: FormData) {
     // (mounted by the install command), so it survives agent recreation.
     config = { type: "local", basePath: "/backups" };
   } else if (type === "ssh") {
+    const jumpHost = s(fd, "jumpHost");
     config = {
       type: "ssh",
       host: s(fd, "host"),
@@ -240,6 +241,16 @@ export async function createDestination(fd: FormData) {
       basePath: s(fd, "basePath"),
       password: s(fd, "password") || undefined,
       privateKey: s(fd, "privateKey") || undefined,
+      // Optional bastion / jump host.
+      ...(jumpHost
+        ? {
+            jumpHost,
+            jumpPort: Number(s(fd, "jumpPort") || "22"),
+            jumpUsername: s(fd, "jumpUsername") || undefined,
+            jumpPassword: s(fd, "jumpPassword") || undefined,
+            jumpPrivateKey: s(fd, "jumpPrivateKey") || undefined,
+          }
+        : {}),
     };
   } else if (type === "s3") {
     config = {

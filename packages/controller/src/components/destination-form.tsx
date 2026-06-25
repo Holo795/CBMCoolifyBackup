@@ -28,7 +28,7 @@ export function DestinationForm() {
     >
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="name">Name</Label>
-        <Input id="name" name="name" placeholder="paulette-offsite" required />
+        <Input id="name" name="name" placeholder="offsite-backups" required />
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="type">Type</Label>
@@ -74,11 +74,11 @@ export function DestinationForm() {
       {type === "ssh" && (
         <>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <Field name="host" label="Host" placeholder="82.66.67.104" />
+            <Field name="host" label="Host" placeholder="backup.example.com" />
             <Field name="port" label="Port" placeholder="22" defaultValue="22" />
           </div>
-          <Field name="username" label="Username" placeholder="debian" />
-          <Field name="basePath" label="Base path" placeholder="/home/debian/backups" />
+          <Field name="username" label="Username" placeholder="backups" />
+          <Field name="basePath" label="Base path" placeholder="/srv/backups" />
           <Field name="password" label="Password (or leave blank for key)" type="password" />
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="privateKey">Private key (PEM, optional)</Label>
@@ -90,6 +90,36 @@ export function DestinationForm() {
               placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
             />
           </div>
+
+          {/* Optional bastion / jump host for targets that aren't reachable
+              directly (e.g. a private IP behind a gateway). */}
+          <details className="rounded-md border bg-muted/20 p-3">
+            <summary className="cursor-pointer text-sm text-muted-foreground hover:text-foreground">
+              Connect through a jump host (bastion) — optional
+            </summary>
+            <div className="mt-3 flex flex-col gap-2">
+              <p className="text-xs text-muted-foreground">
+                The agent first connects to the jump host, then tunnels to the target above. The <b>agent&apos;s host</b>{" "}
+                must be able to reach the jump host. Leave blank for a direct connection.
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <Field name="jumpHost" label="Jump host" placeholder="bastion.example.com" />
+                <Field name="jumpPort" label="Jump port" placeholder="22" defaultValue="22" />
+              </div>
+              <Field name="jumpUsername" label="Jump username" placeholder="backups" />
+              <Field name="jumpPassword" label="Jump password (or leave blank for key)" type="password" />
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="jumpPrivateKey">Jump private key (PEM, optional)</Label>
+                <textarea
+                  id="jumpPrivateKey"
+                  name="jumpPrivateKey"
+                  rows={3}
+                  className="rounded-md border bg-transparent px-3 py-2 font-mono text-xs"
+                  placeholder="-----BEGIN OPENSSH PRIVATE KEY----- (blank = reuse the key above)"
+                />
+              </div>
+            </div>
+          </details>
         </>
       )}
 

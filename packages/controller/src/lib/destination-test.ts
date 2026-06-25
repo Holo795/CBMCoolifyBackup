@@ -16,18 +16,37 @@ export async function testDestination(dest: ResolvedDestination): Promise<{ ok: 
     if (dest.type === "ssh") {
       const mod = await import("ssh2-sftp-client");
       const client = new mod.default();
-      await client.connect({
-        host: dest.host,
-        port: dest.port,
-        username: dest.username,
-        password: dest.password,
-        privateKey: dest.privateKey,
-      });
+      const auth = { username: dest.username, password: dest.password, privateKey: dest.privateKey };
+      let jump: import("ssh2").Client | null = null;
+      if (dest.jumpHost) {
+        const { Client } = await import("ssh2");
+        jump = new Client();
+        const j = jump;
+        await new Promise<void>((resolve, reject) => {
+          j.on("ready", () => resolve())
+            .on("error", reject)
+            .connect({
+              host: dest.jumpHost,
+              port: dest.jumpPort,
+              username: dest.jumpUsername || dest.username,
+              password: dest.jumpPassword || dest.password,
+              privateKey: dest.jumpPrivateKey || dest.privateKey,
+            });
+        });
+        const sock = await new Promise<import("stream").Duplex>((resolve, reject) => {
+          j.forwardOut("127.0.0.1", 0, dest.host, dest.port, (err, stream) => (err ? reject(err) : resolve(stream)));
+        });
+        await client.connect({ sock, ...auth });
+      } else {
+        await client.connect({ host: dest.host, port: dest.port, ...auth });
+      }
       try {
         const list = await client.list(dest.basePath).catch(() => []);
-        return { ok: true, detail: `Connected to ${dest.host}:${dest.port}, ${list.length} entries in ${dest.basePath}` };
+        const via = dest.jumpHost ? ` via ${dest.jumpHost}` : "";
+        return { ok: true, detail: `Connected to ${dest.host}:${dest.port}${via}, ${list.length} entries in ${dest.basePath}` };
       } finally {
-        await client.end();
+        await client.end().catch(() => undefined);
+        jump?.end();
       }
     }
 

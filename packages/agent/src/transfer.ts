@@ -76,13 +76,36 @@ function sshTransfer(dest: Extract<ResolvedDestination, { type: "ssh" }>): Promi
     const mod = await import("ssh2-sftp-client");
     const SftpClient = mod.default;
     const client = new SftpClient();
-    await client.connect({
-      host: dest.host,
-      port: dest.port,
-      username: dest.username,
-      password: dest.password,
-      privateKey: dest.privateKey,
-    });
+    const targetAuth = { username: dest.username, password: dest.password, privateKey: dest.privateKey };
+
+    // Optional bastion: open an SSH connection to the jump host, tunnel a channel
+    // to the real target, and hand that socket to the SFTP client. Auth falls
+    // back to the target's credentials when the jump fields are omitted.
+    let jump: import("ssh2").Client | null = null;
+    if (dest.jumpHost) {
+      const { Client } = await import("ssh2");
+      jump = new Client();
+      const j = jump;
+      await new Promise<void>((resolve, reject) => {
+        j.on("ready", () => resolve())
+          .on("error", reject)
+          .connect({
+            host: dest.jumpHost,
+            port: dest.jumpPort,
+            username: dest.jumpUsername || dest.username,
+            password: dest.jumpPassword || dest.password,
+            privateKey: dest.jumpPrivateKey || dest.privateKey,
+          });
+      });
+      const sock = await new Promise<import("stream").Duplex>((resolve, reject) => {
+        j.forwardOut("127.0.0.1", 0, dest.host, dest.port, (err, stream) =>
+          err ? reject(err) : resolve(stream),
+        );
+      });
+      await client.connect({ sock, ...targetAuth });
+    } else {
+      await client.connect({ host: dest.host, port: dest.port, ...targetAuth });
+    }
     const abs = (rel: string) => posix.join(dest.basePath, rel);
     return {
       async put(localFile, relPath) {
@@ -117,7 +140,8 @@ function sshTransfer(dest: Extract<ResolvedDestination, { type: "ssh" }>): Promi
         await client.rmdir(abs(relDir), true).catch(() => undefined);
       },
       async close() {
-        await client.end();
+        await client.end().catch(() => undefined);
+        jump?.end();
       },
     };
   })();

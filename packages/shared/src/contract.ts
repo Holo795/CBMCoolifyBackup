@@ -27,6 +27,13 @@ export const SshDestination = z.object({
   // Exactly one auth method is provided at job time.
   password: z.string().optional(),
   privateKey: z.string().optional(),
+  // Optional jump host (bastion): the agent connects here first, then tunnels to
+  // `host` above. Auth falls back to the target's key/password when omitted.
+  jumpHost: z.string().optional(),
+  jumpPort: z.number().int().positive().default(22),
+  jumpUsername: z.string().optional(),
+  jumpPassword: z.string().optional(),
+  jumpPrivateKey: z.string().optional(),
 });
 
 export const S3Destination = z.object({
