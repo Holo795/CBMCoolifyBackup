@@ -23,6 +23,8 @@ export async function syncInstance(instanceId: string): Promise<{ synced: number
         environment: r.environment,
         buildPack: r.buildPack,
         status: r.status,
+        serverUuid: r.serverUuid,
+        serverName: r.serverName,
       },
       update: {
         name: r.name,
@@ -31,6 +33,8 @@ export async function syncInstance(instanceId: string): Promise<{ synced: number
         environment: r.environment,
         buildPack: r.buildPack,
         status: r.status,
+        serverUuid: r.serverUuid,
+        serverName: r.serverName,
       },
     });
     synced++;

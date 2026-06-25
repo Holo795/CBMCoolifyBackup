@@ -190,7 +190,17 @@ export const PruneJob = z.object({
 });
 export type PruneJob = z.infer<typeof PruneJob>;
 
-export const Job = z.discriminatedUnion("type", [BackupJob, RestoreJob, PruneJob]);
+export const VerifyDestinationJob = z.object({
+  id: z.string(),
+  type: z.literal("verify-destination"),
+  destination: ResolvedDestination,
+  /** Snapshot directories whose files should still be present at the destination.
+   * The agent reports which are present vs missing (their manifest is gone). */
+  dirs: z.array(z.string()),
+});
+export type VerifyDestinationJob = z.infer<typeof VerifyDestinationJob>;
+
+export const Job = z.discriminatedUnion("type", [BackupJob, RestoreJob, PruneJob, VerifyDestinationJob]);
 export type Job = z.infer<typeof Job>;
 
 /* ------------------------------------------------------------------ *
@@ -203,6 +213,9 @@ export const AgentRegisterRequest = z.object({
   enrollmentToken: z.string().min(1),
   hostname: z.string().min(1),
   agentVersion: z.string().default("0.1.0"),
+  /** Optional install-time override (AGENT_SERVER_UUID): pins this agent to a
+   * Coolify server, disabling auto-detection. */
+  serverUuid: z.string().optional(),
 });
 export type AgentRegisterRequest = z.infer<typeof AgentRegisterRequest>;
 
@@ -215,6 +228,10 @@ export type AgentRegisterResponse = z.infer<typeof AgentRegisterResponse>;
 export const HeartbeatRequest = z.object({
   dockerVersion: z.string().optional(),
   containers: z.number().int().nonnegative().optional(),
+  /** Coolify resource UUIDs the agent can see on its local Docker host (from
+   * volume/container names). The controller matches them to known resources to
+   * auto-detect which server this agent backs up. */
+  resourceUuids: z.array(z.string()).optional(),
 });
 export type HeartbeatRequest = z.infer<typeof HeartbeatRequest>;
 
@@ -238,6 +255,13 @@ export const JobResult = z.object({
   status: JobStatus,
   manifest: SnapshotManifest.optional(),
   error: z.string().optional(),
+  /** For a verify-destination job: which snapshot dirs are still present vs gone. */
+  verify: z
+    .object({
+      present: z.array(z.string()).default([]),
+      missing: z.array(z.string()).default([]),
+    })
+    .optional(),
 });
 export type JobResult = z.infer<typeof JobResult>;
 

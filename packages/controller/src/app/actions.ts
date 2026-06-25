@@ -7,7 +7,7 @@ import { requireUser } from "@/lib/session";
 import { encryptSecret, decryptSecret, generateAesKeyB64, randomToken, sha256Hex } from "@/lib/crypto";
 import { CoolifyClient } from "@/lib/coolify";
 import { syncInstance } from "@/lib/discovery";
-import { enqueueBackup, enqueueRestore, enqueuePrune, resolveDestination } from "@/lib/jobs";
+import { enqueueBackup, enqueueRestore, enqueuePrune, enqueueVerifyDestination, resolveDestination } from "@/lib/jobs";
 import { freqToCron } from "@/lib/schedule";
 import { setTimezone, isValidTimezone } from "@/lib/settings";
 
@@ -178,6 +178,39 @@ export async function deleteAgent(agentId: string) {
   revalidatePath("/agents");
 }
 
+/**
+ * Pin an agent to a Coolify server (manual override), or clear it to re-enable
+ * automatic detection. Used in multi-server instances where auto-detection is
+ * ambiguous.
+ */
+export async function updateAgentServer(agentId: string, serverUuid: string | null) {
+  await requireUser();
+  const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+  if (!agent) return { error: "Agent not found" };
+  if (!serverUuid) {
+    // Back to automatic detection.
+    await prisma.agent.update({
+      where: { id: agentId },
+      data: { serverManual: false, serverUuid: null, serverName: null },
+    });
+  } else {
+    // Resolve a friendly server name from a resource on that server.
+    const sample = agent.instanceId
+      ? await prisma.resource.findFirst({
+          where: { instanceId: agent.instanceId, serverUuid },
+          select: { serverName: true },
+        })
+      : null;
+    await prisma.agent.update({
+      where: { id: agentId },
+      data: { serverManual: true, serverUuid, serverName: sample?.serverName ?? serverUuid },
+    });
+  }
+  revalidatePath("/agents");
+  revalidatePath("/instances");
+  return { ok: true };
+}
+
 /* ----------------------------- destinations ----------------------------- */
 
 export async function createDestination(fd: FormData) {
@@ -234,19 +267,23 @@ export async function deleteDestination(id: string) {
   await requireUser();
   const dest = await prisma.destination.findUnique({ where: { id } });
   if (dest) {
-    // Delete the actual files first (via each owning instance's agent), grouped
-    // by instance, before the records cascade away with the destination.
+    // Delete the actual files first, before the records cascade away with the
+    // destination. For a "local" destination the files live on each producing
+    // agent's host, so group by agent; ssh/s3 group by instance (any agent).
     const snaps = await prisma.snapshot.findMany({
       where: { destinationId: id },
-      select: { destinationDir: true, resource: { select: { instanceId: true } } },
+      select: { destinationDir: true, agentId: true, resource: { select: { instanceId: true } } },
     });
-    const byInstance = new Map<string | null, string[]>();
+    const groups = new Map<string, { instanceId: string | null; agentId: string | null; dirs: string[] }>();
     for (const s of snaps) {
-      const k = s.resource.instanceId;
-      byInstance.set(k, [...(byInstance.get(k) ?? []), s.destinationDir]);
+      const agentId = dest.type === "local" ? s.agentId : null;
+      const key = dest.type === "local" ? `a:${agentId ?? ""}` : `i:${s.resource.instanceId ?? ""}`;
+      const g = groups.get(key) ?? { instanceId: s.resource.instanceId, agentId, dirs: [] };
+      g.dirs.push(s.destinationDir);
+      groups.set(key, g);
     }
-    for (const [instanceId, dirs] of byInstance) {
-      await enqueuePrune({ instanceId, destination: dest, dirs }).catch((e) =>
+    for (const g of groups.values()) {
+      await enqueuePrune({ instanceId: g.instanceId, destination: dest, dirs: g.dirs, agentId: g.agentId }).catch((e) =>
         console.warn("[delete-destination] prune failed", (e as Error).message),
       );
     }
@@ -291,6 +328,8 @@ export async function deleteSnapshot(snapshotId: string): Promise<void> {
         instanceId: snap.resource.instanceId,
         destination: snap.destination,
         dirs: [snap.destinationDir],
+        // For a "local" destination the files live on the producing agent's host.
+        agentId: snap.destination.type === "local" ? snap.agentId : null,
       });
     } catch (e) {
       console.warn("[delete] file prune enqueue failed", (e as Error).message);
@@ -366,8 +405,51 @@ export async function setInstanceSchedule(instanceId: string, fd: FormData) {
 
 export async function removeInstanceSchedule(instanceId: string): Promise<void> {
   await requireUser();
-  await prisma.backupPolicy.deleteMany({ where: { instanceId, resourceId: null } });
+  await prisma.backupPolicy.deleteMany({ where: { instanceId, resourceId: null, serverUuid: null } });
   revalidatePath("/instances");
+}
+
+/** Create/update the schedule for one server of a Coolify instance. */
+export async function setServerSchedule(instanceId: string, serverUuid: string, fd: FormData) {
+  await requireUser();
+  const data = scheduleData(fd);
+  if (!data.destinationId) return { error: "Pick a destination" };
+  const instance = await prisma.coolifyInstance.findUniqueOrThrow({ where: { id: instanceId } });
+  const sample = await prisma.resource.findFirst({
+    where: { instanceId, serverUuid },
+    select: { serverName: true },
+  });
+  const serverName = sample?.serverName ?? serverUuid;
+  const existing = await prisma.backupPolicy.findFirst({ where: { instanceId, serverUuid, resourceId: null } });
+  if (existing) {
+    await prisma.backupPolicy.update({ where: { id: existing.id }, data });
+  } else {
+    await prisma.backupPolicy.create({
+      data: { ...data, name: `${instance.name} — ${serverName} schedule`, instanceId, serverUuid },
+    });
+  }
+  revalidatePath("/instances");
+  revalidatePath("/resources");
+  return { ok: true };
+}
+
+export async function removeServerSchedule(instanceId: string, serverUuid: string): Promise<void> {
+  await requireUser();
+  await prisma.backupPolicy.deleteMany({ where: { instanceId, serverUuid, resourceId: null } });
+  revalidatePath("/instances");
+}
+
+/** Manually reconcile a destination now (detect backups deleted at rest). */
+export async function verifyDestinationNow(destinationId: string) {
+  await requireUser();
+  try {
+    const { queued } = await enqueueVerifyDestination(destinationId);
+    if (queued === 0) return { error: "No agent available, or nothing to check" };
+    revalidatePath("/destinations");
+    return { ok: true, detail: `Verifying destination (${queued} job${queued === 1 ? "" : "s"} queued)` };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
 }
 
 /** Create/update a per-resource override schedule. */

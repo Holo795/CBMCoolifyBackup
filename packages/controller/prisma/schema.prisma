@@ -93,9 +93,16 @@ model Agent {
   status        String          @default("pending") // pending | online | offline
   dockerVersion String?
   containers    Int?
+  // Which Coolify server this agent's Docker host backs up. Auto-detected from
+  // the resources it can see locally (serverManual=false), or pinned by hand in
+  // the UI / AGENT_SERVER_UUID env (serverManual=true, auto won't overwrite it).
+  serverUuid    String?
+  serverName    String?
+  serverManual  Boolean         @default(false)
   lastSeenAt    DateTime?
   createdAt     DateTime        @default(now())
   jobs          AgentJob[]
+  snapshots     Snapshot[]
 }
 
 model Resource {
@@ -109,6 +116,10 @@ model Resource {
   environment  String        @default("")
   buildPack    String?
   status       String        @default("unknown")
+  // Which Coolify server this resource is deployed on (from the Coolify API).
+  // Drives which agent backs it up in a multi-server instance.
+  serverUuid   String?
+  serverName   String?
   // Per-resource backup settings
   backupEnabled Boolean      @default(false)
   // Backups never restart a resource. When liveBackup is true, volumes are
@@ -152,12 +163,16 @@ model BackupPolicy {
   enabled       Boolean     @default(true)
   destinationId String
   destination   Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
-  // Scope (most specific wins): a resource override, else a whole instance,
-  // else global (both null). A resource inherits its instance's schedule.
+  // Scope (most specific wins): a resource override, else one server of an
+  // instance, else a whole instance, else global (all null). A resource inherits
+  // its server's schedule, then its instance's.
   resourceId    String?
   resource      Resource?   @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   instanceId    String?
   instance      CoolifyInstance? @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  // When set (with instanceId), this policy governs only the resources on that
+  // Coolify server (per-server schedule).
+  serverUuid    String?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   snapshots     Snapshot[]
@@ -171,14 +186,20 @@ model Snapshot {
   policy        BackupPolicy? @relation(fields: [policyId], references: [id], onDelete: SetNull)
   destinationId String
   destination   Destination  @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+  // The agent that produced this snapshot. For a "local" destination the files
+  // live on THIS agent's host, so reconciliation/prune/restore must target it.
+  agentId       String?
+  agent         Agent?       @relation(fields: [agentId], references: [id], onDelete: SetNull)
   mode          String       // backup | sync
   captureMode   String       // cold | hot
-  status        String       @default("running") // running | succeeded | failed
+  status        String       @default("running") // running | succeeded | failed | missing
   destinationDir String
   manifest      Json?
   sizeBytes     BigInt       @default(0)
   error         String?
   runId         String?      // groups snapshots from one scheduled run
+  // Last time a destination reconciliation confirmed (or missed) these files.
+  lastCheckedAt DateTime?
   startedAt     DateTime     @default(now())
   finishedAt    DateTime?
   artifacts     Artifact[]

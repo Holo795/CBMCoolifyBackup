@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { JobResult } from "@cbm/shared";
 import { prisma } from "@/lib/prisma";
 import { authenticateAgentFromRequest } from "@/lib/agent-auth";
-import { notifyBackupFailed } from "@/lib/notify";
+import { notifyBackupFailed, notifyMissingBackups } from "@/lib/notify";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const agent = await authenticateAgentFromRequest(req);
@@ -77,6 +77,39 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         finishedAt: new Date(),
       },
     });
+  }
+
+  if (job.type === "verify-destination" && result.verify) {
+    const destinationId = (job.payload as { destinationId?: string } | null)?.destinationId;
+    const now = new Date();
+    const present = result.verify.present;
+    const missing = result.verify.missing;
+    if (destinationId) {
+      if (present.length) {
+        // Confirmed present: refresh the check time, and un-flag any that had
+        // been marked missing but reappeared.
+        await prisma.snapshot.updateMany({
+          where: { destinationId, destinationDir: { in: present } },
+          data: { lastCheckedAt: now },
+        });
+        await prisma.snapshot.updateMany({
+          where: { destinationId, destinationDir: { in: present }, status: "missing" },
+          data: { status: "succeeded" },
+        });
+      }
+      if (missing.length) {
+        // Newly missing = not already flagged — alert only on these.
+        const newly = await prisma.snapshot.findMany({
+          where: { destinationId, destinationDir: { in: missing }, status: { not: "missing" } },
+          select: { id: true },
+        });
+        await prisma.snapshot.updateMany({
+          where: { destinationId, destinationDir: { in: missing } },
+          data: { status: "missing", lastCheckedAt: now },
+        });
+        if (newly.length) await notifyMissingBackups(newly.map((s) => s.id)).catch(() => undefined);
+      }
+    }
   }
 
   return NextResponse.json({ ok: true });

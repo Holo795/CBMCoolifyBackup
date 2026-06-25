@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, Badge, statusTone, EmptyState } from "@/components/ui";
 import { deleteAgent } from "@/app/actions";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
+import { AgentServerSelect } from "@/components/agent-server-select";
 import { timeAgo } from "@/lib/cn";
 import { Cpu } from "lucide-react";
 
@@ -11,6 +12,24 @@ export const dynamic = "force-dynamic";
 
 export default async function AgentsPage() {
   const agents = await prisma.agent.findMany({ orderBy: { createdAt: "asc" }, include: { instance: true } });
+
+  // Candidate servers per instance, derived from discovered resources (no extra
+  // Coolify API call). Drives the per-agent "Server" override dropdown.
+  const serverRows = await prisma.resource.findMany({
+    where: { serverUuid: { not: null } },
+    select: { instanceId: true, serverUuid: true, serverName: true },
+  });
+  const serversByInstance = new Map<string, Map<string, string>>();
+  for (const r of serverRows) {
+    if (!r.serverUuid) continue;
+    const m = serversByInstance.get(r.instanceId) ?? new Map<string, string>();
+    if (!m.has(r.serverUuid)) m.set(r.serverUuid, r.serverName ?? r.serverUuid);
+    serversByInstance.set(r.instanceId, m);
+  }
+  const serverOptionsFor = (instanceId: string | null) =>
+    instanceId
+      ? [...(serversByInstance.get(instanceId)?.entries() ?? [])].map(([uuid, name]) => ({ uuid, name }))
+      : [];
 
   return (
     <>
@@ -34,6 +53,7 @@ export default async function AgentsPage() {
                   <th className="px-4 py-2.5 font-medium">Host</th>
                   <th className="px-4 py-2.5 font-medium">Status</th>
                   <th className="px-4 py-2.5 font-medium">Instance</th>
+                  <th className="px-4 py-2.5 font-medium">Server</th>
                   <th className="px-4 py-2.5 font-medium">Docker</th>
                   <th className="px-4 py-2.5 font-medium">Containers</th>
                   <th className="px-4 py-2.5 font-medium">Last seen</th>
@@ -55,6 +75,15 @@ export default async function AgentsPage() {
                       ) : (
                         <span className="text-[var(--color-warning)]">unlinked</span>
                       )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <AgentServerSelect
+                        agentId={a.id}
+                        serverUuid={a.serverUuid}
+                        serverName={a.serverName}
+                        serverManual={a.serverManual}
+                        options={serverOptionsFor(a.instanceId)}
+                      />
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground">{a.dockerVersion ?? "—"}</td>
                     <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{a.containers ?? 0}</td>

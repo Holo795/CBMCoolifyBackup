@@ -45,10 +45,10 @@ test("SnapshotManifest applies defaults", () => {
 });
 
 test("naming helpers are deterministic", () => {
-  assert.equal(snapshotDir("uuid", "sync", "2026-06-23T00:00:00.000Z"), "uuid/sync");
+  assert.equal(snapshotDir("inst", "uuid", "sync", "2026-06-23T00:00:00.000Z"), "inst/uuid/sync");
   assert.equal(
-    snapshotDir("uuid", "backup", "2026-06-23T00:00:00.000Z"),
-    "uuid/backups/2026-06-23T00-00-00-000Z",
+    snapshotDir("inst", "uuid", "backup", "2026-06-23T00:00:00.000Z"),
+    "inst/uuid/backups/2026-06-23T00-00-00-000Z",
   );
   assert.equal(dumpFileName("postgresql", "mydb"), "dump-postgresql-mydb.sql");
   assert.equal(dumpFileName("postgresql", undefined), "dump-postgresql-all.sql");

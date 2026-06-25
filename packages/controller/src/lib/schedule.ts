@@ -39,14 +39,15 @@ export function describeCron(cron: string, timeZone?: string): string {
 export type PolicyWithDest = BackupPolicy & { destination: Destination };
 
 /**
- * Resolve the schedule that governs a resource:
+ * Resolve the schedule that governs a resource (most specific wins):
  *  - its own override policy, else
- *  - its instance's policy, else
+ *  - the policy for its server (instanceId + matching serverUuid), else
+ *  - its instance's policy (instanceId, no server scope), else
  *  - any global policy (instanceId & resourceId both null).
  */
 export async function effectivePolicy(resourceId: string): Promise<{
   policy: PolicyWithDest | null;
-  source: "resource" | "instance" | "global" | "none";
+  source: "resource" | "server" | "instance" | "global" | "none";
 }> {
   const resource = await prisma.resource.findUnique({ where: { id: resourceId } });
   if (!resource) return { policy: null, source: "none" };
@@ -57,8 +58,16 @@ export async function effectivePolicy(resourceId: string): Promise<{
   });
   if (own) return { policy: own, source: "resource" };
 
+  if (resource.serverUuid) {
+    const serverPolicy = await prisma.backupPolicy.findFirst({
+      where: { instanceId: resource.instanceId, serverUuid: resource.serverUuid, enabled: true },
+      include: { destination: true },
+    });
+    if (serverPolicy) return { policy: serverPolicy, source: "server" };
+  }
+
   const instancePolicy = await prisma.backupPolicy.findFirst({
-    where: { instanceId: resource.instanceId, enabled: true },
+    where: { instanceId: resource.instanceId, serverUuid: null, enabled: true },
     include: { destination: true },
   });
   if (instancePolicy) return { policy: instancePolicy, source: "instance" };

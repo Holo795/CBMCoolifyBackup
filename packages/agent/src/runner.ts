@@ -3,6 +3,7 @@ import type { AgentConfig } from "./config.js";
 import { runBackup, type Emit } from "./backup.js";
 import { runRestore } from "./restore.js";
 import { runPrune } from "./prune.js";
+import { runVerifyDestination } from "./verify.js";
 import { logger } from "./logger.js";
 import { sendEvent } from "./client.js";
 
@@ -28,6 +29,9 @@ export async function executeJob(
     } else if (job.type === "restore") {
       await runRestore(job, workDir, emit);
       return { jobId: job.id, status: "succeeded" };
+    } else if (job.type === "verify-destination") {
+      const verify = await runVerifyDestination(job, emit);
+      return { jobId: job.id, status: "succeeded", verify };
     } else {
       await runPrune(job, emit);
       return { jobId: job.id, status: "succeeded" };

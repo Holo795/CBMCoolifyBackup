@@ -1,5 +1,5 @@
 import { loadConfig, type AgentConfig } from "./config.js";
-import { setDockerBin, dockerVersion, countContainers } from "./docker.js";
+import { setDockerBin, dockerVersion, countContainers, detectCoolifyResourceUuids } from "./docker.js";
 import { logger } from "./logger.js";
 import * as client from "./client.js";
 import { runJobForController } from "./runner.js";
@@ -60,6 +60,7 @@ async function heartbeatLoop(cfg: AgentConfig): Promise<void> {
       await client.heartbeat(cfg, {
         dockerVersion: await dockerVersion(),
         containers: await countContainers(),
+        resourceUuids: await detectCoolifyResourceUuids().catch(() => []),
       });
     } catch {
       /* ignore */

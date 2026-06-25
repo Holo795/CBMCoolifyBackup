@@ -27,6 +27,16 @@ Made by **[Holo795](https://github.com/Holo795)** · Licensed under **Apache-2.0
   (exact tag/digest), and docker-compose services (volumes re-mapped to the clone).
 - **Multiple destinations** — local folder, SSH/SFTP, or S3 — with optional AES-256-GCM
   encryption at rest.
+- **Multi-server instances.** A Coolify panel can manage several servers; install one agent
+  per server and each backup is routed to the agent on the resource's server automatically
+  (each server gets its own schedule). Local-folder destinations are per agent — every server
+  keeps its own files.
+- **Destination reconciliation.** A daily check (or one click) lists each destination and
+  flags any backup whose files were deleted at rest as **missing**, alerting the webhook —
+  so you find out before a restore needs them.
+- **Self-contained snapshots** — environment variables and host **bind mounts** are captured
+  too, and a backup is verified at the destination right after upload.
+- **Failure & missing-backup alerts** via a generic webhook (Discord / Slack / custom).
 - **Scheduling** with grandfather-father-son retention, evaluated in a **configurable
   timezone** (Settings page).
 
@@ -86,16 +96,18 @@ accepting that a file rewritten exactly during the copy could be inconsistent.
 
 Being upfront so you don't lose data by surprise. Contributions welcome.
 
-- **Bind mounts (host paths) are not captured.** Only Docker **named volumes** are backed
-  up. If a resource stores data in a host directory, that data is currently **not**
-  included.
-- **Environment variables are not stored in the snapshot.** A "→ new" restore re-reads them
-  from Coolify live; if the original resource is gone, env/secrets are not recovered.
+- **Local destinations are per agent.** A "local folder" destination is realised on each
+  agent's own host, so its files are split per server (the destination page shows the
+  per-server breakdown). Reconciliation, retention and restore for a local destination run on
+  the agent that produced each backup — if that host is down, those operations wait for it.
+  Use SSH/S3 for a single shared location reachable from any agent.
+- **Server auto-detection needs a hint.** An agent figures out which Coolify server it backs
+  up from the resources it can see locally; if it can't yet (a brand-new, empty host), assign
+  its server by hand on the **Agents** page (or set `AGENT_SERVER_UUID`).
 - **No incremental backup yet** — each run copies the whole volume (slow / storage-heavy for
   large data).
-- **No failure alerting yet** — check the dashboard; a failed scheduled backup is not yet
-  pushed to email/webhook.
-- **No automatic restore verification** — artifacts are checksummed, but not test-restored.
+- **No automatic restore verification** — artifacts are checksummed and the destination is
+  reconciled, but backups are not test-restored.
 - Volume copies are **crash-consistent** (the app recovers), not application-consistent; an
   in-service database restored from its volume is version-locked to the same engine version.
 

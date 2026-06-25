@@ -39,10 +39,15 @@ export async function POST(req: Request) {
   const existing = instanceId
     ? await prisma.agent.findFirst({ where: { instanceId, hostname: data.hostname } })
     : null;
+  // Install-time server pin (AGENT_SERVER_UUID): forces the agent's server and
+  // disables auto-detection.
+  const serverPin = data.serverUuid
+    ? { serverUuid: data.serverUuid, serverManual: true }
+    : {};
   const agent = existing
     ? await prisma.agent.update({
         where: { id: existing.id },
-        data: { tokenHash: sha256Hex(token), status: "online", lastSeenAt: new Date() },
+        data: { tokenHash: sha256Hex(token), status: "online", lastSeenAt: new Date(), ...serverPin },
       })
     : await prisma.agent.create({
         data: {
@@ -51,6 +56,7 @@ export async function POST(req: Request) {
           instanceId,
           status: "online",
           lastSeenAt: new Date(),
+          ...serverPin,
         },
       });
 

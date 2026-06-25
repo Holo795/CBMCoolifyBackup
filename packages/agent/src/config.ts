@@ -18,6 +18,8 @@ export interface AgentConfig {
   enrollmentToken: string;
   agentToken: string;
   hostname: string;
+  /** Optional: pin this agent to a Coolify server uuid (disables auto-detect). */
+  serverUuid: string;
   workDir: string;
   dockerBin: string;
   pollIntervalMs: number;
@@ -30,6 +32,7 @@ export function loadConfig(): AgentConfig {
     enrollmentToken: optional("ENROLLMENT_TOKEN"),
     agentToken: optional("AGENT_TOKEN"),
     hostname: optional("AGENT_HOSTNAME", os.hostname()),
+    serverUuid: optional("AGENT_SERVER_UUID"),
     workDir: optional("AGENT_WORK_DIR", "/tmp/cbm-agent"),
     dockerBin: optional("DOCKER_BIN", "docker"),
     pollIntervalMs: Number(optional("POLL_INTERVAL_MS", "5000")),

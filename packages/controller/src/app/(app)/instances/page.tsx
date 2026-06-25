@@ -3,32 +3,60 @@ import { PageHeader } from "@/components/page-header";
 import { ActionForm } from "@/components/action-form";
 import { ScheduleForm } from "@/components/schedule-form";
 import { Card, CardContent, CardHeader, CardTitle, Input, Label, Button, Badge, statusTone, EmptyState } from "@/components/ui";
-import { connectInstance, syncInstanceAction, deleteInstance, setInstanceSchedule, removeInstanceSchedule, backupCoolifyInstance } from "@/app/actions";
+import {
+  connectInstance,
+  syncInstanceAction,
+  deleteInstance,
+  setInstanceSchedule,
+  removeInstanceSchedule,
+  setServerSchedule,
+  removeServerSchedule,
+  backupCoolifyInstance,
+} from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { RevealInstall } from "@/components/reveal-install";
 import { timeAgo } from "@/lib/cn";
 import { describeCron, cronToFrequency } from "@/lib/schedule";
 import { getTimezone } from "@/lib/settings";
 import { Server, RefreshCw, Trash2, CalendarClock, ShieldCheck } from "lucide-react";
+import type { BackupPolicy, Destination } from "@/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
 
+type PolicyWithDest = BackupPolicy & { destination: Destination };
+
+const agentOnline = (a: { status: string; lastSeenAt: Date | null }) =>
+  a.status === "online" && !!a.lastSeenAt && Date.now() - new Date(a.lastSeenAt).getTime() < 90_000;
+
 export default async function InstancesPage() {
-  const [instances, destinations] = await Promise.all([
+  const [instances, destinations, serverRows] = await Promise.all([
     prisma.coolifyInstance.findMany({
       orderBy: { createdAt: "asc" },
       include: {
         _count: { select: { resources: true } },
-        agents: { select: { status: true, lastSeenAt: true } },
-        policies: { where: { resourceId: null }, include: { destination: true }, take: 1 },
+        agents: { select: { status: true, lastSeenAt: true, serverUuid: true } },
+        policies: { where: { resourceId: null }, include: { destination: true } },
       },
     }),
     prisma.destination.findMany({ orderBy: { name: "asc" } }),
+    prisma.resource.findMany({
+      where: { serverUuid: { not: null } },
+      select: { instanceId: true, serverUuid: true, serverName: true },
+    }),
   ]);
   const tz = await getTimezone();
 
-  // Last scheduled run per instance schedule: the most recent runId + its tally.
-  const policyIds = instances.map((i) => i.policies[0]?.id).filter((x): x is string => !!x);
+  // Distinct servers per instance (from discovered resources).
+  const serversByInstance = new Map<string, Map<string, string>>();
+  for (const r of serverRows) {
+    if (!r.serverUuid) continue;
+    const m = serversByInstance.get(r.instanceId) ?? new Map<string, string>();
+    if (!m.has(r.serverUuid)) m.set(r.serverUuid, r.serverName ?? r.serverUuid);
+    serversByInstance.set(r.instanceId, m);
+  }
+
+  // Last scheduled run per policy (instance- and server-level).
+  const policyIds = instances.flatMap((i) => i.policies.map((p) => p.id));
   const latestRuns = policyIds.length
     ? await prisma.snapshot.findMany({
         where: { policyId: { in: policyIds }, runId: { not: null } },
@@ -56,6 +84,76 @@ export default async function InstancesPage() {
     }),
   );
 
+  // A schedule block (used both instance-wide and per-server).
+  function scheduleBlock(opts: {
+    policy: PolicyWithDest | undefined;
+    lastRun: ReturnType<typeof runByPolicy.get>;
+    action: (fd: FormData) => Promise<void | { ok?: boolean; error?: string; detail?: string }>;
+    remove?: () => Promise<void>;
+    emptyLabel: string;
+  }) {
+    const { policy, lastRun, action, remove, emptyLabel } = opts;
+    return (
+      <div>
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+          <CalendarClock className="h-3.5 w-3.5 text-muted-foreground" />
+          {policy ? (
+            <span>
+              Backups <span className="font-medium text-foreground">{describeCron(policy.cron, tz)}</span> →{" "}
+              {policy.destination.name} · {policy.mode} · keep {policy.retentionDaily}d/{policy.retentionWeekly}w/
+              {policy.retentionMonthly}m
+            </span>
+          ) : (
+            <span className="text-[var(--color-warning)]">No backup schedule — nothing runs automatically.</span>
+          )}
+          {policy && remove && (
+            <form action={remove}>
+              <button type="submit" className="text-[var(--color-danger)] hover:underline">
+                remove
+              </button>
+            </form>
+          )}
+        </div>
+        {lastRun && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>Last run {timeAgo(lastRun.at)}:</span>
+            <span className="text-[var(--color-success)]">✓ {lastRun.ok}</span>
+            {lastRun.failed > 0 && <span className="text-[var(--color-danger)]">✗ {lastRun.failed}</span>}
+            {lastRun.running > 0 && <span className="text-[var(--color-accent)]">⏳ {lastRun.running} running</span>}
+            <span>
+              · {lastRun.total} resource{lastRun.total === 1 ? "" : "s"}
+            </span>
+          </div>
+        )}
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+            {policy ? "Edit schedule" : emptyLabel}
+          </summary>
+          <div className="mt-3">
+            <ScheduleForm
+              action={action}
+              destinations={destinations}
+              submitLabel={policy ? "Update schedule" : "Set schedule"}
+              defaults={
+                policy
+                  ? {
+                      frequency: cronToFrequency(policy.cron),
+                      customCron: policy.cron,
+                      destinationId: policy.destinationId,
+                      mode: policy.mode,
+                      retentionDaily: policy.retentionDaily,
+                      retentionWeekly: policy.retentionWeekly,
+                      retentionMonthly: policy.retentionMonthly,
+                    }
+                  : undefined
+              }
+            />
+          </div>
+        </details>
+      </div>
+    );
+  }
+
   return (
     <>
       <PageHeader title="Coolify instances" description="Connect each Coolify control plane via its API token" />
@@ -70,120 +168,117 @@ export default async function InstancesPage() {
             />
           ) : (
             instances.map((i) => {
-              // "Connected" must mean a live agent (recent heartbeat), not just a
-              // lingering Agent row left behind by a removed/old agent.
-              const liveAgents = i.agents.filter(
-                (a) => a.status === "online" && a.lastSeenAt && Date.now() - new Date(a.lastSeenAt).getTime() < 90_000,
-              ).length;
+              const liveAgents = i.agents.filter(agentOnline).length;
               const staleAgents = i.agents.length - liveAgents;
-              const lastRun = i.policies[0] ? runByPolicy.get(i.policies[0].id) : undefined;
+              const servers = [...(serversByInstance.get(i.id)?.entries() ?? [])].map(([uuid, name]) => ({ uuid, name }));
+              const multiServer = servers.length > 1;
+              const instancePolicy = i.policies.find((p) => !p.serverUuid);
               return (
-              <Card key={i.id}>
-                <CardContent className="flex flex-col gap-4 p-5">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex min-w-0 flex-col gap-1">
-                      <div className="font-medium">{i.name}</div>
-                      <div className="truncate font-mono text-xs text-muted-foreground">{i.baseUrl}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {i._count.resources} resources · {liveAgents} agent{liveAgents === 1 ? "" : "s"} online · synced{" "}
-                        {timeAgo(i.lastSyncedAt)}
+                <Card key={i.id}>
+                  <CardContent className="flex flex-col gap-4 p-5">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <div className="font-medium">{i.name}</div>
+                        <div className="truncate font-mono text-xs text-muted-foreground">{i.baseUrl}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {i._count.resources} resources ·{" "}
+                          {servers.length > 0 ? `${servers.length} server${servers.length === 1 ? "" : "s"} · ` : ""}
+                          {liveAgents} agent{liveAgents === 1 ? "" : "s"} online · synced {timeAgo(i.lastSyncedAt)}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <form action={syncInstanceAction.bind(null, i.id)}>
+                          <Button size="sm" variant="outline" type="submit">
+                            <RefreshCw className="h-3.5 w-3.5" /> Sync
+                          </Button>
+                        </form>
+                        <form action={deleteInstance.bind(null, i.id)}>
+                          <Button size="sm" variant="danger" type="submit" aria-label="Delete">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </form>
                       </div>
                     </div>
-                    <div className="flex shrink-0 gap-2">
-                      <form action={syncInstanceAction.bind(null, i.id)}>
-                        <Button size="sm" variant="outline" type="submit">
-                          <RefreshCw className="h-3.5 w-3.5" /> Sync
-                        </Button>
-                      </form>
-                      <form action={deleteInstance.bind(null, i.id)}>
-                        <Button size="sm" variant="danger" type="submit" aria-label="Delete">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </form>
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-3 border-t pt-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-muted-foreground">Agent:</span>
-                      <Badge tone={statusTone(liveAgents > 0 ? "online" : staleAgents > 0 ? "offline" : "pending")}>
-                        {liveAgents > 0 ? "connected" : staleAgents > 0 ? "agent offline" : "not installed"}
-                      </Badge>
-                      {i.enrollTokenHash && (
-                        <span className="font-mono text-xs text-muted-foreground" title="Current enrollment token (masked)">
-                          {i.enrollTokenHint}
-                        </span>
-                      )}
-                      {liveAgents > 0 ? (
-                        <ActionButton action={backupCoolifyInstance.bind(null, i.id)} variant="outline" size="sm" successMsg="Queued">
-                          <ShieldCheck className="h-3.5 w-3.5" /> Back up Coolify
-                        </ActionButton>
-                      ) : (
-                        <Button variant="outline" size="sm" disabled title="No live agent — install the agent below first">
-                          <ShieldCheck className="h-3.5 w-3.5" /> Back up Coolify
-                        </Button>
-                      )}
-                    </div>
-                    <RevealInstall instanceId={i.id} hasToken={!!i.enrollTokenHash} />
-                  </div>
-                  <div className="border-t pt-3">
-                    <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-                      <CalendarClock className="h-3.5 w-3.5 text-muted-foreground" />
-                      {i.policies[0] ? (
-                        <span>
-                          Backups <span className="font-medium text-foreground">{describeCron(i.policies[0].cron, tz)}</span> →{" "}
-                          {i.policies[0].destination.name} · {i.policies[0].mode} · keep {i.policies[0].retentionDaily}d/
-                          {i.policies[0].retentionWeekly}w/{i.policies[0].retentionMonthly}m
-                        </span>
-                      ) : (
-                        <span className="text-[var(--color-warning)]">No backup schedule — nothing runs automatically.</span>
-                      )}
-                      {i.policies[0] && (
-                        <form action={removeInstanceSchedule.bind(null, i.id)}>
-                          <button type="submit" className="text-[var(--color-danger)] hover:underline">
-                            remove
-                          </button>
-                        </form>
+
+                    {/* Instance-level: control-plane backup + shared install command. */}
+                    <div className="flex flex-col gap-3 border-t pt-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {!multiServer && (
+                          <>
+                            <span className="text-xs text-muted-foreground">Agent:</span>
+                            <Badge tone={statusTone(liveAgents > 0 ? "online" : staleAgents > 0 ? "offline" : "pending")}>
+                              {liveAgents > 0 ? "connected" : staleAgents > 0 ? "agent offline" : "not installed"}
+                            </Badge>
+                          </>
+                        )}
+                        {i.enrollTokenHash && (
+                          <span className="font-mono text-xs text-muted-foreground" title="Current enrollment token (masked)">
+                            {i.enrollTokenHint}
+                          </span>
+                        )}
+                        {liveAgents > 0 ? (
+                          <ActionButton action={backupCoolifyInstance.bind(null, i.id)} variant="outline" size="sm" successMsg="Queued">
+                            <ShieldCheck className="h-3.5 w-3.5" /> Back up Coolify
+                          </ActionButton>
+                        ) : (
+                          <Button variant="outline" size="sm" disabled title="No live agent — install the agent below first">
+                            <ShieldCheck className="h-3.5 w-3.5" /> Back up Coolify
+                          </Button>
+                        )}
+                      </div>
+                      <RevealInstall instanceId={i.id} hasToken={!!i.enrollTokenHash} />
+                      {multiServer && (
+                        <p className="text-xs text-muted-foreground">
+                          This instance spans several servers — install the agent (same command) on each host below.
+                        </p>
                       )}
                     </div>
-                    {lastRun && (
-                      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span>Last run {timeAgo(lastRun.at)}:</span>
-                        <span className="text-[var(--color-success)]">✓ {lastRun.ok}</span>
-                        {lastRun.failed > 0 && <span className="text-[var(--color-danger)]">✗ {lastRun.failed}</span>}
-                        {lastRun.running > 0 && <span className="text-[var(--color-accent)]">⏳ {lastRun.running} running</span>}
-                        <span>
-                          · {lastRun.total} resource{lastRun.total === 1 ? "" : "s"}
-                        </span>
+
+                    {multiServer ? (
+                      // One block per server: agent status + its own schedule.
+                      <div className="flex flex-col gap-3 border-t pt-3">
+                        {servers.map((sv) => {
+                          const serverAgents = i.agents.filter((a) => a.serverUuid === sv.uuid);
+                          const serverLive = serverAgents.filter(agentOnline).length;
+                          const serverStale = serverAgents.length - serverLive;
+                          const policy = i.policies.find((p) => p.serverUuid === sv.uuid);
+                          return (
+                            <div key={sv.uuid} className="rounded-lg border p-3">
+                              <div className="mb-2 flex flex-wrap items-center gap-2">
+                                <Server className="h-3.5 w-3.5 text-muted-foreground" />
+                                <span className="text-sm font-medium">{sv.name}</span>
+                                <Badge tone={statusTone(serverLive > 0 ? "online" : serverStale > 0 ? "offline" : "pending")}>
+                                  {serverLive > 0 ? "agent connected" : serverStale > 0 ? "agent offline" : "no agent installed"}
+                                </Badge>
+                                {serverLive === 0 && (
+                                  <span className="text-xs text-[var(--color-warning)]">run the install command on this host</span>
+                                )}
+                              </div>
+                              {scheduleBlock({
+                                policy,
+                                lastRun: policy ? runByPolicy.get(policy.id) : undefined,
+                                action: setServerSchedule.bind(null, i.id, sv.uuid),
+                                remove: removeServerSchedule.bind(null, i.id, sv.uuid),
+                                emptyLabel: "Set a backup schedule for this server",
+                              })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      // Single server (or none discovered yet): instance-wide schedule.
+                      <div className="border-t pt-3">
+                        {scheduleBlock({
+                          policy: instancePolicy,
+                          lastRun: instancePolicy ? runByPolicy.get(instancePolicy.id) : undefined,
+                          action: setInstanceSchedule.bind(null, i.id),
+                          remove: removeInstanceSchedule.bind(null, i.id),
+                          emptyLabel: "Set a backup schedule for this instance",
+                        })}
                       </div>
                     )}
-                    <details className="text-xs">
-                      <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                        {i.policies[0] ? "Edit schedule" : "Set a backup schedule for this instance"}
-                      </summary>
-                      <div className="mt-3">
-                        <ScheduleForm
-                          action={setInstanceSchedule.bind(null, i.id)}
-                          destinations={destinations}
-                          submitLabel={i.policies[0] ? "Update schedule" : "Set schedule"}
-                          defaults={
-                            i.policies[0]
-                              ? {
-                                  frequency: cronToFrequency(i.policies[0].cron),
-                                  customCron: i.policies[0].cron,
-                                  destinationId: i.policies[0].destinationId,
-                                  mode: i.policies[0].mode,
-                                  retentionDaily: i.policies[0].retentionDaily,
-                                  retentionWeekly: i.policies[0].retentionWeekly,
-                                  retentionMonthly: i.policies[0].retentionMonthly,
-                                }
-                              : undefined
-                          }
-                        />
-                      </div>
-                    </details>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
               );
             })
           )}

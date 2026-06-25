@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle, Badge, EmptyState } from "@/components/ui";
 import { formatBytes } from "@/lib/cn";
-import { HardDrive, ArrowLeft, Lock } from "lucide-react";
+import { HardDrive, ArrowLeft, Lock, AlertTriangle, Server } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +19,36 @@ export default async function DestinationDetail({ params }: { params: Promise<{ 
     _count: true,
     where: { destinationId: id, status: "succeeded" },
   });
+
+  // For a "local" destination the files are physically split across each
+  // producing agent's host — break the storage down by server so the size
+  // isn't a misleading single number.
+  const serverGroups = await prisma.snapshot.groupBy({
+    by: ["agentId"],
+    _sum: { sizeBytes: true },
+    _count: true,
+    where: { destinationId: id, status: "succeeded" },
+  });
+  const agentIds = serverGroups.map((g) => g.agentId).filter((x): x is string => !!x);
+  const agentRows = await prisma.agent.findMany({
+    where: { id: { in: agentIds } },
+    select: { id: true, hostname: true, serverName: true },
+  });
+  const agentById = new Map(agentRows.map((a) => [a.id, a]));
+  const serverRows = serverGroups
+    .map((g) => {
+      const a = g.agentId ? agentById.get(g.agentId) : undefined;
+      return {
+        key: g.agentId ?? "unknown",
+        label: a?.serverName ?? a?.hostname ?? "Unknown host",
+        bytes: Number(g._sum.sizeBytes ?? 0n),
+        count: g._count,
+      };
+    })
+    .sort((a, b) => b.bytes - a.bytes);
+  const showByServer = dest.type === "local" && serverRows.length > 1;
+
+  const missingCount = await prisma.snapshot.count({ where: { destinationId: id, status: "missing" } });
   const resources = await prisma.resource.findMany({
     where: { id: { in: groups.map((g) => g.resourceId) } },
     select: { id: true, name: true, type: true },
@@ -54,6 +84,45 @@ export default async function DestinationDetail({ params }: { params: Promise<{ 
           ) : undefined
         }
       />
+
+      {missingCount > 0 && (
+        <Card className="mb-4 border-[var(--color-danger)]/40">
+          <CardContent className="flex items-center gap-2 p-4 text-sm">
+            <AlertTriangle className="h-4 w-4 text-[var(--color-danger)]" />
+            <span>
+              <b>{missingCount}</b> backup{missingCount === 1 ? "" : "s"} can no longer be found at this destination
+              (files deleted at rest). They are flagged <Badge tone="danger">missing</Badge> in the snapshots list.
+            </span>
+          </CardContent>
+        </Card>
+      )}
+
+      {showByServer && (
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle>Storage by server</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-3 text-xs text-muted-foreground">
+              This local destination is realised per agent — each server holds its own files at the configured path.
+            </p>
+            <div className="flex flex-col gap-2">
+              {serverRows.map((s) => (
+                <div key={s.key} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="flex items-center gap-2">
+                    <Server className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="font-medium">{s.label}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {s.count} snapshot{s.count === 1 ? "" : "s"}
+                    </span>
+                  </span>
+                  <span className="tabular-nums">{formatBytes(s.bytes)}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

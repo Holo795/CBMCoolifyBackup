@@ -23,6 +23,7 @@ export async function register(cfg: AgentConfig): Promise<AgentRegisterResponse>
         enrollmentToken: cfg.enrollmentToken,
         hostname: cfg.hostname,
         agentVersion: "0.1.0",
+        ...(cfg.serverUuid ? { serverUuid: cfg.serverUuid } : {}),
       }),
     },
     false,

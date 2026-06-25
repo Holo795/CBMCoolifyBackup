@@ -209,3 +209,33 @@ export async function countContainers(): Promise<number> {
   if (r.code !== 0) return 0;
   return r.stdout.split("\n").filter((l) => l.trim().length > 0).length;
 }
+
+/**
+ * Best-effort list of Coolify resource UUIDs present on this Docker host.
+ * Coolify names volumes `<uuid>_<suffix>` and embeds the uuid in container
+ * names, so we harvest uuid-looking tokens from both. The controller matches
+ * them against known resources to auto-detect which server this agent serves.
+ */
+export async function detectCoolifyResourceUuids(limit = 200): Promise<string[]> {
+  const tokens = new Set<string>();
+  const isUuid = (s: string) => /^[a-z0-9]{20,32}$/.test(s);
+
+  const vols = await docker(["volume", "ls", "--format", "{{.Name}}"]);
+  if (vols.code === 0) {
+    for (const name of vols.stdout.split("\n")) {
+      const prefix = name.trim().split("_")[0];
+      if (prefix && isUuid(prefix)) tokens.add(prefix);
+    }
+  }
+
+  const ps = await docker(["ps", "-a", "--format", "{{.Names}}"]);
+  if (ps.code === 0) {
+    for (const line of ps.stdout.split("\n")) {
+      for (const part of line.trim().split(/[-_]/)) {
+        if (isUuid(part)) tokens.add(part);
+      }
+    }
+  }
+
+  return [...tokens].slice(0, limit);
+}

@@ -13,6 +13,15 @@ export interface CoolifyResource {
   environment: string;
   buildPack?: string;
   environmentId?: number;
+  /** The Coolify server this resource is deployed on (multi-server routing). */
+  serverUuid?: string;
+  serverName?: string;
+}
+
+export interface CoolifyServer {
+  uuid: string;
+  name: string;
+  ip?: string;
 }
 
 export type DbEngine = "postgresql" | "mysql" | "mariadb" | "mongodb";
@@ -513,6 +522,14 @@ export class CoolifyClient {
   }
 
   /** Discover all resources, normalized. */
+  /** List the Coolify servers managed by this instance. */
+  async listServers(): Promise<CoolifyServer[]> {
+    const raw = await this.get<any[]>("/api/v1/servers").catch(() => []);
+    return (raw ?? [])
+      .filter((s) => s?.uuid)
+      .map((s) => ({ uuid: s.uuid as string, name: (s.name ?? s.uuid) as string, ip: s.ip as string | undefined }));
+  }
+
   async listResources(): Promise<CoolifyResource[]> {
     const envs = await this.envMap();
     const out: CoolifyResource[] = [];
@@ -541,6 +558,9 @@ export class CoolifyClient {
     const type = normalizeType(rawType);
     const envId: number | undefined = r.environment_id;
     const env = envId !== undefined ? envs.get(envId) : undefined;
+    // The deploy server lives under destination.server (apps/databases) or
+    // directly under server (services). Same access path as the clone helpers.
+    const server = r.destination?.server ?? r.server;
     return {
       uuid: r.uuid,
       name: r.name ?? r.uuid,
@@ -551,6 +571,8 @@ export class CoolifyClient {
       environment: env?.environment ?? "",
       buildPack: r.build_pack ?? undefined,
       environmentId: envId,
+      serverUuid: typeof server?.uuid === "string" ? server.uuid : undefined,
+      serverName: typeof server?.name === "string" ? server.name : undefined,
     };
   }
 }

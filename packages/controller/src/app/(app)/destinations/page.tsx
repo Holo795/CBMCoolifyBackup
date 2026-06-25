@@ -3,24 +3,26 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/page-header";
 import { DestinationForm } from "@/components/destination-form";
 import { Card, CardContent, CardHeader, CardTitle, Badge, EmptyState } from "@/components/ui";
-import { testDestinationAction, deleteDestination } from "@/app/actions";
+import { testDestinationAction, deleteDestination, verifyDestinationNow } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { formatBytes } from "@/lib/cn";
-import { HardDrive, Lock, PlugZap, ChevronRight } from "lucide-react";
+import { HardDrive, Lock, PlugZap, ChevronRight, ShieldCheck, AlertTriangle } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function DestinationsPage() {
-  const [destinations, sizeGroups] = await Promise.all([
+  const [destinations, sizeGroups, missingGroups] = await Promise.all([
     prisma.destination.findMany({
       orderBy: { createdAt: "asc" },
       include: { _count: { select: { snapshots: true, policies: true } } },
     }),
     prisma.snapshot.groupBy({ by: ["destinationId"], _sum: { sizeBytes: true }, where: { status: "succeeded" } }),
+    prisma.snapshot.groupBy({ by: ["destinationId"], _count: { _all: true }, where: { status: "missing" } }),
   ]);
 
   const sizeByDest = new Map(sizeGroups.map((g) => [g.destinationId, g._sum.sizeBytes ?? 0n]));
+  const missingByDest = new Map(missingGroups.map((g) => [g.destinationId, g._count._all]));
   const globalBytes = Array.from(sizeByDest.values()).reduce((a, b) => a + BigInt(b), 0n);
 
   return (
@@ -37,6 +39,7 @@ export default async function DestinationsPage() {
           ) : (
             destinations.map((d) => {
               const bytes = sizeByDest.get(d.id) ?? 0n;
+              const missing = missingByDest.get(d.id) ?? 0;
               return (
                 <Card key={d.id}>
                   <CardContent className="flex items-center justify-between gap-4 p-5">
@@ -51,6 +54,11 @@ export default async function DestinationsPage() {
                             <Lock className="h-3 w-3" /> encrypted
                           </Badge>
                         )}
+                        {missing > 0 && (
+                          <Badge tone="danger">
+                            <AlertTriangle className="h-3 w-3" /> {missing} missing
+                          </Badge>
+                        )}
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">
                         <span className="font-medium text-foreground">{formatBytes(bytes)}</span> · {d._count.snapshots}{" "}
@@ -58,6 +66,9 @@ export default async function DestinationsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <ActionButton action={verifyDestinationNow.bind(null, d.id)} variant="outline" size="sm" successMsg="Checking…">
+                        <ShieldCheck className="h-3.5 w-3.5" /> Verify
+                      </ActionButton>
                       <ActionButton action={testDestinationAction.bind(null, d.id)} variant="outline" size="sm" successMsg="Reachable ✓">
                         <PlugZap className="h-3.5 w-3.5" /> Test
                       </ActionButton>

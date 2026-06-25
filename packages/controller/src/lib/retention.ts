@@ -18,9 +18,11 @@ export async function applyRetention(policyId: string): Promise<{ deleted: numbe
 
   const where = policy.resourceId
     ? { id: policy.resourceId }
-    : policy.instanceId
-      ? { instanceId: policy.instanceId, backupEnabled: true }
-      : { backupEnabled: true };
+    : policy.instanceId && policy.serverUuid
+      ? { instanceId: policy.instanceId, serverUuid: policy.serverUuid, backupEnabled: true }
+      : policy.instanceId
+        ? { instanceId: policy.instanceId, backupEnabled: true }
+        : { backupEnabled: true };
   const resources = await prisma.resource.findMany({ where, select: { id: true, instanceId: true } });
 
   let deleted = 0;
@@ -39,16 +41,23 @@ export async function applyRetention(policyId: string): Promise<{ deleted: numbe
     const toDelete = snaps.filter((s) => !keep.has(s.id));
     if (toDelete.length === 0) continue;
 
-    // Delete files on the destination via the agent, grouped per destination.
-    const byDest = new Map<string, { destination: (typeof toDelete)[number]["destination"]; dirs: string[] }>();
+    // Delete files on the destination via the agent. Group per destination, and
+    // for a "local" destination also per producing agent (the files live on that
+    // agent's host, so only it can delete them).
+    const byGroup = new Map<
+      string,
+      { destination: (typeof toDelete)[number]["destination"]; agentId: string | null; dirs: string[] }
+    >();
     for (const s of toDelete) {
-      const g = byDest.get(s.destinationId) ?? { destination: s.destination, dirs: [] };
+      const agentId = s.destination.type === "local" ? s.agentId : null;
+      const key = `${s.destinationId}::${agentId ?? ""}`;
+      const g = byGroup.get(key) ?? { destination: s.destination, agentId, dirs: [] };
       g.dirs.push(s.destinationDir);
-      byDest.set(s.destinationId, g);
+      byGroup.set(key, g);
     }
-    for (const g of byDest.values()) {
-      await enqueuePrune({ instanceId: r.instanceId, destination: g.destination, dirs: g.dirs }).catch((e) =>
-        console.warn(`[retention] prune enqueue failed: ${(e as Error).message}`),
+    for (const g of byGroup.values()) {
+      await enqueuePrune({ instanceId: r.instanceId, destination: g.destination, dirs: g.dirs, agentId: g.agentId }).catch(
+        (e) => console.warn(`[retention] prune enqueue failed: ${(e as Error).message}`),
       );
     }
 
