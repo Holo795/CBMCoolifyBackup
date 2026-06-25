@@ -119,6 +119,7 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
       containerName: resource.containerName ?? undefined,
       containerNames: resource.containerNames,
       volumes: resource.volumes,
+      bindMounts: [], // the agent re-resolves bind mounts from Docker
       db,
     },
     destination: resolveDestination(dest),
@@ -163,6 +164,7 @@ async function cloneForRestore(
     type: clonedType,
     containerNames: [],
     volumes: [],
+    bindMounts: [],
   });
 
   let newUuid: string;

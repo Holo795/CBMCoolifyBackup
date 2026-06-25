@@ -17,6 +17,8 @@ import {
   pauseContainer,
   unpauseContainer,
   runningRwContainersForVolume,
+  isContainerRunning,
+  verifyTarOpens,
   containerExists,
 } from "./docker.js";
 import { captureProvenance } from "./provenance.js";
@@ -30,11 +32,10 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
   const stage = join(workDir, job.id);
   await mkdir(stage, { recursive: true });
 
-  // Resolve concrete docker facts (containers/volumes/db creds) from the UUID
-  // unless the controller already supplied them.
-  const needsResolve =
-    job.resource.volumes.length === 0 || (!job.resource.containerName && job.resource.containerNames.length === 0);
-  const resource = needsResolve ? await resolveResource(job.resource) : job.resource;
+  // Always resolve concrete docker facts from the UUID: it fills in what the
+  // controller didn't cache (notably bind mounts, which aren't cached) and keeps
+  // anything already provided.
+  const resource = await resolveResource(job.resource);
   const liveBackup = job.liveBackup;
   const artifacts: Artifact[] = [];
   const isDb = DUMPABLE_DB_TYPES.includes(resource.type);
@@ -92,11 +93,13 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
     artifacts.push(await finalizeArtifact("db-dump", dumpName, dumpPath, { engine }, job, stage, emit));
     captureMethod = "dump";
   } else {
-    // Everything else (apps, services, non-dumpable DBs): copy each volume
-    // WITHOUT ever stopping/recreating a container. For a consistent copy we
-    // briefly freeze (docker pause) only the running containers that mount the
-    // volume read-write — unless liveBackup is set, in which case we copy live.
+    // Everything else (apps, services, non-dumpable DBs): copy each volume and
+    // host-path (bind) mount WITHOUT ever stopping/recreating a container. For a
+    // consistent copy we briefly freeze (docker pause) only the running
+    // container(s) writing to it — unless liveBackup is set (copy live).
+    const total = resource.volumes.length + resource.bindMounts.length;
     let i = 0;
+
     for (const vol of resource.volumes) {
       i++;
       const owners = liveBackup ? [] : await runningRwContainersForVolume(vol);
@@ -107,13 +110,12 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
           await pauseContainer(c);
           paused.push(c);
         }
-        if (liveBackup) {
-          emit("warn", `Live copy of ${vol} without freezing (at your own risk) — may be inconsistent`);
-        }
-        emit("info", `Archiving volume ${vol} (${i}/${resource.volumes.length})`, 20 + (50 * i) / Math.max(1, resource.volumes.length));
+        if (liveBackup) emit("warn", `Live copy of ${vol} without freezing (at your own risk) — may be inconsistent`);
+        emit("info", `Archiving volume ${vol} (${i}/${total})`, 20 + (50 * i) / Math.max(1, total));
         const name = volumeFileName(vol);
         const path = join(stage, name);
         await tarVolume(vol, path);
+        await verifyTarOpens(path);
         artifacts.push(await finalizeArtifact("volume", name, path, { volume: vol }, job, stage, emit));
       } finally {
         for (const c of paused.reverse()) {
@@ -122,7 +124,32 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
         }
       }
     }
-    captureMethod = resource.volumes.length === 0 ? "none" : liveBackup ? "live" : "frozen";
+
+    for (const b of resource.bindMounts) {
+      i++;
+      const freeze = !liveBackup && (await isContainerRunning(b.container));
+      const paused: string[] = [];
+      try {
+        if (freeze) {
+          emit("info", `Freezing ${b.container} for a consistent copy of ${b.source}`);
+          await pauseContainer(b.container);
+          paused.push(b.container);
+        }
+        if (liveBackup) emit("warn", `Live copy of ${b.source} without freezing (at your own risk) — may be inconsistent`);
+        emit("info", `Archiving host folder ${b.source} (${i}/${total})`, 20 + (50 * i) / Math.max(1, total));
+        const name = volumeFileName("bind-" + b.source.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, ""));
+        const path = join(stage, name);
+        await tarVolume(b.source, path); // tarVolume mounts the path — works for host paths too
+        await verifyTarOpens(path);
+        artifacts.push(await finalizeArtifact("volume", name, path, { bindSource: b.source }, job, stage, emit));
+      } finally {
+        for (const c of paused.reverse()) {
+          emit("info", `Resuming ${c}`);
+          await unpauseContainer(c).catch((e) => emit("error", `Failed to resume ${c}: ${(e as Error).message}`));
+        }
+      }
+    }
+    captureMethod = total === 0 ? "none" : liveBackup ? "live" : "frozen";
   }
 
   // Config artifact (resource descriptor + provenance) — sensitive, encrypt if enabled.
@@ -162,6 +189,15 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
     const manifestPath = join(stage, MANIFEST_FILE);
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
     await transfer.put(manifestPath, `${job.destinationDir}/${MANIFEST_FILE}`);
+
+    // Verify every artifact actually landed at the destination (catches a
+    // silently-failed or truncated upload).
+    emit("info", "Verifying backup at the destination", 95);
+    const present = new Set(await transfer.list(job.destinationDir).catch(() => []));
+    const missing = [...artifacts.map((a) => a.filename), MANIFEST_FILE].filter(
+      (f) => !present.has(`${job.destinationDir}/${f}`),
+    );
+    if (missing.length) throw new Error(`Backup verification failed: missing at destination: ${missing.join(", ")}`);
   } finally {
     await transfer.close();
   }

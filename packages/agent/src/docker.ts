@@ -86,6 +86,11 @@ export async function containerExists(name: string): Promise<boolean> {
   return r.code === 0;
 }
 
+export async function isContainerRunning(name: string): Promise<boolean> {
+  const r = await docker(["inspect", "-f", "{{.State.Running}}", name]);
+  return r.code === 0 && r.stdout.trim() === "true";
+}
+
 export async function stopContainer(name: string): Promise<void> {
   const r = await docker(["stop", name]);
   if (r.code !== 0) throw new Error(`docker stop ${name} failed: ${r.stderr}`);
@@ -166,6 +171,32 @@ export async function restoreVolume(volume: string, inFile: string): Promise<voi
     ],
     inFile,
   );
+}
+
+/** Restore a tarball into a host directory (a bind-mount source). */
+export async function restoreToPath(hostPath: string, inFile: string): Promise<void> {
+  await dockerFromFile(
+    [
+      "run",
+      "--rm",
+      "-i",
+      "-v",
+      `${hostPath}:/data`,
+      "alpine:3.20",
+      "sh",
+      "-c",
+      "rm -rf /data/* /data/..?* /data/.[!.]* 2>/dev/null; tar -xf - -C /data",
+    ],
+    inFile,
+  );
+}
+
+/**
+ * Verify a tarball opens (lists without error) by streaming it through a
+ * throwaway container — no host-path access needed. Throws if it's corrupt.
+ */
+export async function verifyTarOpens(inFile: string): Promise<void> {
+  await dockerFromFile(["run", "--rm", "-i", "alpine:3.20", "tar", "-tf", "-"], inFile);
 }
 
 export async function dockerVersion(): Promise<string> {

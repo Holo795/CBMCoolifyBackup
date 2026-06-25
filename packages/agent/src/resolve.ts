@@ -74,10 +74,32 @@ export async function resolveResource(resource: ResourceDescriptor): Promise<Res
     r.db = await readDbCredentials(r.containerName, resource.type);
   }
 
+  // Host-path (bind) mounts holding data — captured too, so nothing is silently
+  // left out. System/infra binds (docker socket, /etc/*, /proc…) are skipped.
+  if (r.bindMounts.length === 0) {
+    const binds = new Map<string, string>(); // source -> container
+    for (const c of r.containerNames) {
+      const info = await inspectContainer(c);
+      for (const m of (info?.Mounts ?? []) as Array<{ Type?: string; Source?: string; RW?: boolean }>) {
+        if (m?.Type !== "bind" || m.RW === false || !m.Source) continue;
+        if (isSystemBind(m.Source)) continue;
+        if (!binds.has(m.Source)) binds.set(m.Source, c);
+      }
+    }
+    r.bindMounts = [...binds.entries()].map(([source, container]) => ({ source, container }));
+  }
+
   logger.debug(
-    `Resolved ${resource.coolifyUuid}: containers=${r.containerNames.join(",")} volumes=${r.volumes.join(",")}`,
+    `Resolved ${resource.coolifyUuid}: containers=${r.containerNames.join(",")} volumes=${r.volumes.join(",")} binds=${r.bindMounts.map((b) => b.source).join(",")}`,
   );
   return r;
+}
+
+/** Bind sources we never back up: the docker socket, system files, kernel fs. */
+function isSystemBind(source: string): boolean {
+  const sys = ["/var/run/docker.sock", "/run/docker.sock", "/etc/localtime", "/etc/timezone", "/etc/hosts", "/etc/hostname", "/etc/resolv.conf"];
+  if (sys.includes(source)) return true;
+  return ["/proc", "/sys", "/dev", "/var/run/docker.sock"].some((p) => source === p || source.startsWith(p + "/"));
 }
 
 async function pickPrimary(containers: string[], type: ResourceType): Promise<string | undefined> {

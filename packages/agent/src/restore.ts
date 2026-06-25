@@ -2,7 +2,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { RestoreJob } from "@cbm/shared";
 import { restoreDatabase } from "./dump.js";
-import { restoreVolume, stopContainer, startContainer, containerExists } from "./docker.js";
+import { restoreVolume, restoreToPath, stopContainer, startContainer, containerExists } from "./docker.js";
 import { decryptFile } from "./crypto.js";
 import { makeTransfer } from "./transfer.js";
 import { resolveResource } from "./resolve.js";
@@ -69,6 +69,11 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
       // volumes. Never touch the original resource's containers/volumes. The
       // data is mounted when the operator first deploys the clone.
       for (const v of volumes) {
+        if (v.meta.bindSource) {
+          // Host-path data can't be auto-placed under a different resource.
+          emit("warn", `Host folder "${v.meta.bindSource}" not restored to the clone — restore it manually if needed`);
+          continue;
+        }
         const src = v.meta.volume;
         const dest = src ? job.volumeMap?.[src] : undefined;
         if (!dest) {
@@ -95,6 +100,11 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
           }
         }
         for (const v of volumes) {
+          if (v.meta.bindSource) {
+            emit("info", `Restoring host folder ${v.meta.bindSource}`, 70);
+            await restoreToPath(v.meta.bindSource, localFiles[v.filename]);
+            continue;
+          }
           const volName = v.meta.volume;
           if (!volName) {
             emit("warn", `Volume artifact ${v.filename} has no volume name; skipping`);

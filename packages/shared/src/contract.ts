@@ -79,6 +79,8 @@ export const ResourceDescriptor = z.object({
   containerNames: z.array(z.string()).default([]),
   /** Docker volumes belonging to this resource. */
   volumes: z.array(z.string()).default([]),
+  /** Host-path (bind) mounts holding data, with the container that mounts them. */
+  bindMounts: z.array(z.object({ source: z.string(), container: z.string() })).default([]),
   /** Credentials for logical dumps (hot mode). */
   db: DbCredentials.optional(),
 });
