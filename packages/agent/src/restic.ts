@@ -27,9 +27,9 @@ export interface ResticCtx {
   cleanup: () => Promise<void>;
 }
 
-/** Quote a token for restic's shell-string splitter (used inside sftp.command). */
-function q(s: string): string {
-  return /\s/.test(s) ? `"${s}"` : s;
+/** Single-quote a token for POSIX sh (used when writing the connect script). */
+function shq(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
 const SSH_OPTS = (knownHosts: string) => [
@@ -81,7 +81,7 @@ export async function resticContext(dest: ResolvedDestination, password: string)
     return { prefix, keyOpt };
   };
 
-  let proxy: string[] = [];
+  const proxy: string[] = [];
   if (dest.jumpHost) {
     const j = await hop("jump", dest.jumpPrivateKey || dest.privateKey, dest.jumpPassword || dest.password);
     const jumpCmd = [
@@ -95,7 +95,7 @@ export async function resticContext(dest: ResolvedDestination, password: string)
       String(dest.jumpPort),
       `${dest.jumpUsername || dest.username}@${dest.jumpHost}`,
     ].join(" ");
-    proxy = ["-o", `ProxyCommand=${jumpCmd}`];
+    proxy.push("-o", `ProxyCommand=${jumpCmd}`);
   }
 
   const t = await hop("target", dest.privateKey, dest.password);
@@ -111,12 +111,19 @@ export async function resticContext(dest: ResolvedDestination, password: string)
     "-s",
     "sftp",
   ];
-  const sftpCommand = sftpTokens.map(q).join(" ");
+
+  // restic parses the `-o sftp.command=…` value (CSV) and shell-splits it before
+  // exec; the embedded quotes a bastion ProxyCommand needs break that parser.
+  // Sidestep it: write the whole ssh invocation to an executable script and give
+  // restic only the script's (space-free) path.
+  const connect = join(tmp, "connect.sh");
+  await writeFile(connect, `#!/bin/sh\nexec ${sftpTokens.map(shq).join(" ")}\n`, { mode: 0o700 });
+  written.push(connect);
 
   env.RESTIC_REPOSITORY = `sftp:${dest.username}@${dest.host}:${posix.join(dest.basePath, "restic-repo")}`;
   return {
     env,
-    args: ["-o", `sftp.command=${sftpCommand}`],
+    args: ["-o", `sftp.command=${connect}`],
     cleanup: async () => {
       await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
       void written;
