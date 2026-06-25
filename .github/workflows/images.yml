@@ -84,3 +84,44 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+
+  # After a version tag's images are published, append a pull/Images section to
+  # that release's notes (once, idempotently). Only runs for vX.Y.Z tags and is
+  # a no-op if there is no matching release yet.
+  release-notes:
+    needs: images
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Add Images section to the release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          BODY="$(gh release view "$GITHUB_REF_NAME" --json body --jq .body 2>/dev/null)" \
+            || { echo "No release for $GITHUB_REF_NAME yet — skipping."; exit 0; }
+          case "$BODY" in
+            *"<!-- cbm:images -->"*) echo "Images section already present — skipping."; exit 0 ;;
+          esac
+          cat > /tmp/images.md <<'EOF'
+
+          <!-- cbm:images -->
+          ### Images
+
+          Published to the GitHub Container Registry — also tagged `:__MM__` and `:latest`:
+
+          ```sh
+          docker pull ghcr.io/__OWNER__/cbm-controller:__VERSION__
+          docker pull ghcr.io/__OWNER__/cbm-agent:__VERSION__
+          ```
+
+          - 📦 [cbm-controller](https://github.com/__REPO__/pkgs/container/cbm-controller)
+          - 📦 [cbm-agent](https://github.com/__REPO__/pkgs/container/cbm-agent)
+          EOF
+          sed -i "s|__VERSION__|$VERSION|g; s|__MM__|${VERSION%.*}|g; s|__OWNER__|$OWNER|g; s|__REPO__|$GITHUB_REPOSITORY|g" /tmp/images.md
+          { printf '%s\n' "$BODY"; cat /tmp/images.md; } > /tmp/body.md
+          gh release edit "$GITHUB_REF_NAME" --notes-file /tmp/body.md
+          echo "Appended Images section to $GITHUB_REF_NAME."
