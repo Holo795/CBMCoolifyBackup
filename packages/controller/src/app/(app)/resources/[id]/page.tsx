@@ -92,7 +92,11 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
             <CardTitle>Backup hooks</CardTitle>
           </CardHeader>
           <CardContent>
-            <HooksForm resourceId={resource.id} pre={resource.preBackupHook} post={resource.postBackupHook} />
+            <HooksForm
+              resourceId={resource.id}
+              containers={resource.containerNames}
+              hooks={Array.isArray(resource.hooks) ? (resource.hooks as { container: string; pre?: string; post?: string }[]) : []}
+            />
           </CardContent>
         </Card>
 

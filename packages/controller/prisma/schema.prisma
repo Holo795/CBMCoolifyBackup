@@ -126,11 +126,11 @@ model Resource {
   // copied live without even a brief freeze (at the operator's risk); otherwise
   // the agent briefly freezes the writing containers for a consistent copy.
   liveBackup   Boolean       @default(false)
-  // Optional commands run inside the primary container before/after a backup
-  // (e.g. put an app in maintenance mode, flush a cache). The post hook always
-  // runs; a failing pre hook aborts the backup.
-  preBackupHook  String?
-  postBackupHook String?
+  // Optional pre/post-backup commands, one entry per container (so a multi-
+  // container service can quiesce each part). JSON array of
+  // { container: string; pre?: string; post?: string } — container "" = primary.
+  // A failing pre command aborts the backup; post commands always run.
+  hooks        Json?
   retentionOverride Int?
   // Last time we alerted that this resource's scheduled backup is overdue
   // (debounce so we don't re-alert every sweep for the same missed run).

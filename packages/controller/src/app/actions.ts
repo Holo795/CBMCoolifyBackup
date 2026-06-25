@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { requireUser } from "@/lib/session";
@@ -520,14 +521,22 @@ export async function updateResourceSettings(resourceId: string, fd: FormData): 
   revalidatePath(`/resources/${resourceId}`);
 }
 
-/** Save a resource's pre/post-backup hook commands (blank clears them). */
-export async function updateResourceHooks(resourceId: string, fd: FormData) {
+/** Save a resource's per-container pre/post-backup hooks (empty entries dropped). */
+export async function updateResourceHooks(
+  resourceId: string,
+  hooks: { container: string; pre?: string; post?: string }[],
+) {
   await requireUser();
-  const pre = s(fd, "preBackupHook");
-  const post = s(fd, "postBackupHook");
+  const clean = (hooks ?? [])
+    .map((h) => ({
+      container: (h.container ?? "").trim(),
+      pre: (h.pre ?? "").trim() || undefined,
+      post: (h.post ?? "").trim() || undefined,
+    }))
+    .filter((h) => h.pre || h.post);
   await prisma.resource.update({
     where: { id: resourceId },
-    data: { preBackupHook: pre || null, postBackupHook: post || null },
+    data: { hooks: clean.length ? clean : Prisma.DbNull },
   });
   revalidatePath(`/resources/${resourceId}`);
   return { ok: true };

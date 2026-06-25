@@ -153,15 +153,27 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
     }
   };
 
+  // Resolve a hook's target container: the named one if it exists, else the
+  // resource's primary container.
+  const hooks = job.hooks ?? [];
+  const hookContainer = async (name: string): Promise<string | undefined> =>
+    name && (await containerExists(name)) ? name : primary;
+
   try {
-  // Pre-backup hook: run inside the primary container; a failure aborts the
-  // backup (the operator wanted the app quiesced first). It runs INSIDE the try
-  // so the post hook (finally below) still runs to undo it — e.g. bring an app
-  // back out of maintenance even when the pre hook or the backup failed.
-  if (job.hooks?.pre && primary && (await containerExists(primary))) {
-    emit("info", `Running pre-backup hook in ${primary}`, 5);
-    const r = await execShell(primary, job.hooks.pre);
-    if (r.code !== 0) throw new Error(`pre-backup hook failed (exit ${r.code}): ${r.stderr.slice(0, 300)}`);
+  // Pre-backup hooks: run inside their container(s); a failure aborts the backup
+  // (the operator wanted the app quiesced first). They run INSIDE the try so the
+  // post hooks (finally below) still run to undo them — e.g. bring an app back
+  // out of maintenance even when a pre hook or the backup failed.
+  for (const h of hooks) {
+    if (!h.pre) continue;
+    const c = await hookContainer(h.container);
+    if (!c) {
+      emit("warn", `No container for pre-backup hook (${h.container || "primary"}); skipped`);
+      continue;
+    }
+    emit("info", `Running pre-backup hook in ${c}`, 5);
+    const r = await execShell(c, h.pre);
+    if (r.code !== 0) throw new Error(`pre-backup hook failed in ${c} (exit ${r.code}): ${r.stderr.slice(0, 300)}`);
   }
 
   if (isCoolifySelf) {
@@ -294,12 +306,15 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
   emit("info", "Backup complete", 100);
   return manifest;
   } finally {
-    // Post-backup hook always runs (e.g. bring an app back out of maintenance),
+    // Post-backup hooks always run (e.g. bring an app back out of maintenance),
     // best-effort, then clean the staging dir.
-    if (job.hooks?.post && primary && (await containerExists(primary))) {
-      emit("info", `Running post-backup hook in ${primary}`);
-      const r = await execShell(primary, job.hooks.post).catch((e) => ({ code: -1, stdout: "", stderr: (e as Error).message }));
-      if (r.code !== 0) emit("warn", `post-backup hook failed (exit ${r.code}): ${r.stderr.slice(0, 300)}`);
+    for (const h of hooks) {
+      if (!h.post) continue;
+      const c = await hookContainer(h.container);
+      if (!c) continue;
+      emit("info", `Running post-backup hook in ${c}`);
+      const r = await execShell(c, h.post).catch((e) => ({ code: -1, stdout: "", stderr: (e as Error).message }));
+      if (r.code !== 0) emit("warn", `post-backup hook failed in ${c} (exit ${r.code}): ${r.stderr.slice(0, 300)}`);
     }
     await rm(stage, { recursive: true, force: true }).catch(() => undefined);
   }

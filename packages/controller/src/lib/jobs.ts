@@ -34,6 +34,20 @@ export function resolveEncryption(dest: Destination): EncryptionSpec {
   return { enabled: false };
 }
 
+/** Normalise a resource's stored hooks JSON into the BackupJob hook list. */
+function parseResourceHooks(raw: unknown): BackupJob["hooks"] {
+  if (!Array.isArray(raw)) return undefined;
+  const out = raw
+    .filter((h): h is Record<string, unknown> => !!h && typeof h === "object")
+    .map((h) => ({
+      container: typeof h.container === "string" ? h.container : "",
+      pre: typeof h.pre === "string" ? h.pre : undefined,
+      post: typeof h.post === "string" ? h.post : undefined,
+    }))
+    .filter((h) => h.pre || h.post);
+  return out.length ? out : undefined;
+}
+
 /** Storage engine + secrets for a destination (tar files vs a restic repo). */
 export function resolveStorage(dest: Destination): StorageSpec {
   if (dest.engine === "restic") {
@@ -176,10 +190,7 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
     destination: resolveDestination(dest),
     encryption: resolveEncryption(dest),
     storage: resolveStorage(dest),
-    hooks:
-      resource.preBackupHook || resource.postBackupHook
-        ? { pre: resource.preBackupHook ?? undefined, post: resource.postBackupHook ?? undefined }
-        : undefined,
+    hooks: parseResourceHooks(resource.hooks),
     destinationDir: dir,
   };
 

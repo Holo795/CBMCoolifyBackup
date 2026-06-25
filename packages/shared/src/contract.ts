@@ -165,8 +165,12 @@ export const BackupJob = z.object({
   destination: ResolvedDestination,
   encryption: EncryptionSpec,
   storage: StorageSpec.default({ engine: "tar" }),
-  /** Optional commands run inside the primary container before/after capture. */
-  hooks: z.object({ pre: z.string().optional(), post: z.string().optional() }).optional(),
+  /** Optional pre/post commands, one entry per container (`container` "" or an
+   * unknown name → the resource's primary container). Pre runs before capture
+   * (a failure aborts), post always runs after. */
+  hooks: z
+    .array(z.object({ container: z.string().default(""), pre: z.string().optional(), post: z.string().optional() }))
+    .optional(),
   /** Relative directory to write into (controller decides naming). */
   destinationDir: z.string(),
 });

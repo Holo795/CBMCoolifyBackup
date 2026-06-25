@@ -4,7 +4,7 @@ import { Card, CardContent, Badge, Button, Input, statusTone, EmptyState } from 
 import { backupNow } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { ResourceToggles } from "@/components/resource-toggles";
-import { Boxes, Play, Unplug } from "lucide-react";
+import { Boxes, Play, Unplug, Pin } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -19,11 +19,19 @@ export default async function ResourcesPage({
   const page = Math.max(1, Number(pageParam || "1"));
   const where = {
     status: { not: "deleted" },
+    // Control-plane (coolify-self) resources are pinned at the top separately.
+    NOT: { coolifyUuid: { startsWith: "coolify-self" } },
     ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}),
     ...(type ? { type } : {}),
   };
-  const [total, resources, orphaned] = await Promise.all([
+  const [total, controlPlanes, resources, orphaned] = await Promise.all([
     prisma.resource.count({ where }),
+    // Control planes: always shown, pinned at the top of every page.
+    prisma.resource.findMany({
+      where: { status: { not: "deleted" }, coolifyUuid: { startsWith: "coolify-self" } },
+      orderBy: [{ name: "asc" }],
+      include: { instance: true },
+    }),
     prisma.resource.findMany({
       where,
       orderBy: [{ projectName: "asc" }, { name: "asc" }],
@@ -46,6 +54,9 @@ export default async function ResourcesPage({
   });
   const liveInstanceIds = new Set(liveAgents.map((a) => a.instanceId).filter(Boolean));
 
+  // Control planes first (pinned), then this page's resources.
+  const rows = [...controlPlanes, ...resources];
+
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
   const qs = (p: number) =>
     `/resources?${new URLSearchParams({ ...(q ? { q } : {}), ...(type ? { type } : {}), page: String(p) }).toString()}`;
@@ -62,7 +73,7 @@ export default async function ResourcesPage({
         </Button>
       </form>
 
-      {resources.length === 0 ? (
+      {rows.length === 0 ? (
         <EmptyState icon={<Boxes className="h-6 w-6" />} title="No resources" hint="Connect a Coolify instance and sync to discover resources." />
       ) : (
         <Card>
@@ -79,8 +90,9 @@ export default async function ResourcesPage({
                 </tr>
               </thead>
               <tbody>
-                {resources.map((r) => {
+                {rows.map((r) => {
                   const agentDown = !liveInstanceIds.has(r.instanceId);
+                  const isControlPlane = r.coolifyUuid.startsWith("coolify-self");
 
                   // No live agent -> the whole row is blurred and non-interactive,
                   // with a centered "Agent unavailable" overlay.
@@ -108,11 +120,16 @@ export default async function ResourcesPage({
                   }
 
                   return (
-                    <tr key={r.id} className="border-b align-middle last:border-0">
+                    <tr key={r.id} className={`border-b align-middle last:border-0 ${isControlPlane ? "bg-muted/30" : ""}`}>
                       <td className="px-4 py-2.5 font-medium">
                         <a href={`/resources/${r.id}`} className="hover:underline">
                           {r.name}
                         </a>
+                        {isControlPlane && (
+                          <Badge tone="accent" className="ml-2">
+                            <Pin className="h-3 w-3" /> control plane
+                          </Badge>
+                        )}
                       </td>
                       <td className="px-4 py-2.5">
                         <Badge>{r.type}</Badge>
