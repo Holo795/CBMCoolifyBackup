@@ -25,7 +25,7 @@ export async function executeJob(
   try {
     if (job.type === "backup") {
       const manifest = await runBackup(job, workDir, emit);
-      return { jobId: job.id, status: "succeeded", manifest };
+      return { jobId: job.id, status: "succeeded", manifest, resticSnapshotId: manifest.resticSnapshotId };
     } else if (job.type === "restore") {
       await runRestore(job, workDir, emit);
       return { jobId: job.id, status: "succeeded" };

@@ -218,6 +218,12 @@ export async function createDestination(fd: FormData) {
   const name = s(fd, "name");
   const type = s(fd, "type");
   if (!name || !type) return { error: "Name and type required" };
+  // Storage engine: "restic" gives incremental/deduplicated/encrypted storage,
+  // but only over local or S3 (restic-over-SFTP isn't supported here yet).
+  const engine = s(fd, "engine") === "restic" ? "restic" : "tar";
+  if (engine === "restic" && type === "ssh") {
+    return { error: "The restic engine supports local and S3 destinations only (not SSH)." };
+  }
 
   let config: unknown;
   if (type === "local") {
@@ -249,14 +255,19 @@ export async function createDestination(fd: FormData) {
     return { error: "Unknown destination type" };
   }
 
-  const encryptionEnabled = fd.get("encryptionEnabled") === "on";
+  // restic encrypts its repository natively, so the optional AES layer is only
+  // for the tar engine.
+  const encryptionEnabled = engine === "tar" && fd.get("encryptionEnabled") === "on";
   await prisma.destination.create({
     data: {
       name,
       type,
+      engine,
       configEnc: encryptSecret(JSON.stringify(config)),
       encryptionEnabled,
       encryptionKeyEnc: encryptionEnabled ? encryptSecret(generateAesKeyB64()) : null,
+      // A strong random repo password, generated once and stored encrypted.
+      resticPasswordEnc: engine === "restic" ? encryptSecret(generateAesKeyB64()) : null,
     },
   });
   revalidatePath("/destinations");
@@ -272,20 +283,28 @@ export async function deleteDestination(id: string) {
     // agent's host, so group by agent; ssh/s3 group by instance (any agent).
     const snaps = await prisma.snapshot.findMany({
       where: { destinationId: id },
-      select: { destinationDir: true, agentId: true, resource: { select: { instanceId: true } } },
+      select: { destinationDir: true, agentId: true, resticSnapshotId: true, resource: { select: { instanceId: true } } },
     });
-    const groups = new Map<string, { instanceId: string | null; agentId: string | null; dirs: string[] }>();
+    const groups = new Map<
+      string,
+      { instanceId: string | null; agentId: string | null; dirs: string[]; resticSnapshotIds: string[] }
+    >();
     for (const s of snaps) {
       const agentId = dest.type === "local" ? s.agentId : null;
       const key = dest.type === "local" ? `a:${agentId ?? ""}` : `i:${s.resource.instanceId ?? ""}`;
-      const g = groups.get(key) ?? { instanceId: s.resource.instanceId, agentId, dirs: [] };
+      const g = groups.get(key) ?? { instanceId: s.resource.instanceId, agentId, dirs: [], resticSnapshotIds: [] };
       g.dirs.push(s.destinationDir);
+      if (s.resticSnapshotId) g.resticSnapshotIds.push(s.resticSnapshotId);
       groups.set(key, g);
     }
     for (const g of groups.values()) {
-      await enqueuePrune({ instanceId: g.instanceId, destination: dest, dirs: g.dirs, agentId: g.agentId }).catch((e) =>
-        console.warn("[delete-destination] prune failed", (e as Error).message),
-      );
+      await enqueuePrune({
+        instanceId: g.instanceId,
+        destination: dest,
+        dirs: g.dirs,
+        resticSnapshotIds: g.resticSnapshotIds,
+        agentId: g.agentId,
+      }).catch((e) => console.warn("[delete-destination] prune failed", (e as Error).message));
     }
   }
   await prisma.destination.delete({ where: { id } });
@@ -328,6 +347,7 @@ export async function deleteSnapshot(snapshotId: string): Promise<void> {
         instanceId: snap.resource.instanceId,
         destination: snap.destination,
         dirs: [snap.destinationDir],
+        resticSnapshotIds: snap.resticSnapshotId ? [snap.resticSnapshotId] : [],
         // For a "local" destination the files live on the producing agent's host.
         agentId: snap.destination.type === "local" ? snap.agentId : null,
       });
@@ -491,6 +511,19 @@ export async function updateResourceSettings(resourceId: string, fd: FormData): 
   });
   revalidatePath("/resources");
   revalidatePath(`/resources/${resourceId}`);
+}
+
+/** Save a resource's pre/post-backup hook commands (blank clears them). */
+export async function updateResourceHooks(resourceId: string, fd: FormData) {
+  await requireUser();
+  const pre = s(fd, "preBackupHook");
+  const post = s(fd, "postBackupHook");
+  await prisma.resource.update({
+    where: { id: resourceId },
+    data: { preBackupHook: pre || null, postBackupHook: post || null },
+  });
+  revalidatePath(`/resources/${resourceId}`);
+  return { ok: true };
 }
 
 export async function backupNow(resourceId: string): Promise<{ ok?: boolean; error?: string; detail?: string }> {

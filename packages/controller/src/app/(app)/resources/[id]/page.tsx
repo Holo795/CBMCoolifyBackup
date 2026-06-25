@@ -6,6 +6,7 @@ import { ScheduleForm } from "@/components/schedule-form";
 import { ActionButton } from "@/components/action-button";
 import { Card, CardContent, CardHeader, CardTitle, Badge, statusTone } from "@/components/ui";
 import { ResourceToggles } from "@/components/resource-toggles";
+import { HooksForm } from "@/components/hooks-form";
 import { setResourceSchedule, removeResourceOverride, backupNow, deleteSnapshot } from "@/app/actions";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { RestoreActions } from "@/components/restore-actions";
@@ -83,6 +84,15 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
               écrivent, puis les relance — sans aucun redémarrage. Les réglages s&apos;enregistrent automatiquement.
             </p>
             <ResourceToggles id={resource.id} backupEnabled={resource.backupEnabled} liveBackup={resource.liveBackup} verbose />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Backup hooks</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <HooksForm resourceId={resource.id} pre={resource.preBackupHook} post={resource.postBackupHook} />
           </CardContent>
         </Card>
 

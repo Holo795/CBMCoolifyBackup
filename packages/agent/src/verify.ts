@@ -1,6 +1,7 @@
 import type { VerifyDestinationJob } from "@cbm/shared";
 import { MANIFEST_FILE } from "@cbm/shared";
 import { makeTransfer } from "./transfer.js";
+import { resticEnv, resticListSnapshotIds } from "./restic.js";
 import type { Emit } from "./backup.js";
 
 /**
@@ -15,6 +16,20 @@ export async function runVerifyDestination(
 ): Promise<{ present: string[]; missing: string[] }> {
   const present: string[] = [];
   const missing: string[] = [];
+
+  if (job.storage.engine === "restic") {
+    // Confirm each expected restic snapshot id still exists in the repo. Keys
+    // are the restic snapshot ids (the controller maps them back to snapshots).
+    const ids = job.resticSnapshotIds ?? [];
+    if (ids.length === 0) return { present, missing };
+    if (!job.storage.resticPassword) throw new Error("restic verify requires the repository password");
+    emit("info", `Checking ${ids.length} restic snapshot(s)`, 20);
+    const repo = await resticListSnapshotIds(resticEnv(job.destination, job.storage.resticPassword));
+    for (const id of ids) (repo.has(id) ? present : missing).push(id);
+    emit("info", `Reconciliation done: ${present.length} present, ${missing.length} missing`, 100);
+    return { present, missing };
+  }
+
   if (job.dirs.length === 0) return { present, missing };
 
   const transfer = await makeTransfer(job.destination);

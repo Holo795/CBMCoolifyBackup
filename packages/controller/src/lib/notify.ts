@@ -57,6 +57,20 @@ export async function notifyMissingBackups(snapshotIds: string[]): Promise<void>
   );
 }
 
+/** Notify that scheduled backups are overdue (never ran when expected). */
+export async function notifyOverdue(
+  items: { name: string; instance: string; due: Date }[],
+): Promise<void> {
+  if (items.length === 0) return;
+  const base = (env.authUrl || "").replace(/\/$/, "");
+  const lines = items.slice(0, 20).map((i) => `• ${i.name} (${i.instance}) — due ${i.due.toISOString()}`);
+  const more = items.length > 20 ? `\n…and ${items.length - 20} more` : "";
+  const link = base ? `\n${base}/snapshots` : "";
+  await sendAlert(
+    `⏰ Scheduled backup overdue — these resources have NOT been backed up on time:\n${lines.join("\n")}${more}${link}`,
+  );
+}
+
 /** Notify that a backup snapshot failed (best-effort). */
 export async function notifyBackupFailed(snapshotId: string): Promise<void> {
   const snap = await prisma.snapshot

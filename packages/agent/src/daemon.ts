@@ -36,21 +36,45 @@ export async function startDaemon(): Promise<void> {
   // Background heartbeat.
   void heartbeatLoop(cfg);
 
-  // Main poll loop.
+  logger.info(`Polling for jobs (concurrency=${cfg.concurrency})`);
+
+  // Main loop: keep up to `concurrency` jobs running at once. Each finished job
+  // posts its result independently, so a slow backup doesn't block the others.
+  const inFlight = new Set<Promise<void>>();
+  const startJob = (job: Awaited<ReturnType<typeof client.poll>>["job"]) => {
+    if (!job) return;
+    logger.info(`Picked up job ${job.id} (${job.type})`);
+    const p = (async () => {
+      const result = await runJobForController(job, cfg);
+      await client.sendResult(cfg, result).catch((e) => logger.error(`send result failed`, e));
+      logger.info(`Job ${job.id} finished: ${result.status}`);
+    })()
+      .catch((e) => logger.error(`job ${job.id} crashed: ${(e as Error).message}`))
+      .finally(() => inFlight.delete(p));
+    inFlight.add(p);
+  };
+
   for (;;) {
-    try {
-      const { job } = await client.poll(cfg);
-      if (job) {
-        logger.info(`Picked up job ${job.id} (${job.type})`);
-        const result = await runJobForController(job, cfg);
-        await client.sendResult(cfg, result).catch((e) => logger.error(`send result failed`, e));
-        logger.info(`Job ${job.id} finished: ${result.status}`);
-        continue; // poll again immediately
+    let pickedUp = false;
+    while (inFlight.size < cfg.concurrency) {
+      let job = null;
+      try {
+        ({ job } = await client.poll(cfg));
+      } catch (e) {
+        logger.warn(`poll error: ${(e as Error).message}`);
+        break;
       }
-    } catch (e) {
-      logger.warn(`poll error: ${(e as Error).message}`);
+      if (!job) break;
+      pickedUp = true;
+      startJob(job);
     }
-    await sleep(cfg.pollIntervalMs);
+    if (inFlight.size === 0) {
+      await sleep(cfg.pollIntervalMs);
+    } else if (!pickedUp) {
+      // Slots full or queue empty: wait for a job to finish or a short tick,
+      // then poll again.
+      await Promise.race([Promise.race([...inFlight]), sleep(cfg.pollIntervalMs)]);
+    }
   }
 }
 

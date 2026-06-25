@@ -49,7 +49,8 @@ export default async function DestinationsPage() {
                           {d.name}
                         </Link>
                         <Badge tone="accent">{d.type}</Badge>
-                        {d.encryptionEnabled && (
+                        {d.engine === "restic" && <Badge tone="accent">restic</Badge>}
+                        {(d.encryptionEnabled || d.engine === "restic") && (
                           <Badge tone="success">
                             <Lock className="h-3 w-3" /> encrypted
                           </Badge>

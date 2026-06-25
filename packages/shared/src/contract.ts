@@ -47,6 +47,19 @@ export const ResolvedDestination = z.discriminatedUnion("type", [
 ]);
 export type ResolvedDestination = z.infer<typeof ResolvedDestination>;
 
+/**
+ * How artifacts are stored at the destination:
+ *  - "tar"   : one archive/dump file per artifact (default, all destination types).
+ *  - "restic": an incremental, deduplicated, encrypted restic repository — the
+ *    agent stages artifacts then `restic backup`s them; only changed data is
+ *    uploaded. `resticPassword` unlocks the repo. (local & s3 destinations.)
+ */
+export const StorageSpec = z.object({
+  engine: z.enum(["tar", "restic"]).default("tar"),
+  resticPassword: z.string().optional(),
+});
+export type StorageSpec = z.infer<typeof StorageSpec>;
+
 /* ------------------------------------------------------------------ *
  * Encryption                                                          *
  * ------------------------------------------------------------------ */
@@ -127,6 +140,8 @@ export const SnapshotManifest = z.object({
   encrypted: z.boolean().default(false),
   /** Relative directory at the destination that holds this snapshot. */
   destinationDir: z.string(),
+  /** restic snapshot id when stored via the restic engine. */
+  resticSnapshotId: z.string().optional(),
   notes: z.string().optional(),
 });
 export type SnapshotManifest = z.infer<typeof SnapshotManifest>;
@@ -149,6 +164,9 @@ export const BackupJob = z.object({
   resource: ResourceDescriptor,
   destination: ResolvedDestination,
   encryption: EncryptionSpec,
+  storage: StorageSpec.default({ engine: "tar" }),
+  /** Optional commands run inside the primary container before/after capture. */
+  hooks: z.object({ pre: z.string().optional(), post: z.string().optional() }).optional(),
   /** Relative directory to write into (controller decides naming). */
   destinationDir: z.string(),
 });
@@ -159,6 +177,9 @@ export const RestoreJob = z.object({
   type: z.literal("restore"),
   manifest: SnapshotManifest,
   source: ResolvedDestination,
+  storage: StorageSpec.default({ engine: "tar" }),
+  /** restic snapshot id to restore from (restic engine). */
+  resticSnapshotId: z.string().optional(),
   /** Base64 AES-256-GCM key when artifacts are encrypted. */
   decryptionKey: z.string().optional(),
   target: z.enum(["in_place", "new_resource"]).default("in_place"),
@@ -185,8 +206,11 @@ export const PruneJob = z.object({
   id: z.string(),
   type: z.literal("prune"),
   destination: ResolvedDestination,
-  /** Relative directories at the destination to delete recursively. */
+  storage: StorageSpec.default({ engine: "tar" }),
+  /** Relative directories at the destination to delete recursively (tar engine). */
   dirs: z.array(z.string()),
+  /** For the restic engine: forget snapshots by restic snapshot id, then prune. */
+  resticSnapshotIds: z.array(z.string()).optional(),
 });
 export type PruneJob = z.infer<typeof PruneJob>;
 
@@ -194,9 +218,13 @@ export const VerifyDestinationJob = z.object({
   id: z.string(),
   type: z.literal("verify-destination"),
   destination: ResolvedDestination,
-  /** Snapshot directories whose files should still be present at the destination.
-   * The agent reports which are present vs missing (their manifest is gone). */
+  storage: StorageSpec.default({ engine: "tar" }),
+  /** Snapshot directories whose files should still be present at the destination
+   * (tar engine). The agent reports which are present vs missing. */
   dirs: z.array(z.string()),
+  /** For the restic engine: the restic snapshot ids to confirm still exist. The
+   * agent reports the present/missing sets using these ids as the keys. */
+  resticSnapshotIds: z.array(z.string()).optional(),
 });
 export type VerifyDestinationJob = z.infer<typeof VerifyDestinationJob>;
 
@@ -255,6 +283,8 @@ export const JobResult = z.object({
   status: JobStatus,
   manifest: SnapshotManifest.optional(),
   error: z.string().optional(),
+  /** restic snapshot id created by a restic-engine backup (for forget/verify). */
+  resticSnapshotId: z.string().optional(),
   /** For a verify-destination job: which snapshot dirs are still present vs gone. */
   verify: z
     .object({

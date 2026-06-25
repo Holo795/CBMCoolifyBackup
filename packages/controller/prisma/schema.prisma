@@ -126,7 +126,15 @@ model Resource {
   // copied live without even a brief freeze (at the operator's risk); otherwise
   // the agent briefly freezes the writing containers for a consistent copy.
   liveBackup   Boolean       @default(false)
+  // Optional commands run inside the primary container before/after a backup
+  // (e.g. put an app in maintenance mode, flush a cache). The post hook always
+  // runs; a failing pre hook aborts the backup.
+  preBackupHook  String?
+  postBackupHook String?
   retentionOverride Int?
+  // Last time we alerted that this resource's scheduled backup is overdue
+  // (debounce so we don't re-alert every sweep for the same missed run).
+  lastOverdueAlertAt DateTime?
   // Agent-discovered docker facts (cached)
   containerName String?
   containerNames String[]     @default([])
@@ -143,9 +151,13 @@ model Destination {
   id              String        @id @default(cuid())
   name            String
   type            String        // local | ssh | s3
+  // Storage engine: "tar" (one file per artifact) or "restic" (incremental,
+  // deduplicated, encrypted repository — local & s3 only).
+  engine          String        @default("tar")
   configEnc       String        // encrypted JSON (paths, creds)
   encryptionEnabled Boolean     @default(false)
-  encryptionKeyEnc String?      // encrypted base64 AES key
+  encryptionKeyEnc String?      // encrypted base64 AES key (tar engine)
+  resticPasswordEnc String?     // encrypted restic repo password (restic engine)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   policies        BackupPolicy[]
@@ -198,6 +210,8 @@ model Snapshot {
   sizeBytes     BigInt       @default(0)
   error         String?
   runId         String?      // groups snapshots from one scheduled run
+  // restic snapshot id when the destination uses the restic engine.
+  resticSnapshotId String?
   // Last time a destination reconciliation confirmed (or missed) these files.
   lastCheckedAt DateTime?
   startedAt     DateTime     @default(now())

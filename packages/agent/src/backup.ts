@@ -11,7 +11,8 @@ import {
   MANIFEST_FILE,
   CONFIG_FILE,
 } from "@cbm/shared";
-import { dumpDatabase, dumpEngine } from "./dump.js";
+import { dumpDatabase, dumpEngine, dumpRedis } from "./dump.js";
+import { REDIS_ENGINES, isRedisEngine, type Engine } from "./engines.js";
 import {
   tarVolume,
   pauseContainer,
@@ -20,11 +21,13 @@ import {
   isContainerRunning,
   verifyTarOpens,
   containerExists,
+  execShell,
 } from "./docker.js";
 import { captureProvenance } from "./provenance.js";
 import { encryptFile, sha256File } from "./crypto.js";
 import { makeTransfer } from "./transfer.js";
-import { resolveResource } from "./resolve.js";
+import { resticEnv, resticEnsureRepo, resticBackupDir } from "./restic.js";
+import { resolveResource, findDbContainers, readDbCredentials } from "./resolve.js";
 
 export type Emit = (level: "debug" | "info" | "warn" | "error", message: string, progress?: number) => void;
 
@@ -62,7 +65,104 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
   }
 
   const isCoolifySelf = resource.coolifyUuid.startsWith("coolify-self");
+  const isRedisStandalone = REDIS_ENGINES.includes(resource.type as Engine);
 
+  // Copy every named volume + host-path (bind) mount WITHOUT stopping a
+  // container: briefly freeze (docker pause) only the running container(s) that
+  // write to each one, unless liveBackup is set. Returns the capture method.
+  const copyVolumesAndBinds = async (): Promise<string> => {
+    const total = resource.volumes.length + resource.bindMounts.length;
+    let i = 0;
+    for (const vol of resource.volumes) {
+      i++;
+      const owners = liveBackup ? [] : await runningRwContainersForVolume(vol);
+      const paused: string[] = [];
+      try {
+        for (const c of owners) {
+          emit("info", `Freezing ${c} for a consistent copy of ${vol}`);
+          await pauseContainer(c);
+          paused.push(c);
+        }
+        if (liveBackup) emit("warn", `Live copy of ${vol} without freezing (at your own risk) — may be inconsistent`);
+        emit("info", `Archiving volume ${vol} (${i}/${total})`, 20 + (50 * i) / Math.max(1, total));
+        const name = volumeFileName(vol);
+        const path = join(stage, name);
+        await tarVolume(vol, path);
+        await verifyTarOpens(path);
+        artifacts.push(await finalizeArtifact("volume", name, path, { volume: vol }, job, stage, emit));
+      } finally {
+        for (const c of paused.reverse()) {
+          emit("info", `Resuming ${c}`);
+          await unpauseContainer(c).catch((e) => emit("error", `Failed to resume ${c}: ${(e as Error).message}`));
+        }
+      }
+    }
+    for (const b of resource.bindMounts) {
+      i++;
+      const freeze = !liveBackup && (await isContainerRunning(b.container));
+      const paused: string[] = [];
+      try {
+        if (freeze) {
+          emit("info", `Freezing ${b.container} for a consistent copy of ${b.source}`);
+          await pauseContainer(b.container);
+          paused.push(b.container);
+        }
+        if (liveBackup) emit("warn", `Live copy of ${b.source} without freezing (at your own risk) — may be inconsistent`);
+        emit("info", `Archiving host folder ${b.source} (${i}/${total})`, 20 + (50 * i) / Math.max(1, total));
+        const name = volumeFileName("bind-" + b.source.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, ""));
+        const path = join(stage, name);
+        await tarVolume(b.source, path); // tarVolume mounts the path — works for host paths too
+        await verifyTarOpens(path);
+        artifacts.push(await finalizeArtifact("volume", name, path, { bindSource: b.source }, job, stage, emit));
+      } finally {
+        for (const c of paused.reverse()) {
+          emit("info", `Resuming ${c}`);
+          await unpauseContainer(c).catch((e) => emit("error", `Failed to resume ${c}: ${(e as Error).message}`));
+        }
+      }
+    }
+    return total === 0 ? "none" : liveBackup ? "live" : "frozen";
+  };
+
+  // Logical dump of one DB container (SQL via pg_dump/mysqldump/…, Redis via an
+  // RDB export). Returns the artifact, or null if it couldn't be produced.
+  const dumpContainer = async (
+    container: string,
+    engine: Engine,
+    meta: Record<string, string>,
+    progress: number,
+  ): Promise<Artifact | null> => {
+    try {
+      if (isRedisEngine(engine)) {
+        const creds = await readDbCredentials(container, engine);
+        const name = `dump-${engine}-${container}.rdb`.replace(/[^a-zA-Z0-9._-]+/g, "_");
+        const path = join(stage, name);
+        emit("info", `Exporting ${engine} (${container}) via RDB — no freeze`, progress);
+        await dumpRedis(container, creds?.password, path);
+        return await finalizeArtifact("db-dump", name, path, { engine, container, ...meta }, job, stage, emit);
+      }
+      const creds = await readDbCredentials(container, engine);
+      const name = `dump-${engine}-${container}.sql`.replace(/[^a-zA-Z0-9._-]+/g, "_");
+      const path = join(stage, name);
+      emit("info", `Dumping ${engine} (${container}) — no downtime`, progress);
+      await dumpDatabase(engine, container, creds ?? {}, path);
+      return await finalizeArtifact("db-dump", name, path, { engine, container, ...meta }, job, stage, emit);
+    } catch (e) {
+      emit("warn", `Logical export of ${container} (${engine}) failed: ${(e as Error).message}`);
+      return null;
+    }
+  };
+
+  // Pre-backup hook: run inside the primary container; a failure aborts the
+  // backup (the operator wanted the app quiesced first). The post hook always
+  // runs afterwards (see the finally below), even if the backup fails.
+  if (job.hooks?.pre && primary && (await containerExists(primary))) {
+    emit("info", `Running pre-backup hook in ${primary}`, 5);
+    const r = await execShell(primary, job.hooks.pre);
+    if (r.code !== 0) throw new Error(`pre-backup hook failed (exit ${r.code}): ${r.stderr.slice(0, 300)}`);
+  }
+
+  try {
   if (isCoolifySelf) {
     // Coolify control plane: logical dump of its Postgres + live tar of /data/coolify.
     if (!primary) throw new Error("Coolify self-backup could not locate the Coolify database container");
@@ -92,64 +192,37 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
     await dumpDatabase(resource.type, primary, resource.db ?? {}, dumpPath);
     artifacts.push(await finalizeArtifact("db-dump", dumpName, dumpPath, { engine }, job, stage, emit));
     captureMethod = "dump";
+  } else if (isRedisStandalone) {
+    // Standalone Redis/KeyDB/Dragonfly: prefer a logical RDB export (no freeze,
+    // portable). Fall back to a frozen volume copy if the CLI isn't available.
+    const dataVolume = resource.volumes[0] ?? "";
+    const art =
+      primary && (await containerExists(primary))
+        ? await dumpContainer(primary, resource.type as Engine, { volume: dataVolume }, 20)
+        : null;
+    if (art) {
+      artifacts.push(art);
+      captureMethod = "dump";
+    } else {
+      emit("warn", `Falling back to a frozen volume copy for ${resource.type}`);
+      captureMethod = await copyVolumesAndBinds();
+    }
   } else {
-    // Everything else (apps, services, non-dumpable DBs): copy each volume and
-    // host-path (bind) mount WITHOUT ever stopping/recreating a container. For a
-    // consistent copy we briefly freeze (docker pause) only the running
-    // container(s) writing to it — unless liveBackup is set (copy live).
-    const total = resource.volumes.length + resource.bindMounts.length;
-    let i = 0;
-
-    for (const vol of resource.volumes) {
-      i++;
-      const owners = liveBackup ? [] : await runningRwContainersForVolume(vol);
-      const paused: string[] = [];
-      try {
-        for (const c of owners) {
-          emit("info", `Freezing ${c} for a consistent copy of ${vol}`);
-          await pauseContainer(c);
-          paused.push(c);
-        }
-        if (liveBackup) emit("warn", `Live copy of ${vol} without freezing (at your own risk) — may be inconsistent`);
-        emit("info", `Archiving volume ${vol} (${i}/${total})`, 20 + (50 * i) / Math.max(1, total));
-        const name = volumeFileName(vol);
-        const path = join(stage, name);
-        await tarVolume(vol, path);
-        await verifyTarOpens(path);
-        artifacts.push(await finalizeArtifact("volume", name, path, { volume: vol }, job, stage, emit));
-      } finally {
-        for (const c of paused.reverse()) {
-          emit("info", `Resuming ${c}`);
-          await unpauseContainer(c).catch((e) => emit("error", `Failed to resume ${c}: ${(e as Error).message}`));
-        }
+    // Apps & services: capture every volume + bind mount (no restart), AND give
+    // any database living inside the resource (e.g. the Postgres in a compose
+    // service) a logical export on top — application-consistent and restorable
+    // across engine versions. The volume copy is kept so "→ new" still works.
+    const dbs = await findDbContainers(containers);
+    let dumped = 0;
+    for (const db of dbs) {
+      const art = await dumpContainer(db.container, db.engine, { volume: db.volumes[0] ?? "" }, 15);
+      if (art) {
+        artifacts.push(art);
+        dumped++;
       }
     }
-
-    for (const b of resource.bindMounts) {
-      i++;
-      const freeze = !liveBackup && (await isContainerRunning(b.container));
-      const paused: string[] = [];
-      try {
-        if (freeze) {
-          emit("info", `Freezing ${b.container} for a consistent copy of ${b.source}`);
-          await pauseContainer(b.container);
-          paused.push(b.container);
-        }
-        if (liveBackup) emit("warn", `Live copy of ${b.source} without freezing (at your own risk) — may be inconsistent`);
-        emit("info", `Archiving host folder ${b.source} (${i}/${total})`, 20 + (50 * i) / Math.max(1, total));
-        const name = volumeFileName("bind-" + b.source.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, ""));
-        const path = join(stage, name);
-        await tarVolume(b.source, path); // tarVolume mounts the path — works for host paths too
-        await verifyTarOpens(path);
-        artifacts.push(await finalizeArtifact("volume", name, path, { bindSource: b.source }, job, stage, emit));
-      } finally {
-        for (const c of paused.reverse()) {
-          emit("info", `Resuming ${c}`);
-          await unpauseContainer(c).catch((e) => emit("error", `Failed to resume ${c}: ${(e as Error).message}`));
-        }
-      }
-    }
-    captureMethod = total === 0 ? "none" : liveBackup ? "live" : "frozen";
+    const volMethod = await copyVolumesAndBinds();
+    captureMethod = dumped > 0 ? `dump+${volMethod}` : volMethod;
   }
 
   // Config artifact (resource descriptor + provenance) — sensitive, encrypt if enabled.
@@ -174,37 +247,61 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
     destinationDir: job.destinationDir,
   };
 
-  // Upload everything to the destination.
-  emit("info", "Uploading to destination", 80);
-  const transfer = await makeTransfer(job.destination);
-  try {
-    if (job.mode === "sync") {
-      // Overwrite the single sync copy.
-      await transfer.removeDir(job.destinationDir).catch(() => undefined);
-    }
-    for (const a of artifacts) {
-      const local = join(stage, a.filename);
-      await transfer.put(local, `${job.destinationDir}/${a.filename}`);
-    }
-    const manifestPath = join(stage, MANIFEST_FILE);
-    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
-    await transfer.put(manifestPath, `${job.destinationDir}/${MANIFEST_FILE}`);
+  // Persist the manifest into the staging dir (it's part of what gets stored).
+  const manifestPath = join(stage, MANIFEST_FILE);
+  await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 
-    // Verify every artifact actually landed at the destination (catches a
-    // silently-failed or truncated upload).
-    emit("info", "Verifying backup at the destination", 95);
-    const present = new Set(await transfer.list(job.destinationDir).catch(() => []));
-    const missing = [...artifacts.map((a) => a.filename), MANIFEST_FILE].filter(
-      (f) => !present.has(`${job.destinationDir}/${f}`),
-    );
-    if (missing.length) throw new Error(`Backup verification failed: missing at destination: ${missing.join(", ")}`);
-  } finally {
-    await transfer.close();
+  if (job.storage.engine === "restic") {
+    // Incremental, deduplicated, encrypted: restic backs up the whole staging
+    // dir; only changed blocks are uploaded. The repo encrypts at rest.
+    emit("info", "Storing in restic repository (incremental)", 80);
+    if (!job.storage.resticPassword) throw new Error("restic engine selected but no repository password provided");
+    const env = resticEnv(job.destination, job.storage.resticPassword);
+    await resticEnsureRepo(env);
+    const snapId = await resticBackupDir(env, stage, [`snap:${job.id}`, `res:${resource.coolifyUuid}`]);
+    manifest.resticSnapshotId = snapId;
+    // Re-write the manifest with the id so a local copy reflects reality, then
+    // confirm the snapshot is listed.
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+    emit("info", `Stored as restic snapshot ${snapId}`, 95);
+  } else {
+    // tar engine: one file per artifact at the destination.
+    emit("info", "Uploading to destination", 80);
+    const transfer = await makeTransfer(job.destination);
+    try {
+      if (job.mode === "sync") {
+        await transfer.removeDir(job.destinationDir).catch(() => undefined);
+      }
+      for (const a of artifacts) {
+        const local = join(stage, a.filename);
+        await transfer.put(local, `${job.destinationDir}/${a.filename}`);
+      }
+      await transfer.put(manifestPath, `${job.destinationDir}/${MANIFEST_FILE}`);
+
+      // Verify every artifact actually landed (catches a truncated upload).
+      emit("info", "Verifying backup at the destination", 95);
+      const present = new Set(await transfer.list(job.destinationDir).catch(() => []));
+      const missing = [...artifacts.map((a) => a.filename), MANIFEST_FILE].filter(
+        (f) => !present.has(`${job.destinationDir}/${f}`),
+      );
+      if (missing.length) throw new Error(`Backup verification failed: missing at destination: ${missing.join(", ")}`);
+    } finally {
+      await transfer.close();
+    }
   }
 
   emit("info", "Backup complete", 100);
-  await rm(stage, { recursive: true, force: true });
   return manifest;
+  } finally {
+    // Post-backup hook always runs (e.g. bring an app back out of maintenance),
+    // best-effort, then clean the staging dir.
+    if (job.hooks?.post && primary && (await containerExists(primary))) {
+      emit("info", `Running post-backup hook in ${primary}`);
+      const r = await execShell(primary, job.hooks.post).catch((e) => ({ code: -1, stdout: "", stderr: (e as Error).message }));
+      if (r.code !== 0) emit("warn", `post-backup hook failed (exit ${r.code}): ${r.stderr.slice(0, 300)}`);
+    }
+    await rm(stage, { recursive: true, force: true });
+  }
 }
 
 /** Compute size + sha256, optionally encrypt, return the Artifact record. */

@@ -7,6 +7,7 @@ import {
   type SnapshotManifest,
   type ResourceDescriptor,
   type ResourceType,
+  type StorageSpec,
   snapshotDir,
 } from "@cbm/shared";
 import { prisma } from "./prisma";
@@ -25,10 +26,21 @@ export function resolveDestination(dest: Destination): ResolvedDestination {
 }
 
 export function resolveEncryption(dest: Destination): EncryptionSpec {
+  // restic encrypts the repository natively, so artifacts are never double-encrypted.
+  if (dest.engine === "restic") return { enabled: false };
   if (dest.encryptionEnabled && dest.encryptionKeyEnc) {
     return { enabled: true, key: decryptSecret(dest.encryptionKeyEnc) };
   }
   return { enabled: false };
+}
+
+/** Storage engine + secrets for a destination (tar files vs a restic repo). */
+export function resolveStorage(dest: Destination): StorageSpec {
+  if (dest.engine === "restic") {
+    if (!dest.resticPasswordEnc) throw new Error(`Destination "${dest.name}" uses restic but has no repository password`);
+    return { engine: "restic", resticPassword: decryptSecret(dest.resticPasswordEnc) };
+  }
+  return { engine: "tar" };
 }
 
 /**
@@ -163,6 +175,11 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
     },
     destination: resolveDestination(dest),
     encryption: resolveEncryption(dest),
+    storage: resolveStorage(dest),
+    hooks:
+      resource.preBackupHook || resource.postBackupHook
+        ? { pre: resource.preBackupHook ?? undefined, post: resource.postBackupHook ?? undefined }
+        : undefined,
     destinationDir: dir,
   };
 
@@ -396,6 +413,8 @@ export async function enqueueRestore(snapshotId: string, target: "in_place" | "n
     type: "restore",
     manifest,
     source: resolveDestination(snapshot.destination),
+    storage: resolveStorage(snapshot.destination),
+    resticSnapshotId: snapshot.resticSnapshotId ?? undefined,
     decryptionKey: enc.enabled ? enc.key : undefined,
     target,
     targetResource,
@@ -418,12 +437,16 @@ export async function enqueuePrune(opts: {
   instanceId: string | null;
   destination: Destination;
   dirs: string[];
+  /** restic snapshot ids to forget (restic engine). */
+  resticSnapshotIds?: string[];
   /** Target a specific agent (the producer) — required for a "local" destination
    * whose files live on that agent's host. */
   agentId?: string | null;
 }): Promise<{ jobId: string; agentId: string } | null> {
+  const isRestic = opts.destination.engine === "restic";
   const dirs = opts.dirs.filter(Boolean);
-  if (dirs.length === 0) return null;
+  const resticSnapshotIds = (opts.resticSnapshotIds ?? []).filter(Boolean);
+  if (isRestic ? resticSnapshotIds.length === 0 : dirs.length === 0) return null;
   const agent = (await agentById(opts.agentId)) ?? (await pickAgent(opts.instanceId));
   if (!agent) return null;
 
@@ -434,7 +457,9 @@ export async function enqueuePrune(opts: {
     id: agentJob.id,
     type: "prune",
     destination: resolveDestination(opts.destination),
+    storage: resolveStorage(opts.destination),
     dirs,
+    resticSnapshotIds,
   };
   await prisma.agentJob.update({ where: { id: agentJob.id }, data: { payload: job as unknown as object } });
   return { jobId: agentJob.id, agentId: agent.id };
@@ -460,37 +485,41 @@ export async function enqueueVerifyDestination(destinationId: string): Promise<{
   const dest = await prisma.destination.findUnique({ where: { id: destinationId } });
   if (!dest) return { queued: 0 };
 
+  const isRestic = dest.engine === "restic";
   // Re-check both healthy and already-missing snapshots (so a backup whose files
-  // reappear can flip back to succeeded).
+  // reappear can flip back to succeeded). restic needs the snapshot id.
   const snaps = await prisma.snapshot.findMany({
-    where: { destinationId, status: { in: ["succeeded", "missing"] } },
-    select: { destinationDir: true, agentId: true },
+    where: {
+      destinationId,
+      status: { in: ["succeeded", "missing"] },
+      ...(isRestic ? { resticSnapshotId: { not: null } } : {}),
+    },
+    select: { destinationDir: true, agentId: true, resticSnapshotId: true },
   });
   if (snaps.length === 0) return { queued: 0 };
 
   const resolved = resolveDestination(dest);
+  const storage = resolveStorage(dest);
 
-  // Group dirs by the agent that must run the check.
-  const groups = new Map<string | null, string[]>();
+  // Group by the agent that must run the check. A "local" destination (tar or
+  // restic) lives on each producing agent's host; ssh/s3 are reachable anywhere.
+  const groups = new Map<string | null, typeof snaps>();
   if (dest.type === "local") {
     for (const s of snaps) {
       const key = s.agentId ?? null;
-      const arr = groups.get(key) ?? [];
-      arr.push(s.destinationDir);
-      groups.set(key, arr);
+      groups.set(key, [...(groups.get(key) ?? []), s]);
     }
   } else {
-    // ssh/s3: one group reachable by any online agent.
-    groups.set("__any__" as unknown as string, snaps.map((s) => s.destinationDir));
+    groups.set("__any__" as unknown as string, snaps);
   }
 
   let queued = 0;
-  for (const [key, dirs] of groups) {
-    if (dirs.length === 0) continue;
+  for (const [key, groupSnaps] of groups) {
+    if (groupSnaps.length === 0) continue;
     let agent;
     if (key === ("__any__" as unknown as string)) agent = await anyOnlineAgent();
     else if (key === null) {
-      console.warn(`[verify] ${dirs.length} local snapshot(s) on destination ${dest.name} have no known agent; skipped`);
+      console.warn(`[verify] ${groupSnaps.length} local snapshot(s) on destination ${dest.name} have no known agent; skipped`);
       continue;
     } else agent = await agentById(key);
     if (!agent) {
@@ -505,10 +534,15 @@ export async function enqueueVerifyDestination(destinationId: string): Promise<{
       id: agentJob.id,
       type: "verify-destination" as const,
       destination: resolved,
-      dirs,
+      storage,
+      dirs: groupSnaps.map((s) => s.destinationDir),
+      resticSnapshotIds: isRestic
+        ? groupSnaps.map((s) => s.resticSnapshotId).filter((x): x is string => !!x)
+        : undefined,
       // Extra (ignored by the agent's parse) so the result route knows which
-      // destination these dirs belong to.
+      // destination + engine these results belong to.
       destinationId,
+      engine: dest.engine,
     };
     await prisma.agentJob.update({ where: { id: agentJob.id }, data: { payload: job as unknown as object } });
     queued++;

@@ -1,5 +1,6 @@
 import type { ResourceDescriptor, DbCredentials, ResourceType } from "@cbm/shared";
 import { docker, inspectContainer } from "./docker.js";
+import { detectEngine, type Engine } from "./engines.js";
 import { logger } from "./logger.js";
 
 /**
@@ -123,7 +124,7 @@ async function pickPrimary(containers: string[], type: ResourceType): Promise<st
   return undefined;
 }
 
-async function readDbCredentials(container: string, type: ResourceType): Promise<DbCredentials | undefined> {
+export async function readDbCredentials(container: string, type: ResourceType): Promise<DbCredentials | undefined> {
   const info = await inspectContainer(container);
   const envArr: string[] = info?.Config?.Env ?? [];
   const env: Record<string, string> = {};
@@ -132,6 +133,10 @@ async function readDbCredentials(container: string, type: ResourceType): Promise
     if (i > 0) env[e.slice(0, i)] = e.slice(i + 1);
   }
   switch (type) {
+    case "redis":
+    case "keydb":
+    case "dragonfly":
+      return { password: env.REDIS_PASSWORD || env.REDISCLI_AUTH || env.KEYDB_PASSWORD || "" };
     case "postgresql":
       return {
         user: env.POSTGRES_USER || "postgres",
@@ -160,6 +165,30 @@ async function readDbCredentials(container: string, type: ResourceType): Promise
     default:
       return undefined;
   }
+}
+
+/** Volume names (named docker volumes) a container mounts. */
+export async function containerVolumes(container: string): Promise<string[]> {
+  const info = await inspectContainer(container);
+  const mounts: Array<{ Type?: string; Name?: string }> = info?.Mounts ?? [];
+  return mounts.filter((m) => m?.Type === "volume" && m.Name).map((m) => m.Name as string);
+}
+
+/** Detect database engines among a resource's containers (e.g. the Postgres
+ * inside a docker-compose service), so each gets a logical export. */
+export async function findDbContainers(
+  containerNames: string[],
+): Promise<{ container: string; engine: Engine; volumes: string[] }[]> {
+  const out: { container: string; engine: Engine; volumes: string[] }[] = [];
+  for (const c of containerNames) {
+    const info = await inspectContainer(c);
+    const engine = detectEngine(info?.Config?.Image);
+    if (!engine) continue;
+    const mounts: Array<{ Type?: string; Name?: string }> = info?.Mounts ?? [];
+    const volumes = mounts.filter((m) => m?.Type === "volume" && m.Name).map((m) => m.Name as string);
+    out.push({ container: c, engine, volumes });
+  }
+  return out;
 }
 
 function parseEnv(arr: string[]): Record<string, string> {

@@ -24,6 +24,8 @@ export interface AgentConfig {
   dockerBin: string;
   pollIntervalMs: number;
   heartbeatIntervalMs: number;
+  /** How many jobs this agent runs at once. */
+  concurrency: number;
 }
 
 export function loadConfig(): AgentConfig {
@@ -37,5 +39,6 @@ export function loadConfig(): AgentConfig {
     dockerBin: optional("DOCKER_BIN", "docker"),
     pollIntervalMs: Number(optional("POLL_INTERVAL_MS", "5000")),
     heartbeatIntervalMs: Number(optional("HEARTBEAT_INTERVAL_MS", "30000")),
+    concurrency: Math.max(1, Number(optional("AGENT_CONCURRENCY", "2"))),
   };
 }

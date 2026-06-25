@@ -173,6 +173,20 @@ export async function restoreVolume(volume: string, inFile: string): Promise<voi
   );
 }
 
+/**
+ * Write a single file into a docker volume (creating it if missing). Used to
+ * place a Redis RDB snapshot (`dump.rdb`) into the data volume before the
+ * container loads it. `destName` must be a plain filename (no path traversal).
+ */
+export async function writeFileIntoVolume(volume: string, destName: string, inFile: string): Promise<void> {
+  if (!/^[a-zA-Z0-9._-]+$/.test(destName)) throw new Error(`Unsafe volume file name: ${destName}`);
+  await docker(["volume", "create", volume]);
+  await dockerFromFile(
+    ["run", "--rm", "-i", "-v", `${volume}:/data`, "alpine:3.20", "sh", "-c", `cat > /data/${destName}`],
+    inFile,
+  );
+}
+
 /** Restore a tarball into a host directory (a bind-mount source). */
 export async function restoreToPath(hostPath: string, inFile: string): Promise<void> {
   await dockerFromFile(
@@ -197,6 +211,11 @@ export async function restoreToPath(hostPath: string, inFile: string): Promise<v
  */
 export async function verifyTarOpens(inFile: string): Promise<void> {
   await dockerFromFile(["run", "--rm", "-i", "alpine:3.20", "tar", "-tf", "-"], inFile);
+}
+
+/** Run a shell command inside a container (used for pre/post-backup hooks). */
+export async function execShell(container: string, command: string): Promise<RunResult> {
+  return docker(["exec", container, "sh", "-c", command]);
 }
 
 export async function dockerVersion(): Promise<string> {

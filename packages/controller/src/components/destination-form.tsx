@@ -6,8 +6,10 @@ import { createDestination } from "@/app/actions";
 
 export function DestinationForm() {
   const [type, setType] = useState("local");
+  const [engine, setEngine] = useState("tar");
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const resticOk = type !== "ssh";
 
   return (
     <form
@@ -30,11 +32,35 @@ export function DestinationForm() {
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="type">Type</Label>
-        <Select id="type" name="type" value={type} onChange={(e) => setType(e.target.value)}>
+        <Select
+          id="type"
+          name="type"
+          value={type}
+          onChange={(e) => {
+            setType(e.target.value);
+            if (e.target.value === "ssh") setEngine("tar");
+          }}
+        >
           <option value="local">Local folder</option>
           <option value="ssh">SSH / SFTP</option>
           <option value="s3">S3 compatible</option>
         </Select>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="engine">Storage engine</Label>
+        <Select id="engine" name="engine" value={engine} onChange={(e) => setEngine(e.target.value)}>
+          <option value="tar">Standard (one archive per backup)</option>
+          <option value="restic" disabled={!resticOk}>
+            restic — incremental + deduplicated + encrypted{resticOk ? "" : " (local/S3 only)"}
+          </option>
+        </Select>
+        {engine === "restic" && (
+          <p className="text-xs text-muted-foreground">
+            Only changed data is uploaded each run; the repository is encrypted and handles retention. Restore is
+            supported in place and to a new resource.
+          </p>
+        )}
       </div>
 
       {type === "local" && (
@@ -83,9 +109,11 @@ export function DestinationForm() {
         </>
       )}
 
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" name="encryptionEnabled" /> Encrypt artifacts at rest (AES-256-GCM)
-      </label>
+      {engine === "tar" && (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="encryptionEnabled" /> Encrypt artifacts at rest (AES-256-GCM)
+        </label>
+      )}
 
       {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
       <Button type="submit" variant="primary" disabled={pending} className="self-start">

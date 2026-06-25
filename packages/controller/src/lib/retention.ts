@@ -46,19 +46,29 @@ export async function applyRetention(policyId: string): Promise<{ deleted: numbe
     // agent's host, so only it can delete them).
     const byGroup = new Map<
       string,
-      { destination: (typeof toDelete)[number]["destination"]; agentId: string | null; dirs: string[] }
+      {
+        destination: (typeof toDelete)[number]["destination"];
+        agentId: string | null;
+        dirs: string[];
+        resticSnapshotIds: string[];
+      }
     >();
     for (const s of toDelete) {
       const agentId = s.destination.type === "local" ? s.agentId : null;
       const key = `${s.destinationId}::${agentId ?? ""}`;
-      const g = byGroup.get(key) ?? { destination: s.destination, agentId, dirs: [] };
+      const g = byGroup.get(key) ?? { destination: s.destination, agentId, dirs: [], resticSnapshotIds: [] };
       g.dirs.push(s.destinationDir);
+      if (s.resticSnapshotId) g.resticSnapshotIds.push(s.resticSnapshotId);
       byGroup.set(key, g);
     }
     for (const g of byGroup.values()) {
-      await enqueuePrune({ instanceId: r.instanceId, destination: g.destination, dirs: g.dirs, agentId: g.agentId }).catch(
-        (e) => console.warn(`[retention] prune enqueue failed: ${(e as Error).message}`),
-      );
+      await enqueuePrune({
+        instanceId: r.instanceId,
+        destination: g.destination,
+        dirs: g.dirs,
+        resticSnapshotIds: g.resticSnapshotIds,
+        agentId: g.agentId,
+      }).catch((e) => console.warn(`[retention] prune enqueue failed: ${(e as Error).message}`));
     }
 
     for (const s of toDelete) {

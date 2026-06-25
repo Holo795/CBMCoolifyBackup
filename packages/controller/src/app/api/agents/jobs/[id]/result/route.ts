@@ -36,6 +36,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           status: "succeeded",
           finishedAt: new Date(),
           manifest: m as unknown as object,
+          // The agent's manifest is authoritative for how it actually captured
+          // (e.g. a Redis resource dumped logically, not frozen).
+          captureMode: m.captureMode,
+          resticSnapshotId: result.resticSnapshotId ?? m.resticSnapshotId ?? undefined,
           sizeBytes: BigInt(totalSize),
           artifacts: {
             create: m.artifacts.map((a) => ({
@@ -80,31 +84,34 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   if (job.type === "verify-destination" && result.verify) {
-    const destinationId = (job.payload as { destinationId?: string } | null)?.destinationId;
+    const payload = job.payload as { destinationId?: string; engine?: string } | null;
+    const destinationId = payload?.destinationId;
+    const isRestic = payload?.engine === "restic";
     const now = new Date();
     const present = result.verify.present;
     const missing = result.verify.missing;
+    // present/missing carry restic snapshot ids (restic engine) or snapshot
+    // directories (tar engine) — match snapshots on the matching column.
+    const match = (vals: string[]) =>
+      isRestic ? { resticSnapshotId: { in: vals } } : { destinationDir: { in: vals } };
     if (destinationId) {
       if (present.length) {
         // Confirmed present: refresh the check time, and un-flag any that had
         // been marked missing but reappeared.
+        await prisma.snapshot.updateMany({ where: { destinationId, ...match(present) }, data: { lastCheckedAt: now } });
         await prisma.snapshot.updateMany({
-          where: { destinationId, destinationDir: { in: present } },
-          data: { lastCheckedAt: now },
-        });
-        await prisma.snapshot.updateMany({
-          where: { destinationId, destinationDir: { in: present }, status: "missing" },
+          where: { destinationId, ...match(present), status: "missing" },
           data: { status: "succeeded" },
         });
       }
       if (missing.length) {
         // Newly missing = not already flagged — alert only on these.
         const newly = await prisma.snapshot.findMany({
-          where: { destinationId, destinationDir: { in: missing }, status: { not: "missing" } },
+          where: { destinationId, ...match(missing), status: { not: "missing" } },
           select: { id: true },
         });
         await prisma.snapshot.updateMany({
-          where: { destinationId, destinationDir: { in: missing } },
+          where: { destinationId, ...match(missing) },
           data: { status: "missing", lastCheckedAt: now },
         });
         if (newly.length) await notifyMissingBackups(newly.map((s) => s.id)).catch(() => undefined);

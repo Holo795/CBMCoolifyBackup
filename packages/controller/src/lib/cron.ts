@@ -88,3 +88,20 @@ export function isValidCron(expr: string): boolean {
     return false;
   }
 }
+
+/**
+ * Most recent time `expr` should have fired at or before `now` (evaluated in
+ * `timeZone`), scanning back minute-by-minute up to `maxDays`. Returns null if
+ * the schedule hasn't fired within that window. Used to detect missed backups.
+ */
+export function previousFireWithin(expr: string, now: Date, timeZone = "UTC", maxDays = 40): Date | null {
+  if (!isValidCron(expr)) return null;
+  const start = new Date(now.getTime());
+  start.setSeconds(0, 0);
+  const steps = maxDays * 24 * 60;
+  for (let i = 0; i < steps; i++) {
+    const t = new Date(start.getTime() - i * 60_000);
+    if (cronMatches(expr, t, timeZone)) return t;
+  }
+  return null;
+}

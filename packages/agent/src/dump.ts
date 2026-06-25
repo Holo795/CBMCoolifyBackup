@@ -55,6 +55,26 @@ function buildMysqlDumpCmd(tool: string, user: string, database: string): string
   return `(command -v ${tool} >/dev/null 2>&1 && ${tool} -u'${u}' ${dbpart}) || mysqldump -u'${u}' ${dbpart}`;
 }
 
+/**
+ * Stream a consistent RDB snapshot of a Redis-family store (redis/keydb/
+ * dragonfly) to outFile via the in-container CLI — no freeze, no disk write on
+ * the server. Throws if no compatible CLI is present (caller falls back to a
+ * volume copy). Auth goes through REDISCLI_AUTH so the password never lands in
+ * the process args.
+ */
+export async function dumpRedis(container: string, password: string | undefined, outFile: string): Promise<void> {
+  const args = ["exec"];
+  if (password) args.push("-e", `REDISCLI_AUTH=${password}`);
+  args.push(
+    container,
+    "sh",
+    "-c",
+    "(command -v redis-cli >/dev/null 2>&1 && redis-cli --no-auth-warning --rdb -) || " +
+      "(command -v keydb-cli >/dev/null 2>&1 && keydb-cli --no-auth-warning --rdb -)",
+  );
+  await dockerToFile(args, outFile);
+}
+
 /** Create an empty database (used by restore-to-new for engines that support it). */
 export async function createDatabase(
   type: ResourceType,

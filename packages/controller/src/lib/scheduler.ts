@@ -4,6 +4,7 @@ import { cronMatches } from "./cron";
 import { enqueueBackup, enqueueVerifyDestination } from "./jobs";
 import { applyRetention } from "./retention";
 import { reaper } from "./reaper";
+import { checkOverdue } from "./overdue";
 import { syncInstance } from "./discovery";
 import { getTimezone } from "./settings";
 
@@ -87,7 +88,31 @@ export async function tick(now = new Date()): Promise<number> {
         await enqueueBackup(r.id, p.id, runId);
         triggered++;
       } catch (e) {
-        console.error(`[scheduler] enqueue failed for ${r.name}:`, (e as Error).message);
+        // The run could not even be queued (e.g. no agent on the resource's
+        // server). Record a visible failed snapshot + alert instead of only
+        // logging, so a skipped resource doesn't silently look healthy.
+        const message = (e as Error).message;
+        console.error(`[scheduler] enqueue failed for ${r.name}:`, message);
+        try {
+          const snap = await prisma.snapshot.create({
+            data: {
+              resourceId: r.id,
+              policyId: p.id,
+              destinationId: p.destinationId,
+              mode: p.mode,
+              captureMode: "none",
+              status: "failed",
+              destinationDir: "",
+              runId,
+              error: message,
+              finishedAt: new Date(),
+            },
+          });
+          const { notifyBackupFailed } = await import("./notify");
+          await notifyBackupFailed(snap.id).catch(() => undefined);
+        } catch (e2) {
+          console.error(`[scheduler] could not record failed snapshot for ${r.name}:`, (e2 as Error).message);
+        }
       }
     }
     // Retention runs after each policy fire (cheap, idempotent).
@@ -127,6 +152,12 @@ export function startScheduler(): void {
         if (n.getHours() === 3 && n.getMinutes() === 30) await reconcileAllDestinations();
       } catch (e) {
         console.error("[scheduler] reconcile error", e);
+      }
+      try {
+        // Detect scheduled backups that never ran (hourly).
+        if (new Date().getMinutes() === 7) await checkOverdue(new Date());
+      } catch (e) {
+        console.error("[scheduler] overdue check error", e);
       }
       schedule();
     }, msToNextMinute);

@@ -10,8 +10,9 @@ COPY packages/agent packages/agent
 RUN npm run build --workspace @cbm/shared && npm run build --workspace @cbm/agent
 
 FROM node:22-alpine AS runtime
-# docker-cli is required: the agent shells out to `docker` for exec/tar/inspect.
-RUN apk add --no-cache docker-cli
+# docker-cli: the agent shells out to `docker` for exec/tar/inspect.
+# restic: incremental/deduplicated/encrypted storage engine (optional per destination).
+RUN apk add --no-cache docker-cli restic
 WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared/dist ./packages/shared/dist
