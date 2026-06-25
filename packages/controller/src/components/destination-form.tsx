@@ -73,7 +73,7 @@ export function DestinationForm() {
 
       {type === "ssh" && (
         <>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Field name="host" label="Host" placeholder="82.66.67.104" />
             <Field name="port" label="Port" placeholder="22" defaultValue="22" />
           </div>
@@ -96,7 +96,7 @@ export function DestinationForm() {
       {type === "s3" && (
         <>
           <Field name="bucket" label="Bucket" placeholder="coolify-backups" />
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Field name="region" label="Region" placeholder="us-east-1" defaultValue="us-east-1" />
             <Field name="prefix" label="Prefix" placeholder="cbm" />
           </div>

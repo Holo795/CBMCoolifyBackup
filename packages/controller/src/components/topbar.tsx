@@ -5,21 +5,25 @@ import { LogOut } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "./ui";
 import { ThemeToggle } from "./theme-toggle";
+import { MobileNav } from "./mobile-nav";
 
 export function Topbar({ email }: { email: string }) {
   const router = useRouter();
   return (
-    <header className="flex h-14 items-center justify-between border-b px-5">
-      <button
-        className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-        onClick={() => {
-          const ev = new KeyboardEvent("keydown", { key: "k", metaKey: true });
-          window.dispatchEvent(ev);
-        }}
-      >
-        Search…
-        <kbd className="rounded border px-1.5 py-0.5 text-[10px]">⌘K</kbd>
-      </button>
+    <header className="flex h-14 items-center justify-between gap-2 border-b px-4 sm:px-5">
+      <div className="flex items-center gap-2">
+        <MobileNav />
+        <button
+          className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+          onClick={() => {
+            const ev = new KeyboardEvent("keydown", { key: "k", metaKey: true });
+            window.dispatchEvent(ev);
+          }}
+        >
+          Search…
+          <kbd className="hidden rounded border px-1.5 py-0.5 text-[10px] sm:inline">⌘K</kbd>
+        </button>
+      </div>
       <div className="flex items-center gap-2">
         <span className="hidden text-sm text-muted-foreground sm:inline">{email}</span>
         <ThemeToggle />

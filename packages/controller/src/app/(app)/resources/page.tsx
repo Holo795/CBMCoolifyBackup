@@ -78,7 +78,7 @@ export default async function ResourcesPage({
       ) : (
         <Card>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
+            <table className="hidden w-full text-sm md:table">
               <thead className="border-b text-left text-xs text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2.5 font-medium">Name</th>
@@ -151,6 +151,50 @@ export default async function ResourcesPage({
                 })}
               </tbody>
             </table>
+
+            {/* Mobile: one card per resource. */}
+            <div className="divide-y md:hidden">
+              {rows.map((r) => {
+                const agentDown = !liveInstanceIds.has(r.instanceId);
+                const isControlPlane = r.coolifyUuid.startsWith("coolify-self");
+                if (agentDown) {
+                  return (
+                    <div key={r.id} className="flex flex-col gap-2 p-4 opacity-60">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{r.name}</span>
+                        <Badge>{r.type}</Badge>
+                      </div>
+                      <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-warning)]">
+                        <Unplug className="h-3.5 w-3.5 shrink-0" /> Agent unavailable
+                      </span>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={r.id} className={`flex flex-col gap-3 p-4 ${isControlPlane ? "bg-muted/30" : ""}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <a href={`/resources/${r.id}`} className="font-medium hover:underline">
+                        {r.name}
+                      </a>
+                      {isControlPlane && (
+                        <Badge tone="accent">
+                          <Pin className="h-3 w-3" /> control plane
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <Badge>{r.type}</Badge>
+                      <Badge tone={statusTone(r.status)}>{r.status}</Badge>
+                      <span className="text-muted-foreground">{r.projectName || "—"}</span>
+                    </div>
+                    <ResourceToggles id={r.id} backupEnabled={r.backupEnabled} liveBackup={r.liveBackup} />
+                    <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg="Queued">
+                      <Play className="h-3.5 w-3.5" /> Backup
+                    </ActionButton>
+                  </div>
+                );
+              })}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -179,7 +223,7 @@ export default async function ResourcesPage({
           </summary>
           <Card className="mt-3">
             <CardContent className="p-0">
-              <table className="w-full text-sm">
+              <table className="hidden w-full text-sm md:table">
                 <thead className="border-b text-left text-xs text-muted-foreground">
                   <tr>
                     <th className="px-4 py-2.5 font-medium">Name</th>
@@ -211,6 +255,21 @@ export default async function ResourcesPage({
                   ))}
                 </tbody>
               </table>
+
+              {/* Mobile: cards. */}
+              <div className="divide-y md:hidden">
+                {orphaned.map((r) => (
+                  <a key={r.id} href={`/resources/${r.id}`} className="flex items-center justify-between gap-2 p-4">
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{r.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {r.type} · {r._count.snapshots} snapshot{r._count.snapshots === 1 ? "" : "s"}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-xs text-accent">View →</span>
+                  </a>
+                ))}
+              </div>
             </CardContent>
           </Card>
           <p className="mt-2 text-xs text-muted-foreground">

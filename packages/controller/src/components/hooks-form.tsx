@@ -58,7 +58,7 @@ export function HooksForm({
           {multi && (
             <div className="font-mono text-xs font-medium text-foreground">{r.container || "primary container"}</div>
           )}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div className="flex flex-col gap-1">
               <Label htmlFor={`pre-${i}`}>Pre-backup</Label>
               <Input

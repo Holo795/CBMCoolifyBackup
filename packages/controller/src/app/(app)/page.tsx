@@ -50,32 +50,51 @@ export default async function OverviewPage() {
           {recent.length === 0 ? (
             <p className="p-6 text-sm text-muted-foreground">No snapshots yet.</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="border-b text-left text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-2.5 font-medium">Resource</th>
-                  <th className="px-4 py-2.5 font-medium">Mode</th>
-                  <th className="px-4 py-2.5 font-medium">Status</th>
-                  <th className="px-4 py-2.5 font-medium">Size</th>
-                  <th className="px-4 py-2.5 font-medium">When</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recent.map((s) => (
-                  <tr key={s.id} className="border-b last:border-0">
-                    <td className="px-4 py-2.5 font-medium">{s.resource.name}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">
-                      {s.mode} · {s.captureMode}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <Badge tone={statusTone(s.status)}>{s.status}</Badge>
-                    </td>
-                    <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{formatBytes(s.sizeBytes)}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{timeAgo(s.startedAt)}</td>
+            <>
+              <table className="hidden w-full text-sm md:table">
+                <thead className="border-b text-left text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2.5 font-medium">Resource</th>
+                    <th className="px-4 py-2.5 font-medium">Mode</th>
+                    <th className="px-4 py-2.5 font-medium">Status</th>
+                    <th className="px-4 py-2.5 font-medium">Size</th>
+                    <th className="px-4 py-2.5 font-medium">When</th>
                   </tr>
+                </thead>
+                <tbody>
+                  {recent.map((s) => (
+                    <tr key={s.id} className="border-b last:border-0">
+                      <td className="px-4 py-2.5 font-medium">{s.resource.name}</td>
+                      <td className="px-4 py-2.5 text-muted-foreground">
+                        {s.mode} · {s.captureMode}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <Badge tone={statusTone(s.status)}>{s.status}</Badge>
+                      </td>
+                      <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{formatBytes(s.sizeBytes)}</td>
+                      <td className="px-4 py-2.5 text-muted-foreground">{timeAgo(s.startedAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Mobile: cards. */}
+              <div className="divide-y md:hidden">
+                {recent.map((s) => (
+                  <div key={s.id} className="flex flex-col gap-1.5 p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{s.resource.name}</span>
+                      <Badge tone={statusTone(s.status)}>{s.status}</Badge>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <span>{s.mode} · {s.captureMode}</span>
+                      <span>{formatBytes(s.sizeBytes)}</span>
+                      <span>{timeAgo(s.startedAt)}</span>
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

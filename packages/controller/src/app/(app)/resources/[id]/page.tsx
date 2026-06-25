@@ -169,7 +169,7 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
       ) : (
         <Card>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
+            <table className="hidden w-full text-sm md:table">
               <thead className="border-b text-left text-xs text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2.5 font-medium">When</th>
@@ -216,6 +216,39 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
                 ))}
               </tbody>
             </table>
+
+            {/* Mobile: one card per snapshot. */}
+            <div className="divide-y md:hidden">
+              {snapshots.map((s) => (
+                <div key={s.id} className="flex flex-col gap-2 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <Link href={`/snapshots/${s.id}`} className="font-medium hover:underline">
+                      {timeAgo(s.startedAt)}
+                    </Link>
+                    <Badge tone={statusTone(s.status)}>{s.status}</Badge>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span>{s.mode} · {s.captureMode}</span>
+                    <span>{formatBytes(s.sizeBytes)}</span>
+                    <span>{s.destination.name}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {s.status === "succeeded" && <RestoreActions snapshotId={s.id} hasAgent={!agentDown} />}
+                    <ConfirmDeleteButton
+                      action={deleteSnapshot.bind(null, s.id)}
+                      confirmWord="DELETE"
+                      title="Delete this snapshot?"
+                      body={
+                        <>
+                          Permanently removes this snapshot ({formatBytes(s.sizeBytes)}), including{" "}
+                          <b>its files on the destination</b> (deleted by the agent).
+                        </>
+                      }
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       )}

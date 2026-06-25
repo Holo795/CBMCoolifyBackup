@@ -47,7 +47,8 @@ export default async function AgentsPage() {
       ) : (
         <Card>
           <CardContent className="p-0">
-            <table className="w-full text-sm">
+            {/* Desktop: table. Mobile: cards (below). */}
+            <table className="hidden w-full text-sm md:table">
               <thead className="border-b text-left text-xs text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2.5 font-medium">Host</th>
@@ -106,6 +107,53 @@ export default async function AgentsPage() {
                 ))}
               </tbody>
             </table>
+
+            {/* Mobile: one card per agent. */}
+            <div className="divide-y md:hidden">
+              {agents.map((a) => (
+                <div key={a.id} className="flex flex-col gap-2 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{a.hostname}</span>
+                    <Badge tone={statusTone(a.status)}>{a.status}</Badge>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span>
+                      Instance:{" "}
+                      {a.instance ? (
+                        <Link href="/instances" className="text-foreground hover:underline">
+                          {a.instance.name}
+                        </Link>
+                      ) : (
+                        <span className="text-[var(--color-warning)]">unlinked</span>
+                      )}
+                    </span>
+                    <span>Docker {a.dockerVersion ?? "—"}</span>
+                    <span>{a.containers ?? 0} containers</span>
+                    <span>seen {timeAgo(a.lastSeenAt)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <AgentServerSelect
+                      agentId={a.id}
+                      serverUuid={a.serverUuid}
+                      serverName={a.serverName}
+                      serverManual={a.serverManual}
+                      options={serverOptionsFor(a.instanceId)}
+                    />
+                    <ConfirmDeleteButton
+                      action={deleteAgent.bind(null, a.id)}
+                      confirmWord={a.hostname}
+                      title={`Remove agent “${a.hostname}”?`}
+                      body={
+                        <>
+                          Removes this agent from the controller. If it&apos;s still running on <b>{a.hostname}</b>, it
+                          will keep failing until you reconfigure it.
+                        </>
+                      }
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       )}
