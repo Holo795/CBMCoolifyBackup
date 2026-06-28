@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, HardDrive, Server, Cpu, Clock, Bell, CornerDownLeft, type LucideIcon } from "lucide-react";
+import { Search, HardDrive, Server, Cpu, Clock, Bell, User, Mail, CornerDownLeft, type LucideIcon } from "lucide-react";
 import { NAV } from "./nav";
 
 type Entry = {
@@ -22,15 +22,15 @@ type Index = {
   agents: { id: string; hostname: string }[];
 };
 
-// Extra search terms (incl. FR aliases) so "ressource", "tz", "webhook"… match.
+// Extra search synonyms so "tz", "webhook", "mailer" also match a page.
 const NAV_KEYWORDS: Record<string, string[]> = {
-  "/": ["overview", "dashboard", "accueil", "home"],
-  "/instances": ["instance", "coolify", "panel", "serveur", "server"],
-  "/resources": ["resource", "ressource", "app", "application", "database", "service"],
+  "/": ["overview", "dashboard", "home"],
+  "/instances": ["instance", "coolify", "panel", "server"],
+  "/resources": ["resource", "app", "application", "database", "service"],
   "/destinations": ["destination", "storage", "s3", "ssh", "local", "restic", "backup target"],
-  "/snapshots": ["snapshot", "backup", "sauvegarde", "restore", "restauration"],
-  "/agents": ["agent", "host", "hote"],
-  "/settings": ["settings", "reglages", "réglages", "config", "configuration"],
+  "/snapshots": ["snapshot", "backup", "restore"],
+  "/agents": ["agent", "host"],
+  "/settings": ["settings", "config", "configuration"],
 };
 
 // Group order in the results.
@@ -46,12 +46,20 @@ const STATIC: Entry[] = [
     icon: n.icon,
   })),
   {
+    id: "nav:/profile",
+    label: "Profile",
+    href: "/profile",
+    group: "Pages",
+    keywords: ["profile", "account", "name", "password", "email", "credentials"],
+    icon: User,
+  },
+  {
     id: "settings:timezone",
     label: "Timezone",
     sub: "Settings",
     href: "/settings#timezone",
     group: "Settings",
-    keywords: ["timezone", "time", "tz", "clock", "fuseau", "heure"],
+    keywords: ["timezone", "time", "tz", "clock"],
     icon: Clock,
   },
   {
@@ -60,8 +68,17 @@ const STATIC: Entry[] = [
     sub: "Settings",
     href: "/settings#alerts",
     group: "Settings",
-    keywords: ["alert", "alerte", "webhook", "discord", "slack", "notification"],
+    keywords: ["alert", "webhook", "discord", "slack", "notification"],
     icon: Bell,
+  },
+  {
+    id: "settings:email",
+    label: "Email (SMTP)",
+    sub: "Settings",
+    href: "/settings#email",
+    group: "Settings",
+    keywords: ["smtp", "email", "mail", "mailer", "password reset", "verification", "reset"],
+    icon: Mail,
   },
 ];
 

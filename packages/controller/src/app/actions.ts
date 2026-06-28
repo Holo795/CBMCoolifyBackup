@@ -76,18 +76,134 @@ export async function changePassword(fd: FormData) {
   return { ok: true };
 }
 
-/** Change the signed-in user's own email (takes effect immediately). */
+/** Change the signed-in user's own email. With verification off this takes
+ *  effect immediately; with it on, Better Auth emails a confirmation link. */
 export async function changeEmail(fd: FormData) {
-  await requireUser();
+  const user = await requireUser();
   const newEmail = s(fd, "newEmail").toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail)) return { error: "Enter a valid email address" };
+  if (newEmail === user.email.toLowerCase()) return { ok: true };
+
+  const setting = await prisma.setting.findUnique({ where: { id: "global" } }).catch(() => null);
+  if (setting?.requireEmailVerification) {
+    // Verification on: Better Auth sends a confirmation link to the current
+    // address; the change applies only once it's clicked.
+    try {
+      await auth.api.changeEmail({ body: { newEmail }, headers: await headers() });
+    } catch (e) {
+      return { error: (e as Error).message || "Could not change email" };
+    }
+    return { ok: true, detail: "Check your current inbox to confirm the change." };
+  }
+
+  // Verification off: apply directly (Better Auth's changeEmail would otherwise
+  // wait for a confirmation email we don't send).
   try {
-    await auth.api.changeEmail({ body: { newEmail }, headers: await headers() });
-  } catch (e) {
-    return { error: (e as Error).message || "Could not change email" };
+    await prisma.user.update({ where: { id: user.id }, data: { email: newEmail, emailVerified: false } });
+  } catch {
+    return { error: "That email address is already in use" };
   }
   // The topbar shows the email, so refresh every page.
   revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/** Update the signed-in user's first/last name (and the derived display name). */
+export async function updateProfileName(fd: FormData) {
+  await requireUser();
+  const firstName = s(fd, "firstName");
+  const lastName = s(fd, "lastName");
+  if (!firstName && !lastName) return { error: "Enter your first and/or last name" };
+  const name = `${firstName} ${lastName}`.trim();
+  try {
+    await auth.api.updateUser({ body: { name, firstName, lastName }, headers: await headers() });
+  } catch (e) {
+    return { error: (e as Error).message || "Could not update your name" };
+  }
+  // The topbar shows the name, so refresh every page.
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/* ----------------------------- email / SMTP ----------------------------- */
+
+/** Save the SMTP settings (user/password encrypted; blank password keeps the
+ *  existing one). Any change resets the "verified" flag. */
+export async function updateSmtp(fd: FormData) {
+  await requireUser();
+  const host = s(fd, "smtpHost");
+  const port = Number(s(fd, "smtpPort")) || null;
+  const secure = fd.get("smtpSecure") === "on";
+  const user = s(fd, "smtpUser");
+  const password = s(fd, "smtpPassword"); // blank = keep existing
+  const from = s(fd, "smtpFrom");
+  const fromName = s(fd, "smtpFromName");
+  if (from && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(from)) return { error: "From must be a valid email address" };
+  await prisma.setting.upsert({
+    where: { id: "global" },
+    create: {
+      id: "global",
+      smtpHost: host || null,
+      smtpPort: port,
+      smtpSecure: secure,
+      smtpUser: user || null,
+      smtpPasswordEnc: password ? encryptSecret(password) : null,
+      smtpFrom: from || null,
+      smtpFromName: fromName || null,
+      smtpLastVerifiedOk: false,
+    },
+    update: {
+      smtpHost: host || null,
+      smtpPort: port,
+      smtpSecure: secure,
+      smtpUser: user || null,
+      ...(password ? { smtpPasswordEnc: encryptSecret(password) } : {}),
+      smtpFrom: from || null,
+      smtpFromName: fromName || null,
+      smtpLastVerifiedOk: false,
+    },
+  });
+  revalidatePath("/settings");
+  revalidatePath("/login");
+  return { ok: true };
+}
+
+/** Verify the saved SMTP config and send a test email; flips the "verified" flag. */
+export async function testSmtp() {
+  await requireUser();
+  const { effectiveSmtp, verifySmtp, sendMail } = await import("@/lib/email");
+  const cfg = await effectiveSmtp();
+  if (!cfg) return { error: "Set at least the SMTP host and a From address, save, then test." };
+  const v = await verifySmtp(cfg);
+  if (!v.ok) return { error: `SMTP connection failed: ${v.error}` };
+  try {
+    await sendMail({ to: cfg.from, subject: "CBM SMTP test", text: "✅ Your CBM SMTP settings are working." });
+  } catch (e) {
+    return { error: `Connected, but sending failed: ${(e as Error).message}` };
+  }
+  await prisma.setting.update({ where: { id: "global" }, data: { smtpLastVerifiedOk: true } });
+  revalidatePath("/settings");
+  revalidatePath("/login");
+  return { ok: true, detail: `Test email sent to ${cfg.from}` };
+}
+
+/** Toggle soft account-email verification. Enabling requires a working SMTP. */
+export async function setEmailVerification(enabled: boolean) {
+  await requireUser();
+  if (enabled) {
+    const { effectiveSmtp, verifySmtp } = await import("@/lib/email");
+    const cfg = await effectiveSmtp();
+    if (!cfg) return { error: "Configure and test SMTP first - verification needs a working mailer." };
+    const v = await verifySmtp(cfg);
+    if (!v.ok) return { error: `SMTP isn't working: ${v.error}` };
+    await prisma.setting.update({
+      where: { id: "global" },
+      data: { requireEmailVerification: true, smtpLastVerifiedOk: true },
+    });
+  } else {
+    await prisma.setting.update({ where: { id: "global" }, data: { requireEmailVerification: false } });
+  }
+  revalidatePath("/settings");
   return { ok: true };
 }
 
@@ -259,7 +375,7 @@ export async function createDestination(fd: FormData) {
   const type = s(fd, "type");
   if (!name || !type) return { error: "Name and type required" };
   // Storage engine: "restic" gives incremental/deduplicated/encrypted storage
-  // (works over local, S3 and SSH/SFTP — including a jump host).
+  // (works over local, S3 and SSH/SFTP - including a jump host).
   const engine = s(fd, "engine") === "restic" ? "restic" : "tar";
 
   let config: unknown;
@@ -499,7 +615,7 @@ export async function setServerSchedule(instanceId: string, serverUuid: string, 
     await prisma.backupPolicy.update({ where: { id: existing.id }, data });
   } else {
     await prisma.backupPolicy.create({
-      data: { ...data, name: `${instance.name} — ${serverName} schedule`, instanceId, serverUuid },
+      data: { ...data, name: `${instance.name} - ${serverName} schedule`, instanceId, serverUuid },
     });
   }
   revalidatePath("/instances");
@@ -522,8 +638,8 @@ export async function verifyDestinationNow(destinationId: string) {
       return {
         error:
           reason === "no-agent"
-            ? "No agent online to run the check — start the agent on the host that holds these backups."
-            : "Nothing to verify — this destination has no backups yet.",
+            ? "No agent online to run the check - start the agent on the host that holds these backups."
+            : "Nothing to verify - this destination has no backups yet.",
       };
     }
     revalidatePath("/destinations");

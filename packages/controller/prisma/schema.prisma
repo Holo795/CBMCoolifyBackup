@@ -15,7 +15,10 @@ datasource db {
 
 model User {
   id            String    @id
+  // `name` is the display name ("First Last"), kept in sync from first/last.
   name          String
+  firstName     String?
+  lastName      String?
   email         String    @unique
   emailVerified Boolean   @default(false)
   image         String?
@@ -282,5 +285,20 @@ model Setting {
   timezone  String   @default("Europe/Paris")
   // Optional webhook (Discord/Slack/custom) notified when a backup fails.
   alertWebhookUrl String?
+  // SMTP for transactional email (password reset, account verification).
+  // user/password are encrypted at rest (encryptSecret); env vars override these.
+  smtpHost        String?
+  smtpPort        Int?
+  smtpSecure      Boolean @default(false)
+  smtpUser        String?
+  smtpPasswordEnc String?
+  smtpFrom        String?
+  smtpFromName    String?
+  // Set true by a successful "send test"; gates the forgot-password link + the
+  // verification toggle. Reset to false whenever the SMTP config changes.
+  smtpLastVerifiedOk       Boolean @default(false)
+  // Soft account-email verification: when on, a verification email is sent but
+  // sign-in is never blocked.
+  requireEmailVerification Boolean @default(false)
   updatedAt DateTime @updatedAt
 }

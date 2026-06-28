@@ -8,7 +8,7 @@ import { Button } from "./ui";
 import { ThemeToggle } from "./theme-toggle";
 import { MobileNav } from "./mobile-nav";
 
-export function Topbar({ email }: { email: string }) {
+export function Topbar({ name }: { name: string }) {
   const router = useRouter();
   return (
     <header className="flex h-14 items-center justify-between gap-2 border-b px-4 sm:px-5">
@@ -27,7 +27,7 @@ export function Topbar({ email }: { email: string }) {
       </div>
       <div className="flex items-center gap-2">
         <Link href="/profile" className="hidden text-sm text-muted-foreground hover:text-foreground sm:inline" title="Profile">
-          {email}
+          {name}
         </Link>
         <ThemeToggle />
         <Button

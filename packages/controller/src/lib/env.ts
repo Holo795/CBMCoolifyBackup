@@ -19,6 +19,17 @@ export const env = {
   // URL agents should reach the controller at (may differ from the browser URL,
   // e.g. host.docker.internal in local dev). Falls back to authUrl.
   agentControllerUrl: optional("AGENT_CONTROLLER_URL"),
+  // SMTP for transactional email. Any value set here overrides the per-install
+  // SMTP saved in Settings (config-as-code for docker-compose deployments).
+  smtp: {
+    host: optional("SMTP_HOST"),
+    port: optional("SMTP_PORT"),
+    secure: optional("SMTP_SECURE"), // "true" | "false"
+    user: optional("SMTP_USER"),
+    password: optional("SMTP_PASSWORD"),
+    from: optional("SMTP_FROM"),
+    fromName: optional("SMTP_FROM_NAME"),
+  },
   oauth: {
     gitlabIssuer: optional("GITLAB_ISSUER"),
     gitlabClientId: optional("GITLAB_CLIENT_ID"),
