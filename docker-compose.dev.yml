@@ -1,4 +1,4 @@
-# Local dev: Postgres for the controller's metadata DB.
+# Local dev: Postgres for the controller's metadata DB + a catch-all mailer.
 services:
   controller-db:
     image: postgres:17-alpine
@@ -11,6 +11,17 @@ services:
       - "5544:5432"
     volumes:
       - cbm-controller-db:/var/lib/postgresql/data
+
+  # Catch-all dev mailer: accepts SMTP on :1025, read every email it captured in
+  # the web inbox at http://localhost:8025. Point the controller's SMTP at
+  # host=localhost port=1025 (no auth) — see .env.example.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: cbm-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # web inbox
 
 volumes:
   cbm-controller-db:

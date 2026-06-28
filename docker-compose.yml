@@ -34,6 +34,16 @@ services:
       MASTER_KEY: ${MASTER_KEY:?generate a base64 32-byte key — see .env.example}
       AGENT_IMAGE: ${AGENT_IMAGE:-ghcr.io/holo795/cbm-agent}
       AGENT_IMAGE_TAG: ${AGENT_IMAGE_TAG:-latest}
+      # Optional SMTP for password reset / account verification. Leave unset to
+      # configure it from Settings → Email in the UI instead. Any value set here
+      # overrides the UI and locks that field.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-}
     expose:
       - "3000"
 
