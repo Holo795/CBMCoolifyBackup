@@ -33,6 +33,11 @@ export const auth = betterAuth({
     requireEmailVerification: false,
     autoSignIn: true,
   },
+  // Let a signed-in user change their own email from the Profile page. With
+  // email verification off, the change applies immediately (no SMTP needed).
+  user: {
+    changeEmail: { enabled: true },
+  },
   socialProviders,
   trustedOrigins: [env.authUrl, "http://localhost:3000"],
   databaseHooks: {

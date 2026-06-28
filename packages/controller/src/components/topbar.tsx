@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
@@ -25,7 +26,9 @@ export function Topbar({ email }: { email: string }) {
         </button>
       </div>
       <div className="flex items-center gap-2">
-        <span className="hidden text-sm text-muted-foreground sm:inline">{email}</span>
+        <Link href="/profile" className="hidden text-sm text-muted-foreground hover:text-foreground sm:inline" title="Profile">
+          {email}
+        </Link>
         <ThemeToggle />
         <Button
           variant="ghost"

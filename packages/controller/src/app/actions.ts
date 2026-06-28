@@ -1,9 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
+import { auth } from "@/lib/auth";
 import { requireUser } from "@/lib/session";
 import { encryptSecret, decryptSecret, generateAesKeyB64, randomToken, sha256Hex } from "@/lib/crypto";
 import { CoolifyClient } from "@/lib/coolify";
@@ -50,6 +52,43 @@ export async function testAlertWebhook(url: string) {
   const { sendTestAlert } = await import("@/lib/notify");
   const ok = await sendTestAlert(url);
   return ok ? { ok: true, detail: "Test notification sent" } : { error: "The webhook did not accept the message" };
+}
+
+/* ----------------------------- profile ----------------------------- */
+
+/** Change the signed-in user's own password (revokes other sessions). */
+export async function changePassword(fd: FormData) {
+  await requireUser();
+  const currentPassword = s(fd, "currentPassword");
+  const newPassword = s(fd, "newPassword");
+  const confirm = s(fd, "confirmPassword");
+  if (!currentPassword || !newPassword) return { error: "Enter your current and new password" };
+  if (newPassword.length < 8) return { error: "New password must be at least 8 characters" };
+  if (newPassword !== confirm) return { error: "New password and confirmation don't match" };
+  try {
+    await auth.api.changePassword({
+      body: { currentPassword, newPassword, revokeOtherSessions: true },
+      headers: await headers(),
+    });
+  } catch (e) {
+    return { error: (e as Error).message || "Could not change password" };
+  }
+  return { ok: true };
+}
+
+/** Change the signed-in user's own email (takes effect immediately). */
+export async function changeEmail(fd: FormData) {
+  await requireUser();
+  const newEmail = s(fd, "newEmail").toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail)) return { error: "Enter a valid email address" };
+  try {
+    await auth.api.changeEmail({ body: { newEmail }, headers: await headers() });
+  } catch (e) {
+    return { error: (e as Error).message || "Could not change email" };
+  }
+  // The topbar shows the email, so refresh every page.
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 /* ----------------------------- instances ----------------------------- */
