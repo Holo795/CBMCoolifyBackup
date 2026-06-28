@@ -37,9 +37,14 @@ CONTROLLER_URL=http://localhost:3000 ENROLLMENT_TOKEN=cbm_… \
 
 ## Before opening a pull request
 
+These same checks run automatically in CI on every pull request (see
+`.github/workflows/ci.yml`) and must pass before a PR can be merged — running them
+locally first just gives you faster feedback:
+
 ```bash
 npm run build:shared                 # shared types must compile first
 npm test                             # unit tests (shared + agent)
+npm run test --workspace @cbm/controller   # unit tests (controller)
 # In packages/controller:
 npx tsc --noEmit                     # type-check the controller
 ```
