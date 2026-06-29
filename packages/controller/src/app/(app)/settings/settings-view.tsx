@@ -38,10 +38,7 @@ export function SettingsView({
         <Card id="alerts" className="scroll-mt-20">
           <CardHeader>
             <CardTitle>Failure alerts</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Get notified when a backup fails. Paste a Discord or Slack webhook URL (or any endpoint that accepts a
-              JSON <code>{`{ content, text }`}</code> body). Leave blank to disable.
-            </p>
+            <p className="text-sm text-muted-foreground">Get notified when a backup fails. Paste a Discord or Slack webhook URL (or any endpoint that accepts a JSON <code>{`{ content, text }`}</code> body). Leave blank to disable.</p>
           </CardHeader>
           <CardContent>
             <AlertWebhookForm current={alertWebhookUrl} />
@@ -58,10 +55,7 @@ export function SettingsView({
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             {!ready && (
-              <div className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--color-warning)]">
-                SMTP isn&apos;t configured or verified yet - <strong>password reset</strong> and{" "}
-                <strong>account verification</strong> won&apos;t work until you set it up and a test email succeeds.
-              </div>
+              <div className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--color-warning)]">SMTP isn&apos;t configured or verified yet - <strong>password reset</strong> and <strong>account verification</strong> won&apos;t work until you set it up and a test email succeeds.</div>
             )}
             {Object.values(smtpCurrent.envLocked).some(Boolean) && (
               <p className="text-xs text-muted-foreground">

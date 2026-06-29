@@ -54,9 +54,7 @@ export function ConfirmDeleteView({
               <h3 className="font-medium">{title}</h3>
             </div>
             <div className="mb-4 text-sm text-muted-foreground">{body}</div>
-            <label className="mb-1.5 block text-xs text-muted-foreground">
-              Type <span className="font-mono text-foreground">{confirmWord}</span> to confirm:
-            </label>
+            <label className="mb-1.5 block text-xs text-muted-foreground">Type <span className="font-mono text-foreground">{confirmWord}</span> to confirm:</label>
             <input
               autoFocus
               value={text}

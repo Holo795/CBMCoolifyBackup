@@ -50,11 +50,7 @@ export function DestinationFormView({
       </div>
 
       {type === "local" && (
-        <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-          Stored directly on the <b className="text-foreground">agent host</b> at{" "}
-          <span className="font-mono text-foreground">/backups</span> (bind-mounted by the install command), so you can{" "}
-          <span className="font-mono">ls /backups</span> on the host and it survives agent restarts. Nothing to configure.
-        </div>
+        <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">Stored directly on the <b className="text-foreground">agent host</b> at <span className="font-mono text-foreground">/backups</span> (bind-mounted by the install command), so you can <span className="font-mono">ls /backups</span> on the host and it survives agent restarts. Nothing to configure.</div>
       )}
 
       {type === "ssh" && (
@@ -84,10 +80,7 @@ export function DestinationFormView({
               Connect through a jump host (bastion) - optional
             </summary>
             <div className="mt-3 flex flex-col gap-2">
-              <p className="text-xs text-muted-foreground">
-                The agent first connects to the jump host, then tunnels to the target above. The <b>agent&apos;s host</b>{" "}
-                must be able to reach the jump host. Leave blank for a direct connection.
-              </p>
+              <p className="text-xs text-muted-foreground">The agent first connects to the jump host, then tunnels to the target above. The <b>agent&apos;s host</b> must be able to reach the jump host. Leave blank for a direct connection.</p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <Field name="jumpHost" label="Jump host" placeholder="bastion.example.com" />
                 <Field name="jumpPort" label="Jump port" placeholder="22" defaultValue="22" />

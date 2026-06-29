@@ -43,7 +43,7 @@ export function RevealInstallView({
       </div>
 
       <div className="flex items-start gap-2">
-        <pre className="flex-1 overflow-auto rounded-md bg-muted/40 p-3 font-mono text-xs leading-relaxed">{data.oneLiner}</pre>
+        <pre className="min-w-0 flex-1 overflow-auto rounded-md bg-muted/40 p-3 font-mono text-xs leading-relaxed">{data.oneLiner}</pre>
         <Button size="sm" variant="outline" onClick={() => onCopy(data.oneLiner, "one")} aria-label="Copy command">
           {copied === "one" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
         </Button>
@@ -55,7 +55,7 @@ export function RevealInstallView({
           Prefer a raw docker run (no curl | sh)
         </summary>
         <div className="mt-2 flex items-start gap-2">
-          <pre className="flex-1 overflow-auto rounded-md bg-muted/40 p-3 font-mono text-xs leading-relaxed">{data.raw}</pre>
+          <pre className="min-w-0 flex-1 overflow-auto rounded-md bg-muted/40 p-3 font-mono text-xs leading-relaxed">{data.raw}</pre>
           <Button size="sm" variant="outline" onClick={() => onCopy(data.raw, "raw")} aria-label="Copy docker run">
             {copied === "raw" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           </Button>

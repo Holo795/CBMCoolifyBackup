@@ -81,7 +81,7 @@ export function SmtpConfigFormView({
           {pending ? "Saving…" : "Save"}
         </Button>
         <Button type="button" variant="outline" disabled={pending} onClick={onTest}>
-          Send test email
+          Send test email (establish connection)
         </Button>
         {msg && <span className="text-xs text-muted-foreground">{msg}</span>}
       </div>
