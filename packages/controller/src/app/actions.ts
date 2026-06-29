@@ -6,7 +6,8 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { auth } from "@/lib/auth";
-import { requireUser } from "@/lib/session";
+import { requireUser, requireRole } from "@/lib/session";
+import { isRole, inviteExpiry } from "@/lib/invitations";
 import { encryptSecret, decryptSecret, generateAesKeyB64, randomToken, sha256Hex } from "@/lib/crypto";
 import { CoolifyClient } from "@/lib/coolify";
 import { syncInstance } from "@/lib/discovery";
@@ -22,7 +23,7 @@ function s(fd: FormData, key: string): string {
 
 /** Set the app-wide IANA timezone used for schedules + timestamp display. */
 export async function updateTimezone(fd: FormData) {
-  await requireUser();
+  await requireRole("admin");
   const tz = s(fd, "timezone");
   if (!tz || !isValidTimezone(tz)) return { error: "Invalid timezone" };
   await setTimezone(tz);
@@ -33,7 +34,7 @@ export async function updateTimezone(fd: FormData) {
 
 /** Set (or clear) the webhook notified when a backup fails. */
 export async function updateAlertWebhook(fd: FormData) {
-  await requireUser();
+  await requireRole("admin");
   const url = s(fd, "alertWebhookUrl");
   if (url && !/^https?:\/\//i.test(url)) return { error: "Enter a valid http(s) URL, or leave blank to disable" };
   await prisma.setting.upsert({
@@ -47,7 +48,7 @@ export async function updateAlertWebhook(fd: FormData) {
 
 /** Send a test message to a webhook URL (without saving it). */
 export async function testAlertWebhook(url: string) {
-  await requireUser();
+  await requireRole("admin");
   if (!url || !/^https?:\/\//i.test(url)) return { error: "Enter a valid http(s) URL first" };
   const { sendTestAlert } = await import("@/lib/notify");
   const ok = await sendTestAlert(url);
@@ -130,7 +131,7 @@ export async function updateProfileName(fd: FormData) {
 /** Save the SMTP settings (user/password encrypted; blank password keeps the
  *  existing one). Any change resets the "verified" flag. */
 export async function updateSmtp(fd: FormData) {
-  await requireUser();
+  await requireRole("admin");
   const host = s(fd, "smtpHost");
   const port = Number(s(fd, "smtpPort")) || null;
   const secure = fd.get("smtpSecure") === "on";
@@ -170,7 +171,7 @@ export async function updateSmtp(fd: FormData) {
 
 /** Verify the saved SMTP config and send a test email; flips the "verified" flag. */
 export async function testSmtp() {
-  await requireUser();
+  await requireRole("admin");
   const { effectiveSmtp, verifySmtp, sendMail } = await import("@/lib/email");
   const cfg = await effectiveSmtp();
   if (!cfg) return { error: "Set at least the SMTP host and a From address, save, then test." };
@@ -189,7 +190,7 @@ export async function testSmtp() {
 
 /** Toggle soft account-email verification. Enabling requires a working SMTP. */
 export async function setEmailVerification(enabled: boolean) {
-  await requireUser();
+  await requireRole("admin");
   if (enabled) {
     const { effectiveSmtp, verifySmtp } = await import("@/lib/email");
     const cfg = await effectiveSmtp();
@@ -210,7 +211,7 @@ export async function setEmailVerification(enabled: boolean) {
 /* ----------------------------- instances ----------------------------- */
 
 export async function connectInstance(fd: FormData) {
-  await requireUser();
+  await requireRole("admin");
   const name = s(fd, "name");
   const baseUrl = s(fd, "baseUrl").replace(/\/$/, "");
   const token = s(fd, "apiToken");
@@ -246,7 +247,7 @@ export async function connectInstance(fd: FormData) {
 export async function revealInstallCommand(
   instanceId: string,
 ): Promise<{ oneLiner: string; raw: string; hint: string }> {
-  await requireUser();
+  await requireRole("admin");
   const token = "cbm_" + randomToken(24);
   const hint = `${token.slice(0, 8)}…${token.slice(-4)}`;
   await prisma.coolifyInstance.update({
@@ -274,7 +275,7 @@ export async function revealInstallCommand(
 
 /** Back up the Coolify control plane itself (its Postgres + /data/coolify). */
 export async function backupCoolifyInstance(instanceId: string) {
-  await requireUser();
+  await requireRole("operator");
   const inst = await prisma.coolifyInstance.findUniqueOrThrow({ where: { id: instanceId } });
   const resource = await prisma.resource.upsert({
     where: { instanceId_coolifyUuid: { instanceId, coolifyUuid: `coolify-self-${instanceId}` } },
@@ -300,7 +301,7 @@ export async function backupCoolifyInstance(instanceId: string) {
 }
 
 export async function syncInstanceAction(instanceId: string): Promise<void> {
-  await requireUser();
+  await requireRole("admin");
   try {
     await syncInstance(instanceId);
   } catch (e) {
@@ -311,7 +312,7 @@ export async function syncInstanceAction(instanceId: string): Promise<void> {
 }
 
 export async function deleteInstance(instanceId: string) {
-  await requireUser();
+  await requireRole("admin");
   await prisma.coolifyInstance.delete({ where: { id: instanceId } });
   revalidatePath("/instances");
   revalidatePath("/resources");
@@ -320,7 +321,7 @@ export async function deleteInstance(instanceId: string) {
 /* ----------------------------- agents ----------------------------- */
 
 export async function linkAgent(agentId: string, instanceId: string) {
-  await requireUser();
+  await requireRole("admin");
   await prisma.agent.update({
     where: { id: agentId },
     data: { instanceId: instanceId || null },
@@ -329,7 +330,7 @@ export async function linkAgent(agentId: string, instanceId: string) {
 }
 
 export async function deleteAgent(agentId: string) {
-  await requireUser();
+  await requireRole("admin");
   await prisma.agent.delete({ where: { id: agentId } });
   revalidatePath("/agents");
 }
@@ -340,7 +341,7 @@ export async function deleteAgent(agentId: string) {
  * ambiguous.
  */
 export async function updateAgentServer(agentId: string, serverUuid: string | null) {
-  await requireUser();
+  await requireRole("admin");
   const agent = await prisma.agent.findUnique({ where: { id: agentId } });
   if (!agent) return { error: "Agent not found" };
   if (!serverUuid) {
@@ -370,7 +371,7 @@ export async function updateAgentServer(agentId: string, serverUuid: string | nu
 /* ----------------------------- destinations ----------------------------- */
 
 export async function createDestination(fd: FormData) {
-  await requireUser();
+  await requireRole("admin");
   const name = s(fd, "name");
   const type = s(fd, "type");
   if (!name || !type) return { error: "Name and type required" };
@@ -439,7 +440,7 @@ export async function createDestination(fd: FormData) {
 }
 
 export async function deleteDestination(id: string) {
-  await requireUser();
+  await requireRole("admin");
   const dest = await prisma.destination.findUnique({ where: { id } });
   if (dest) {
     // Delete the actual files first, before the records cascade away with the
@@ -474,7 +475,7 @@ export async function deleteDestination(id: string) {
 }
 
 export async function testDestinationAction(id: string) {
-  await requireUser();
+  await requireRole("admin");
   const dest = await prisma.destination.findUniqueOrThrow({ where: { id } });
   const { testDestination } = await import("@/lib/destination-test");
   const result = await testDestination(resolveDestination(dest));
@@ -485,7 +486,7 @@ export async function testDestinationAction(id: string) {
 
 /** Cancel a snapshot's job if it's still queued (not yet picked up). */
 export async function cancelSnapshot(snapshotId: string): Promise<void> {
-  await requireUser();
+  await requireRole("operator");
   // Guard against the agent claiming the job (queued -> running) between read and
   // write: updateMany is atomic on the status filter, so a job already in flight
   // is left untouched and we only fail the snapshot when we actually cancelled.
@@ -506,7 +507,7 @@ export async function cancelSnapshot(snapshotId: string): Promise<void> {
  * then drops the record. If no agent is online the record is still removed and
  * the files are left in place. */
 export async function deleteSnapshot(snapshotId: string): Promise<void> {
-  await requireUser();
+  await requireRole("operator");
   const snap = await prisma.snapshot.findUnique({
     where: { id: snapshotId },
     include: { destination: true, resource: true },
@@ -533,7 +534,7 @@ export async function deleteSnapshot(snapshotId: string): Promise<void> {
 
 /** Re-pin a Git app to the commit captured in a snapshot, then redeploy. */
 export async function repinDeployment(snapshotId: string): Promise<{ ok?: boolean; error?: string; detail?: string }> {
-  await requireUser();
+  await requireRole("operator");
   const snap = await prisma.snapshot.findUniqueOrThrow({
     where: { id: snapshotId },
     include: { resource: { include: { instance: true } } },
@@ -553,7 +554,7 @@ export async function repinDeployment(snapshotId: string): Promise<{ ok?: boolea
 
 /** Retry a failed backup by re-enqueuing its resource. */
 export async function retrySnapshot(snapshotId: string): Promise<void> {
-  await requireUser();
+  await requireRole("operator");
   const snap = await prisma.snapshot.findUniqueOrThrow({ where: { id: snapshotId } });
   try {
     await enqueueBackup(snap.resourceId);
@@ -578,7 +579,7 @@ function scheduleData(fd: FormData) {
 
 /** Create/update the default schedule for a whole Coolify instance. */
 export async function setInstanceSchedule(instanceId: string, fd: FormData) {
-  await requireUser();
+  await requireRole("admin");
   const data = scheduleData(fd);
   if (!data.destinationId) return { error: "Pick a destination" };
   const instance = await prisma.coolifyInstance.findUniqueOrThrow({ where: { id: instanceId } });
@@ -594,14 +595,14 @@ export async function setInstanceSchedule(instanceId: string, fd: FormData) {
 }
 
 export async function removeInstanceSchedule(instanceId: string): Promise<void> {
-  await requireUser();
+  await requireRole("admin");
   await prisma.backupPolicy.deleteMany({ where: { instanceId, resourceId: null, serverUuid: null } });
   revalidatePath("/instances");
 }
 
 /** Create/update the schedule for one server of a Coolify instance. */
 export async function setServerSchedule(instanceId: string, serverUuid: string, fd: FormData) {
-  await requireUser();
+  await requireRole("admin");
   const data = scheduleData(fd);
   if (!data.destinationId) return { error: "Pick a destination" };
   const instance = await prisma.coolifyInstance.findUniqueOrThrow({ where: { id: instanceId } });
@@ -624,14 +625,14 @@ export async function setServerSchedule(instanceId: string, serverUuid: string, 
 }
 
 export async function removeServerSchedule(instanceId: string, serverUuid: string): Promise<void> {
-  await requireUser();
+  await requireRole("admin");
   await prisma.backupPolicy.deleteMany({ where: { instanceId, serverUuid, resourceId: null } });
   revalidatePath("/instances");
 }
 
 /** Manually reconcile a destination now (detect backups deleted at rest). */
 export async function verifyDestinationNow(destinationId: string) {
-  await requireUser();
+  await requireRole("operator");
   try {
     const { queued, reason } = await enqueueVerifyDestination(destinationId);
     if (queued === 0) {
@@ -651,7 +652,7 @@ export async function verifyDestinationNow(destinationId: string) {
 
 /** Create/update a per-resource override schedule. */
 export async function setResourceSchedule(resourceId: string, fd: FormData) {
-  await requireUser();
+  await requireRole("admin");
   const data = scheduleData(fd);
   if (!data.destinationId) return { error: "Pick a destination" };
   const resource = await prisma.resource.findUniqueOrThrow({ where: { id: resourceId } });
@@ -669,7 +670,7 @@ export async function setResourceSchedule(resourceId: string, fd: FormData) {
 
 /** Drop a resource override so it inherits its instance schedule again. */
 export async function removeResourceOverride(resourceId: string): Promise<void> {
-  await requireUser();
+  await requireRole("admin");
   await prisma.backupPolicy.deleteMany({ where: { resourceId } });
   revalidatePath(`/resources/${resourceId}`);
 }
@@ -678,7 +679,7 @@ export async function removeResourceOverride(resourceId: string): Promise<void> 
 
 /** Update a resource's per-resource backup settings (auto-saved from the UI). */
 export async function updateResourceSettings(resourceId: string, fd: FormData): Promise<void> {
-  await requireUser();
+  await requireRole("operator");
   await prisma.resource.update({
     where: { id: resourceId },
     data: {
@@ -695,7 +696,7 @@ export async function updateResourceHooks(
   resourceId: string,
   hooks: { container: string; pre?: string; post?: string }[],
 ) {
-  await requireUser();
+  await requireRole("operator");
   const clean = (hooks ?? [])
     .map((h) => ({
       container: (h.container ?? "").trim(),
@@ -712,7 +713,7 @@ export async function updateResourceHooks(
 }
 
 export async function backupNow(resourceId: string): Promise<{ ok?: boolean; error?: string; detail?: string }> {
-  await requireUser();
+  await requireRole("operator");
   try {
     await enqueueBackup(resourceId);
   } catch (e) {
@@ -727,7 +728,7 @@ export async function restoreSnapshot(
   snapshotId: string,
   target: "in_place" | "new_resource",
 ): Promise<{ ok?: boolean; error?: string; detail?: string }> {
-  await requireUser();
+  await requireRole("operator");
   try {
     await enqueueRestore(snapshotId, target);
   } catch (e) {
@@ -736,4 +737,115 @@ export async function restoreSnapshot(
   revalidatePath("/snapshots");
   revalidatePath(`/snapshots/${snapshotId}`);
   return { ok: true, detail: target === "in_place" ? "Restore queued" : "Restore → new queued" };
+}
+
+/* ----------------------------- users & invitations ----------------------------- */
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+/** How many admins exist — used to protect the last admin from demotion/removal. */
+async function adminCount(): Promise<number> {
+  return prisma.user.count({ where: { role: "admin" } });
+}
+
+/**
+ * Create an invitation for `email` with a preset `role`. Returns the one-time
+ * link (shown once, reveal-style). If `sendEmail` is set and SMTP is verified,
+ * the link is also emailed; either way the link is returned for copying.
+ */
+export async function createInvitation(
+  fd: FormData,
+): Promise<{ ok?: boolean; error?: string; link?: string; emailed?: boolean }> {
+  const me = await requireRole("admin");
+  const email = s(fd, "email").toLowerCase();
+  const role = s(fd, "role");
+  const sendEmail = fd.get("sendEmail") === "on";
+  if (!EMAIL_RE.test(email)) return { error: "Enter a valid email address" };
+  if (!isRole(role)) return { error: "Pick a role" };
+
+  // A pre-existing account or a still-pending invite would be confusing.
+  const existingUser = await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } });
+  if (existingUser) return { error: "A user with that email already exists" };
+
+  const token = "cbm_inv_" + randomToken(24);
+  await prisma.invitation.create({
+    data: {
+      email,
+      role,
+      tokenHash: sha256Hex(token),
+      expiresAt: inviteExpiry(new Date()),
+      createdById: me.id,
+    },
+  });
+
+  const link = `${env.authUrl.replace(/\/$/, "")}/invite/${token}`;
+
+  let emailed = false;
+  if (sendEmail) {
+    const { smtpReady, sendMail } = await import("@/lib/email");
+    if (await smtpReady()) {
+      try {
+        await sendMail({
+          to: email,
+          subject: "You're invited to CBM",
+          text: `You've been invited to Coolify Backup Manager as "${role}".\n\nAccept your invitation (valid 48h):\n\n${link}\n\nIf you didn't expect this, you can ignore this email.`,
+        });
+        emailed = true;
+      } catch (e) {
+        console.warn("[invite] email send failed", (e as Error).message);
+      }
+    }
+  }
+
+  revalidatePath("/users");
+  return { ok: true, link, emailed };
+}
+
+/**
+ * Public: called from the invite-acceptance page when the invitee opens a valid
+ * link. Marks the invite "claimed" (proving token possession), which is what
+ * lets the otherwise-closed registration gate accept the subsequent signup.
+ */
+export async function claimInvitation(token: string): Promise<{ ok?: boolean; error?: string; email?: string }> {
+  if (!token) return { error: "Missing invite token" };
+  const invite = await prisma.invitation.findUnique({ where: { tokenHash: sha256Hex(token) } });
+  if (!invite || invite.acceptedAt) return { error: "This invitation link is invalid or already used." };
+  if (invite.expiresAt.getTime() <= Date.now()) return { error: "This invitation link has expired." };
+  await prisma.invitation.update({ where: { id: invite.id }, data: { claimedAt: new Date() } });
+  return { ok: true, email: invite.email };
+}
+
+/** Delete a pending invitation. */
+export async function revokeInvitation(id: string): Promise<void> {
+  await requireRole("admin");
+  await prisma.invitation.delete({ where: { id } }).catch(() => {});
+  revalidatePath("/users");
+}
+
+/** Change a user's role. Refuses to demote the last remaining admin. */
+export async function setUserRole(userId: string, role: string): Promise<{ ok?: boolean; error?: string }> {
+  await requireRole("admin");
+  if (!isRole(role)) return { error: "Unknown role" };
+  const target = await prisma.user.findUnique({ where: { id: userId } });
+  if (!target) return { error: "User not found" };
+  if (target.role === "admin" && role !== "admin" && (await adminCount()) <= 1) {
+    return { error: "You can't demote the last admin." };
+  }
+  await prisma.user.update({ where: { id: userId }, data: { role } });
+  revalidatePath("/users");
+  return { ok: true };
+}
+
+/** Remove a user (cascades sessions/accounts). Refuses self and the last admin. */
+export async function removeUser(userId: string): Promise<{ ok?: boolean; error?: string }> {
+  const me = await requireRole("admin");
+  if (userId === me.id) return { error: "You can't remove your own account here." };
+  const target = await prisma.user.findUnique({ where: { id: userId } });
+  if (!target) return { error: "User not found" };
+  if (target.role === "admin" && (await adminCount()) <= 1) {
+    return { error: "You can't remove the last admin." };
+  }
+  await prisma.user.delete({ where: { id: userId } });
+  revalidatePath("/users");
+  return { ok: true };
 }

@@ -67,6 +67,24 @@ model Verification {
   updatedAt  DateTime @updatedAt
 }
 
+// Invitation links for onboarding additional users with a preset role. The
+// plaintext token is shown once; only its sha256 hash is stored. `claimedAt` is
+// set when the invitee opens the link (proving token possession) and is what
+// lets the otherwise-closed registration gate accept their signup.
+model Invitation {
+  id          String    @id @default(cuid())
+  email       String
+  role        String
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  createdById String
+  claimedAt   DateTime?
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([email])
+}
+
 // ---------------------------------------------------------------------------
 // Domain
 // ---------------------------------------------------------------------------

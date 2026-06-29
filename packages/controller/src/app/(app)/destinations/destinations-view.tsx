@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, Badge, EmptyState } from "@/c
 import { testDestinationAction, deleteDestination, verifyDestinationNow } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
+import { Gate } from "@/components/role-gate";
 import { formatBytes } from "@/lib/cn";
 import { HardDrive, Lock, PlugZap, ChevronRight, ShieldCheck, AlertTriangle } from "lucide-react";
 
@@ -24,7 +25,7 @@ export function DestinationsView({ items, globalBytes }: { items: DestinationIte
         description={`Where backups are stored - local, SSH/SFTP, or S3 · ${formatBytes(globalBytes)} stored across all destinations`}
       />
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
+      <div className="grid gap-6 lg:grid-cols-[1fr_auto]">
         <div className="flex flex-col gap-3">
           {items.length === 0 ? (
             <EmptyState icon={<HardDrive className="h-6 w-6" />} title="No destinations" hint="Add a place to store your backups." />
@@ -56,34 +57,38 @@ export function DestinationsView({ items, globalBytes }: { items: DestinationIte
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <ActionButton
-                      action={verifyDestinationNow.bind(null, d.id)}
-                      variant="outline"
-                      size="sm"
-                      successMsg="Checking…"
-                      disabled={d._count.snapshots === 0}
-                      title={d._count.snapshots === 0 ? "No backups to verify yet" : "Check that every backup is still present"}
-                    >
-                      <ShieldCheck className="h-3.5 w-3.5" /> Verify
-                    </ActionButton>
-                    <ActionButton action={testDestinationAction.bind(null, d.id)} variant="outline" size="sm" successMsg="Reachable ✓">
-                      <PlugZap className="h-3.5 w-3.5" /> Test
-                    </ActionButton>
-                    <ConfirmDeleteButton
-                      action={deleteDestination.bind(null, d.id)}
-                      confirmWord={d.name}
-                      title={`Delete destination “${d.name}”?`}
-                      body={
-                        <>
-                          This permanently removes the destination{" "}
-                          <b>
-                            and all {d._count.snapshots} backup{d._count.snapshots === 1 ? "" : "s"}
-                          </b>{" "}
-                          recorded against it ({formatBytes(bytes)}).{" "}
-                          <span className="text-foreground">This cannot be undone.</span>
-                        </>
-                      }
-                    />
+                    <Gate min="operator">
+                      <ActionButton
+                        action={verifyDestinationNow.bind(null, d.id)}
+                        variant="outline"
+                        size="sm"
+                        successMsg="Checking…"
+                        disabled={d._count.snapshots === 0}
+                        title={d._count.snapshots === 0 ? "No backups to verify yet" : "Check that every backup is still present"}
+                      >
+                        <ShieldCheck className="h-3.5 w-3.5" /> Verify
+                      </ActionButton>
+                    </Gate>
+                    <Gate min="admin">
+                      <ActionButton action={testDestinationAction.bind(null, d.id)} variant="outline" size="sm" successMsg="Reachable ✓">
+                        <PlugZap className="h-3.5 w-3.5" /> Test
+                      </ActionButton>
+                      <ConfirmDeleteButton
+                        action={deleteDestination.bind(null, d.id)}
+                        confirmWord={d.name}
+                        title={`Delete destination “${d.name}”?`}
+                        body={
+                          <>
+                            This permanently removes the destination{" "}
+                            <b>
+                              and all {d._count.snapshots} backup{d._count.snapshots === 1 ? "" : "s"}
+                            </b>{" "}
+                            recorded against it ({formatBytes(bytes)}).{" "}
+                            <span className="text-foreground">This cannot be undone.</span>
+                          </>
+                        }
+                      />
+                    </Gate>
                     <Link
                       href={`/destinations/${d.id}`}
                       className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -98,14 +103,16 @@ export function DestinationsView({ items, globalBytes }: { items: DestinationIte
           )}
         </div>
 
-        <Card className="h-fit">
-          <CardHeader>
-            <CardTitle>Add a destination</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <DestinationForm />
-          </CardContent>
-        </Card>
+        <Gate min="admin">
+          <Card className="h-fit lg:w-[360px]">
+            <CardHeader>
+              <CardTitle>Add a destination</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DestinationForm />
+            </CardContent>
+          </Card>
+        </Gate>
       </div>
     </>
   );

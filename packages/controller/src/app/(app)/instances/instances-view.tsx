@@ -15,6 +15,7 @@ import {
 } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { RevealInstall } from "@/components/reveal-install";
+import { Gate } from "@/components/role-gate";
 import { timeAgo } from "@/lib/cn";
 import { describeCron, cronToFrequency } from "@/lib/schedule";
 import { isAgentOnline as agentOnline } from "@/lib/agent-status";
@@ -121,7 +122,7 @@ export function InstancesView({
     <>
       <PageHeader title="Coolify instances" description="Connect each Coolify control plane via its API token" />
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+      <div className="grid gap-6 lg:grid-cols-[1fr_auto]">
         <div className="flex flex-col gap-3">
           {instances.length === 0 ? (
             <EmptyState
@@ -149,18 +150,20 @@ export function InstancesView({
                           {liveAgents} agent{liveAgents === 1 ? "" : "s"} online · synced {timeAgo(i.lastSyncedAt)}
                         </div>
                       </div>
-                      <div className="flex shrink-0 gap-2">
-                        <form action={syncInstanceAction.bind(null, i.id)}>
-                          <Button size="sm" variant="outline" type="submit">
-                            <RefreshCw className="h-3.5 w-3.5" /> Sync
-                          </Button>
-                        </form>
-                        <form action={deleteInstance.bind(null, i.id)}>
-                          <Button size="sm" variant="danger" type="submit" aria-label="Delete">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </form>
-                      </div>
+                      <Gate min="admin">
+                        <div className="flex shrink-0 gap-2">
+                          <form action={syncInstanceAction.bind(null, i.id)}>
+                            <Button size="sm" variant="outline" type="submit">
+                              <RefreshCw className="h-3.5 w-3.5" /> Sync
+                            </Button>
+                          </form>
+                          <form action={deleteInstance.bind(null, i.id)}>
+                            <Button size="sm" variant="danger" type="submit" aria-label="Delete">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </form>
+                        </div>
+                      </Gate>
                     </div>
 
                     {/* Instance-level: control-plane backup + shared install command. */}
@@ -179,17 +182,21 @@ export function InstancesView({
                             {i.enrollTokenHint}
                           </span>
                         )}
-                        {liveAgents > 0 ? (
-                          <ActionButton action={backupCoolifyInstance.bind(null, i.id)} variant="outline" size="sm" successMsg="Queued">
-                            <ShieldCheck className="h-3.5 w-3.5" /> Back up Coolify
-                          </ActionButton>
-                        ) : (
-                          <Button variant="outline" size="sm" disabled title="No live agent - install the agent below first">
-                            <ShieldCheck className="h-3.5 w-3.5" /> Back up Coolify
-                          </Button>
-                        )}
+                        <Gate min="operator">
+                          {liveAgents > 0 ? (
+                            <ActionButton action={backupCoolifyInstance.bind(null, i.id)} variant="outline" size="sm" successMsg="Queued">
+                              <ShieldCheck className="h-3.5 w-3.5" /> Back up Coolify
+                            </ActionButton>
+                          ) : (
+                            <Button variant="outline" size="sm" disabled title="No live agent - install the agent below first">
+                              <ShieldCheck className="h-3.5 w-3.5" /> Back up Coolify
+                            </Button>
+                          )}
+                        </Gate>
                       </div>
-                      <RevealInstall instanceId={i.id} hasToken={!!i.enrollTokenHash} />
+                      <Gate min="admin">
+                        <RevealInstall instanceId={i.id} hasToken={!!i.enrollTokenHash} />
+                      </Gate>
                       {multiServer && (
                         <p className="text-xs text-muted-foreground">
                           This instance spans several servers - install the agent (same command) on each host below.
@@ -217,28 +224,32 @@ export function InstancesView({
                                   <span className="text-xs text-[var(--color-warning)]">run the install command on this host</span>
                                 )}
                               </div>
-                              {scheduleBlock({
-                                policy,
-                                lastRun: policy ? runByPolicy.get(policy.id) : undefined,
-                                action: setServerSchedule.bind(null, i.id, sv.uuid),
-                                remove: removeServerSchedule.bind(null, i.id, sv.uuid),
-                                emptyLabel: "Set a backup schedule for this server",
-                              })}
+                              <Gate min="admin">
+                                {scheduleBlock({
+                                  policy,
+                                  lastRun: policy ? runByPolicy.get(policy.id) : undefined,
+                                  action: setServerSchedule.bind(null, i.id, sv.uuid),
+                                  remove: removeServerSchedule.bind(null, i.id, sv.uuid),
+                                  emptyLabel: "Set a backup schedule for this server",
+                                })}
+                              </Gate>
                             </div>
                           );
                         })}
                       </div>
                     ) : (
                       // Single server (or none discovered yet): instance-wide schedule.
-                      <div className="border-t pt-3">
-                        {scheduleBlock({
-                          policy: instancePolicy,
-                          lastRun: instancePolicy ? runByPolicy.get(instancePolicy.id) : undefined,
-                          action: setInstanceSchedule.bind(null, i.id),
-                          remove: removeInstanceSchedule.bind(null, i.id),
-                          emptyLabel: "Set a backup schedule for this instance",
-                        })}
-                      </div>
+                      <Gate min="admin">
+                        <div className="border-t pt-3">
+                          {scheduleBlock({
+                            policy: instancePolicy,
+                            lastRun: instancePolicy ? runByPolicy.get(instancePolicy.id) : undefined,
+                            action: setInstanceSchedule.bind(null, i.id),
+                            remove: removeInstanceSchedule.bind(null, i.id),
+                            emptyLabel: "Set a backup schedule for this instance",
+                          })}
+                        </div>
+                      </Gate>
                     )}
                   </CardContent>
                 </Card>
@@ -247,7 +258,8 @@ export function InstancesView({
           )}
         </div>
 
-        <Card className="h-fit">
+        <Gate min="admin">
+          <Card className="h-fit lg:w-[360px]">
           <CardHeader>
             <CardTitle>Connect an instance</CardTitle>
           </CardHeader>
@@ -271,7 +283,8 @@ export function InstancesView({
               </p>
             </ActionForm>
           </CardContent>
-        </Card>
+          </Card>
+        </Gate>
       </div>
     </>
   );

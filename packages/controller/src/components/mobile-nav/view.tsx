@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Menu, X, Github } from "lucide-react";
-import { NAV } from "@/components/nav";
+import { navFor } from "@/components/nav";
 import { cn } from "@/lib/cn";
 
 /** Presentation only: hamburger button + slide-out drawer. Logic in ./index.tsx. */
@@ -11,11 +11,13 @@ export function MobileNavView({
   onOpen,
   onClose,
   pathname,
+  role,
 }: {
   open: boolean;
   onOpen: () => void;
   onClose: () => void;
   pathname: string;
+  role: string;
 }) {
   return (
     <div className="md:hidden">
@@ -42,7 +44,7 @@ export function MobileNavView({
               </button>
             </div>
             <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-3">
-              {NAV.map((item) => {
+              {navFor(role).map((item) => {
                 const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
                 const Icon = item.icon;
                 return (

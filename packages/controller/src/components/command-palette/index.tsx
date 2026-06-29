@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { HardDrive, Server, Cpu, Clock, Bell, User, Mail } from "lucide-react";
-import { NAV } from "@/components/nav";
+import { navFor } from "@/components/nav";
 import { CommandPaletteView, type Entry } from "./view";
 
 type Index = {
@@ -21,21 +21,15 @@ const NAV_KEYWORDS: Record<string, string[]> = {
   "/destinations": ["destination", "storage", "s3", "ssh", "local", "restic", "backup target"],
   "/snapshots": ["snapshot", "backup", "restore"],
   "/agents": ["agent", "host"],
+  "/users": ["users", "members", "team", "roles", "invite", "invitation"],
   "/settings": ["settings", "config", "configuration"],
 };
 
 // Group order in the results.
 const GROUP_ORDER = ["Pages", "Settings", "Resources", "Destinations", "Instances", "Agents"];
 
-const STATIC: Entry[] = [
-  ...NAV.map((n) => ({
-    id: `nav:${n.href}`,
-    label: n.label,
-    href: n.href,
-    group: "Pages",
-    keywords: NAV_KEYWORDS[n.href],
-    icon: n.icon,
-  })),
+// Non-nav static entries (page links that aren't in the sidebar NAV).
+const EXTRA_STATIC: Entry[] = [
   {
     id: "nav:/profile",
     label: "Profile",
@@ -73,7 +67,7 @@ const STATIC: Entry[] = [
   },
 ];
 
-export function CommandPalette() {
+export function CommandPalette({ role }: { role: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -109,6 +103,14 @@ export function CommandPalette() {
 
   // All entries (static + dynamic from the loaded index).
   const entries = useMemo<Entry[]>(() => {
+    const navEntries: Entry[] = navFor(role).map((n) => ({
+      id: `nav:${n.href}`,
+      label: n.label,
+      href: n.href,
+      group: "Pages",
+      keywords: NAV_KEYWORDS[n.href],
+      icon: n.icon,
+    }));
     const dyn: Entry[] = [];
     if (index) {
       for (const r of index.resources)
@@ -119,8 +121,8 @@ export function CommandPalette() {
         dyn.push({ id: `i:${i.id}`, label: i.name, href: `/instances`, group: "Instances", icon: Server });
       for (const a of index.agents) dyn.push({ id: `a:${a.id}`, label: a.hostname, href: `/agents`, group: "Agents", icon: Cpu });
     }
-    return [...STATIC, ...dyn];
-  }, [index]);
+    return [...navEntries, ...EXTRA_STATIC, ...dyn];
+  }, [index, role]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

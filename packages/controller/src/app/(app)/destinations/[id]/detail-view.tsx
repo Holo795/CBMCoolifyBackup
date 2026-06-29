@@ -50,10 +50,7 @@ export function DestinationDetailView({
         <Card className="mb-4 border-[var(--color-danger)]/40">
           <CardContent className="flex items-center gap-2 p-4 text-sm">
             <AlertTriangle className="h-4 w-4 text-[var(--color-danger)]" />
-            <span>
-              <b>{missingCount}</b> backup{missingCount === 1 ? "" : "s"} can no longer be found at this destination
-              (files deleted at rest). They are flagged <Badge tone="danger">missing</Badge> in the snapshots list.
-            </span>
+            <span><b>{missingCount}</b> backup{missingCount === 1 ? "" : "s"} can no longer be found at this destination (files deleted at rest). They are flagged <Badge tone="danger">missing</Badge> in the snapshots list.</span>
           </CardContent>
         </Card>
       )}

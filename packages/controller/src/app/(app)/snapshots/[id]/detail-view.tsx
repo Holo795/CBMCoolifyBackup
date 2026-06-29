@@ -5,6 +5,7 @@ import { repinDeployment, deleteSnapshot } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { RestoreActions } from "@/components/restore-actions";
+import { Gate } from "@/components/role-gate";
 import { LiveLog } from "@/components/live-log";
 import { formatBytes, formatDateTime } from "@/lib/cn";
 import { GitCommitHorizontal } from "lucide-react";
@@ -33,6 +34,7 @@ export function SnapshotDetailView({
         title={snapshot.resource.name}
         description={`${snapshot.mode} · ${snapshot.captureMode} · ${snapshot.destination.name}`}
         action={
+          <Gate min="operator">
           <div className="flex items-center gap-2">
             {snapshot.status === "succeeded" &&
               !agentDown &&
@@ -57,13 +59,11 @@ export function SnapshotDetailView({
               label="Delete"
               redirectTo="/snapshots"
               body={
-                <>
-                  Permanently removes this snapshot ({formatBytes(snapshot.sizeBytes)}), including{" "}
-                  <b>its files on the destination</b> (deleted by the agent).
-                </>
+                <>Permanently removes this snapshot ({formatBytes(snapshot.sizeBytes)}), including <b>its files on the destination</b> (deleted by the agent).</>
               }
             />
           </div>
+          </Gate>
         }
       />
 

@@ -1,5 +1,7 @@
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
+import { requireUser, can } from "@/lib/session";
 import { getTimezone } from "@/lib/settings";
 import { smtpReady, smtpEnvOverrides } from "@/lib/email";
 import { SettingsView } from "./settings-view";
@@ -7,6 +9,10 @@ import { SettingsView } from "./settings-view";
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
+  // Settings are all admin-level config (timezone, alert webhook, SMTP secrets).
+  const me = await requireUser();
+  if (!can(me, "admin")) redirect("/");
+
   const tz = await getTimezone();
   const setting = await prisma.setting.findUnique({ where: { id: "global" } }).catch(() => null);
   const ready = await smtpReady();

@@ -5,7 +5,7 @@ import { authClient } from "@/lib/auth-client";
 import { TopbarView } from "./view";
 
 /** Logic only: wires the search shortcut + sign-out. Markup is in ./view.tsx. */
-export function Topbar({ name }: { name: string }) {
+export function Topbar({ name, role }: { name: string; role: string }) {
   const router = useRouter();
 
   const onSearch = () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }));
@@ -14,5 +14,5 @@ export function Topbar({ name }: { name: string }) {
     router.push("/login");
   };
 
-  return <TopbarView name={name} onSearch={onSearch} onSignOut={onSignOut} />;
+  return <TopbarView name={name} role={role} onSearch={onSearch} onSignOut={onSignOut} />;
 }

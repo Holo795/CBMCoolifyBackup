@@ -5,6 +5,7 @@ import { Card, CardContent, Badge, statusTone, EmptyState } from "@/components/u
 import { deleteAgent } from "@/app/actions";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { AgentServerSelect } from "@/components/agent-server-select";
+import { Gate } from "@/components/role-gate";
 import { timeAgo } from "@/lib/cn";
 import { Cpu } from "lucide-react";
 
@@ -60,30 +61,34 @@ export function AgentsView({ items }: { items: AgentItem[] }) {
                       )}
                     </td>
                     <td className="px-4 py-2.5">
-                      <AgentServerSelect
-                        agentId={a.id}
-                        serverUuid={a.serverUuid}
-                        serverName={a.serverName}
-                        serverManual={a.serverManual}
-                        options={options}
-                      />
+                      <Gate min="admin">
+                        <AgentServerSelect
+                          agentId={a.id}
+                          serverUuid={a.serverUuid}
+                          serverName={a.serverName}
+                          serverManual={a.serverManual}
+                          options={options}
+                        />
+                      </Gate>
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground">{a.dockerVersion ?? "-"}</td>
                     <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{a.containers ?? 0}</td>
                     <td className="px-4 py-2.5 text-muted-foreground">{timeAgo(a.lastSeenAt)}</td>
                     <td className="px-4 py-2.5">
-                      <ConfirmDeleteButton
-                        action={deleteAgent.bind(null, a.id)}
-                        confirmWord={a.hostname}
-                        title={`Remove agent “${a.hostname}”?`}
-                        body={
-                          <>
-                            Removes this agent from the controller. If it&apos;s still running on{" "}
-                            <b>{a.hostname}</b>, it will keep failing until you reconfigure it (re-run the install
-                            command).
-                          </>
-                        }
-                      />
+                      <Gate min="admin">
+                        <ConfirmDeleteButton
+                          action={deleteAgent.bind(null, a.id)}
+                          confirmWord={a.hostname}
+                          title={`Remove agent “${a.hostname}”?`}
+                          body={
+                            <>
+                              Removes this agent from the controller. If it&apos;s still running on{" "}
+                              <b>{a.hostname}</b>, it will keep failing until you reconfigure it (re-run the install
+                              command).
+                            </>
+                          }
+                        />
+                      </Gate>
                     </td>
                   </tr>
                 ))}
@@ -113,26 +118,28 @@ export function AgentsView({ items }: { items: AgentItem[] }) {
                     <span>{a.containers ?? 0} containers</span>
                     <span>seen {timeAgo(a.lastSeenAt)}</span>
                   </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <AgentServerSelect
-                      agentId={a.id}
-                      serverUuid={a.serverUuid}
-                      serverName={a.serverName}
-                      serverManual={a.serverManual}
-                      options={options}
-                    />
-                    <ConfirmDeleteButton
-                      action={deleteAgent.bind(null, a.id)}
-                      confirmWord={a.hostname}
-                      title={`Remove agent “${a.hostname}”?`}
-                      body={
-                        <>
-                          Removes this agent from the controller. If it&apos;s still running on <b>{a.hostname}</b>, it
-                          will keep failing until you reconfigure it.
-                        </>
-                      }
-                    />
-                  </div>
+                  <Gate min="admin">
+                    <div className="flex items-center justify-between gap-2">
+                      <AgentServerSelect
+                        agentId={a.id}
+                        serverUuid={a.serverUuid}
+                        serverName={a.serverName}
+                        serverManual={a.serverManual}
+                        options={options}
+                      />
+                      <ConfirmDeleteButton
+                        action={deleteAgent.bind(null, a.id)}
+                        confirmWord={a.hostname}
+                        title={`Remove agent “${a.hostname}”?`}
+                        body={
+                          <>
+                            Removes this agent from the controller. If it&apos;s still running on <b>{a.hostname}</b>, it
+                            will keep failing until you reconfigure it.
+                          </>
+                        }
+                      />
+                    </div>
+                  </Gate>
                 </div>
               ))}
             </div>

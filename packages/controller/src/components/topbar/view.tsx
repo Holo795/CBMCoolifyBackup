@@ -2,24 +2,26 @@
 
 import Link from "next/link";
 import { LogOut } from "lucide-react";
-import { Button } from "@/components/ui";
+import { Button, Badge } from "@/components/ui";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MobileNav } from "@/components/mobile-nav";
 
 /** Presentation only: the top bar markup. Logic lives in ./index.tsx. */
 export function TopbarView({
   name,
+  role,
   onSearch,
   onSignOut,
 }: {
   name: string;
+  role: string;
   onSearch: () => void;
   onSignOut: () => void;
 }) {
   return (
     <header className="flex h-14 items-center justify-between gap-2 border-b px-4 sm:px-5">
       <div className="flex items-center gap-2">
-        <MobileNav />
+        <MobileNav role={role} />
         <button
           className="flex w-36 sm:w-64 items-center justify-between rounded-md border px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground bg-muted/50"
           onClick={onSearch}
@@ -29,8 +31,13 @@ export function TopbarView({
         </button>
       </div>
       <div className="flex items-center gap-2">
-        <Link href="/profile" className="hidden text-sm text-muted-foreground hover:text-foreground sm:inline" title="Profile">
+        <Link
+          href="/profile"
+          className="hidden items-center gap-2 text-sm text-muted-foreground hover:text-foreground sm:inline-flex"
+          title="Profile"
+        >
           {name}
+          <Badge tone={role === "admin" ? "accent" : "neutral"}>{role}</Badge>
         </Link>
         <ThemeToggle />
         <Button variant="ghost" size="icon" aria-label="Sign out" onClick={onSignOut}>

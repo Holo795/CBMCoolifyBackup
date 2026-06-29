@@ -4,6 +4,7 @@ import { Card, CardContent, Badge, Button, Input, statusTone, EmptyState } from 
 import { backupNow } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { ResourceToggles } from "@/components/resource-toggles";
+import { Gate } from "@/components/role-gate";
 import { Boxes, Play, Unplug, Pin } from "lucide-react";
 
 type ResourceRow = Prisma.ResourceGetPayload<{ include: { instance: true } }>;
@@ -112,12 +113,16 @@ export function ResourcesView({
                         <Badge tone={statusTone(r.status)}>{r.status}</Badge>
                       </td>
                       <td className="px-4 py-2.5">
-                        <ResourceToggles id={r.id} backupEnabled={r.backupEnabled} liveBackup={r.liveBackup} />
+                        <Gate min="operator">
+                          <ResourceToggles id={r.id} backupEnabled={r.backupEnabled} liveBackup={r.liveBackup} />
+                        </Gate>
                       </td>
                       <td className="px-4 py-2.5">
-                        <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg="Queued">
-                          <Play className="h-3.5 w-3.5" /> Backup
-                        </ActionButton>
+                        <Gate min="operator">
+                          <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg="Queued">
+                            <Play className="h-3.5 w-3.5" /> Backup
+                          </ActionButton>
+                        </Gate>
                       </td>
                     </tr>
                   );
@@ -160,10 +165,12 @@ export function ResourcesView({
                       <Badge tone={statusTone(r.status)}>{r.status}</Badge>
                       <span className="text-muted-foreground">{r.projectName || "-"}</span>
                     </div>
-                    <ResourceToggles id={r.id} backupEnabled={r.backupEnabled} liveBackup={r.liveBackup} />
-                    <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg="Queued">
-                      <Play className="h-3.5 w-3.5" /> Backup
-                    </ActionButton>
+                    <Gate min="operator">
+                      <ResourceToggles id={r.id} backupEnabled={r.backupEnabled} liveBackup={r.liveBackup} />
+                      <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg="Queued">
+                        <Play className="h-3.5 w-3.5" /> Backup
+                      </ActionButton>
+                    </Gate>
                   </div>
                 );
               })}

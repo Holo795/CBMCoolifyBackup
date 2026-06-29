@@ -4,6 +4,7 @@ import { APIError } from "better-auth/api";
 import { prisma } from "./prisma";
 import { env } from "./env";
 import { sendMail } from "./email";
+import { decideInviteSignup } from "./invitations";
 
 const socialProviders: Record<string, { clientId: string; clientSecret: string }> = {};
 if (env.oauth.githubClientId && env.oauth.githubClientSecret) {
@@ -49,6 +50,10 @@ export const auth = betterAuth({
     additionalFields: {
       firstName: { type: "string", required: false },
       lastName: { type: "string", required: false },
+      // Server-owned: set by the registration gate (first user → admin, invited
+      // users → their invite's role). input:false stops a signup body from
+      // self-assigning a role.
+      role: { type: "string", required: false, input: false, defaultValue: "admin" },
     },
     changeEmail: {
       enabled: true,
@@ -91,16 +96,56 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
-        // The first person to register becomes the admin; registration is then
-        // closed. Blocks every sign-up path (email + social) once a user exists.
+        // The first person to register becomes the admin; afterwards self-signup
+        // is closed and only an *invited* email may register. An invite must have
+        // been claimed (its link opened, proving token possession) and still be
+        // pending/unexpired. Blocks every sign-up path (email + social) otherwise.
         before: async (user) => {
-          const count = await prisma.user.count();
-          if (count > 0) {
+          const userCount = await prisma.user.count();
+          const now = new Date();
+          const invite =
+            userCount === 0
+              ? null
+              : await prisma.invitation.findFirst({
+                  where: {
+                    email: { equals: user.email, mode: "insensitive" },
+                    acceptedAt: null,
+                    claimedAt: { not: null },
+                    expiresAt: { gt: now },
+                  },
+                  orderBy: { createdAt: "desc" },
+                });
+          const decision = decideInviteSignup({
+            userCount,
+            email: user.email,
+            invite: invite
+              ? {
+                  email: invite.email,
+                  role: invite.role,
+                  expiresAt: invite.expiresAt,
+                  claimedAt: invite.claimedAt,
+                  acceptedAt: invite.acceptedAt,
+                }
+              : null,
+            now,
+          });
+          if (!decision.allow) {
             throw new APIError("FORBIDDEN", {
-              message: "Registration is closed - an account already exists.",
+              message: "Registration is closed - ask an admin for an invite link.",
             });
           }
-          return { data: user };
+          return { data: decision.role ? { ...user, role: decision.role } : user };
+        },
+        // Consume the invite that authorized this signup (single use).
+        after: async (user) => {
+          await prisma.invitation.updateMany({
+            where: {
+              email: { equals: user.email, mode: "insensitive" },
+              acceptedAt: null,
+              claimedAt: { not: null },
+            },
+            data: { acceptedAt: new Date() },
+          });
         },
       },
     },

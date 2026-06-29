@@ -6,9 +6,11 @@ import { MobileNavView } from "./view";
 
 /** Hamburger menu + slide-out navigation drawer, shown only below `md` (the
  * fixed sidebar takes over at `md` and up). */
-export function MobileNav() {
+export function MobileNav({ role }: { role: string }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
-  return <MobileNavView open={open} onOpen={() => setOpen(true)} onClose={() => setOpen(false)} pathname={pathname} />;
+  return (
+    <MobileNavView open={open} onOpen={() => setOpen(true)} onClose={() => setOpen(false)} pathname={pathname} role={role} />
+  );
 }

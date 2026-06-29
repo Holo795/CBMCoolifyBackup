@@ -2,18 +2,18 @@
 
 import Link from "next/link";
 import { Github } from "lucide-react";
-import { NAV } from "@/components/nav";
+import { navFor } from "@/components/nav";
 import { cn } from "@/lib/cn";
 
 /** Presentation only: the fixed sidebar. Logic in ./index.tsx. */
-export function SidebarView({ pathname }: { pathname: string }) {
+export function SidebarView({ pathname, role }: { pathname: string; role: string }) {
   return (
     <aside className="hidden w-60 shrink-0 flex-col border-r bg-card/40 md:flex">
       <div className="flex h-14 items-center justify-center border-b px-5">
         <span className="text-base font-semibold tracking-wide">CBM</span>
       </div>
       <nav className="flex flex-1 flex-col gap-0.5 p-3">
-        {NAV.map((item) => {
+        {navFor(role).map((item) => {
           const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
           const Icon = item.icon;
           return (

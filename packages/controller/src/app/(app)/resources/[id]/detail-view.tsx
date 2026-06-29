@@ -9,6 +9,7 @@ import { HooksForm } from "@/components/hooks-form";
 import { setResourceSchedule, removeResourceOverride, backupNow, deleteSnapshot } from "@/app/actions";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { RestoreActions } from "@/components/restore-actions";
+import { Gate } from "@/components/role-gate";
 import { effectivePolicy, describeCron, cronToFrequency } from "@/lib/schedule";
 import { formatBytes, timeAgo } from "@/lib/cn";
 import { Play, ArrowLeft, Unplug } from "lucide-react";
@@ -48,9 +49,11 @@ export function ResourceDetailView({
         description={`${resource.type} · ${resource.instance.name}${resource.projectName ? " · " + resource.projectName : ""}`}
         action={
           agentDown || removed ? undefined : (
-            <ActionButton action={backupNow.bind(null, resource.id)} variant="primary" size="md" successMsg="Backup queued">
-              <Play className="h-4 w-4" /> Back up now
-            </ActionButton>
+            <Gate min="operator">
+              <ActionButton action={backupNow.bind(null, resource.id)} variant="primary" size="md" successMsg="Backup queued">
+                <Play className="h-4 w-4" /> Back up now
+              </ActionButton>
+            </Gate>
           )
         }
       />
@@ -68,6 +71,7 @@ export function ResourceDetailView({
           aria-hidden={agentDown || undefined}
         >
       <div className="grid gap-6 lg:grid-cols-2">
+        <Gate min="operator">
         <Card>
           <CardHeader>
             <CardTitle>Backup options</CardTitle>
@@ -81,7 +85,9 @@ export function ResourceDetailView({
             <ResourceToggles id={resource.id} backupEnabled={resource.backupEnabled} liveBackup={resource.liveBackup} verbose />
           </CardContent>
         </Card>
+        </Gate>
 
+        <Gate min="operator">
         <Card>
           <CardHeader>
             <CardTitle>Backup hooks</CardTitle>
@@ -94,7 +100,9 @@ export function ResourceDetailView({
             />
           </CardContent>
         </Card>
+        </Gate>
 
+        <Gate min="admin">
         <Card>
           <CardHeader>
             <CardTitle>Schedule</CardTitle>
@@ -154,6 +162,7 @@ export function ResourceDetailView({
             </details>
           </CardContent>
         </Card>
+        </Gate>
       </div>
 
       <h2 className="mb-3 mt-8 text-sm font-medium text-muted-foreground">Snapshots</h2>
@@ -193,18 +202,17 @@ export function ResourceDetailView({
                     <td className="px-4 py-2.5 text-muted-foreground">{s.destination.name}</td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center justify-end gap-1.5">
-                        {s.status === "succeeded" && <RestoreActions snapshotId={s.id} hasAgent={!agentDown} />}
-                        <ConfirmDeleteButton
-                          action={deleteSnapshot.bind(null, s.id)}
-                          confirmWord="DELETE"
-                          title="Delete this snapshot?"
-                          body={
-                            <>
-                              Permanently removes this snapshot ({formatBytes(s.sizeBytes)}), including{" "}
-                              <b>its files on the destination</b> (deleted by the agent).
-                            </>
-                          }
-                        />
+                        <Gate min="operator">
+                          {s.status === "succeeded" && <RestoreActions snapshotId={s.id} hasAgent={!agentDown} />}
+                          <ConfirmDeleteButton
+                            action={deleteSnapshot.bind(null, s.id)}
+                            confirmWord="DELETE"
+                            title="Delete this snapshot?"
+                            body={
+                              <>Permanently removes this snapshot ({formatBytes(s.sizeBytes)}), including <b>its files on the destination</b> (deleted by the agent).</>
+                            }
+                          />
+                        </Gate>
                       </div>
                     </td>
                   </tr>
@@ -228,18 +236,17 @@ export function ResourceDetailView({
                     <span>{s.destination.name}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    {s.status === "succeeded" && <RestoreActions snapshotId={s.id} hasAgent={!agentDown} />}
-                    <ConfirmDeleteButton
-                      action={deleteSnapshot.bind(null, s.id)}
-                      confirmWord="DELETE"
-                      title="Delete this snapshot?"
-                      body={
-                        <>
-                          Permanently removes this snapshot ({formatBytes(s.sizeBytes)}), including{" "}
-                          <b>its files on the destination</b> (deleted by the agent).
-                        </>
-                      }
-                    />
+                    <Gate min="operator">
+                      {s.status === "succeeded" && <RestoreActions snapshotId={s.id} hasAgent={!agentDown} />}
+                      <ConfirmDeleteButton
+                        action={deleteSnapshot.bind(null, s.id)}
+                        confirmWord="DELETE"
+                        title="Delete this snapshot?"
+                        body={
+                          <>Permanently removes this snapshot ({formatBytes(s.sizeBytes)}), including <b>its files on the destination</b> (deleted by the agent).</>
+                        }
+                      />
+                    </Gate>
                   </div>
                 </div>
               ))}

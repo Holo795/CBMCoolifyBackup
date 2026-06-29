@@ -6,6 +6,7 @@ import { retrySnapshot, cancelSnapshot, deleteSnapshot } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { RestoreActions } from "@/components/restore-actions";
+import { Gate } from "@/components/role-gate";
 import { formatBytes, timeAgo } from "@/lib/cn";
 import { Archive, RefreshCw, X } from "lucide-react";
 
@@ -45,10 +46,7 @@ export function SnapshotsView({
         confirmWord="DELETE"
         title="Delete this snapshot?"
         body={
-          <>
-            Permanently removes this <b>{s.resource.name}</b> snapshot ({formatBytes(s.sizeBytes)}), including{" "}
-            <b>its files on the destination</b> (deleted by the agent).
-          </>
+          <>Permanently removes this <b>{s.resource.name}</b> snapshot ({formatBytes(s.sizeBytes)}), including <b>its files on the destination</b> (deleted by the agent).</>
         }
       />
     </>
@@ -95,7 +93,9 @@ export function SnapshotsView({
                     <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{formatBytes(s.sizeBytes)}</td>
                     <td className="px-4 py-2.5 text-muted-foreground">{timeAgo(s.startedAt)}</td>
                     <td className="px-4 py-2.5">
-                      <div className="flex items-center justify-end gap-1.5">{snapshotActions(s, hasAgent)}</div>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Gate min="operator">{snapshotActions(s, hasAgent)}</Gate>
+                      </div>
                     </td>
                   </tr>
                   );
@@ -124,7 +124,9 @@ export function SnapshotsView({
                       <span>{formatBytes(s.sizeBytes)}</span>
                       <span>{timeAgo(s.startedAt)}</span>
                     </div>
-                    <div className="flex flex-wrap items-center gap-1.5">{snapshotActions(s, hasAgent)}</div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Gate min="operator">{snapshotActions(s, hasAgent)}</Gate>
+                    </div>
                   </div>
                 );
               })}

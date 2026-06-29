@@ -15,5 +15,5 @@ export const config = {
   // Protect everything except auth, login, static assets, the agent API
   // (agents authenticate with a bearer token, not a session cookie), and the
   // public /install.sh agent installer script.
-  matcher: ["/((?!api/auth|api/agents|login|reset-password|install.sh|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!api/auth|api/agents|login|reset-password|invite|install.sh|_next/static|_next/image|favicon.ico).*)"],
 };
