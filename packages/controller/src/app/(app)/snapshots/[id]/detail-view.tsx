@@ -20,11 +20,14 @@ export function SnapshotDetailView({
   restores,
   tz,
   agentDown,
+  instances,
 }: {
   snapshot: SnapshotDetail;
   restores: RestoreJob[];
   tz: string;
   agentDown: boolean;
+  /** Connected instances, offered as "Restore onto" targets (migration). */
+  instances: { id: string; name: string }[];
 }) {
   const manifest = snapshot.manifest as { provenance?: { gitCommitSha?: string; imageDigest?: string } } | null;
 
@@ -49,7 +52,15 @@ export function SnapshotDetailView({
                   <GitCommitHorizontal className="h-4 w-4" /> Re-pin code
                 </ActionButton>
               )}
-            {snapshot.status === "succeeded" && <RestoreActions snapshotId={snapshot.id} hasAgent={!agentDown} size="md" />}
+            {snapshot.status === "succeeded" && (
+              <RestoreActions
+                snapshotId={snapshot.id}
+                hasAgent={!agentDown}
+                size="md"
+                instances={instances}
+                currentInstanceId={snapshot.resource.instanceId}
+              />
+            )}
             <ConfirmDeleteButton
               action={deleteSnapshot.bind(null, snapshot.id)}
               confirmWord="DELETE"

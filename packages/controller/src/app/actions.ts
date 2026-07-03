@@ -208,6 +208,47 @@ export async function setEmailVerification(enabled: boolean) {
   return { ok: true };
 }
 
+/* ----------------------- disaster recovery: self-backup ----------------------- */
+
+/** Configure the always-current self-backup of the controller's metadata DB.
+ * A "local" destination dies with the machine, so it's refused. */
+export async function updateSelfBackup(fd: FormData) {
+  await requireRole("admin");
+  const enabled = fd.get("enabled") === "on";
+  const destinationId = s(fd, "destinationId");
+  if (enabled) {
+    if (!destinationId) return { error: "Pick a destination first" };
+    const dest = await prisma.destination.findUnique({ where: { id: destinationId } });
+    if (!dest) return { error: "Destination not found" };
+    if (dest.type === "local") return { error: "A 'local' destination dies with the machine - pick SSH or S3" };
+  }
+  await prisma.setting.upsert({
+    where: { id: "global" },
+    create: { id: "global", selfBackupEnabled: enabled, selfBackupDestinationId: destinationId || null },
+    update: { selfBackupEnabled: enabled, selfBackupDestinationId: destinationId || null },
+  });
+  revalidatePath("/settings");
+  return { ok: true, detail: enabled ? "Self-backup enabled - first run within a minute" : "Self-backup disabled" };
+}
+
+/** Run the metadata self-backup immediately (also verifies the setup works). */
+export async function runSelfBackupNow() {
+  await requireRole("admin");
+  const { runSelfBackup } = await import("@/lib/self-backup");
+  const r = await runSelfBackup();
+  revalidatePath("/settings");
+  return r.ok ? { ok: true, detail: "Metadata backed up" } : { error: r.error };
+}
+
+/** Drill: prove the recovery path (download + decrypt the latest self-backup)
+ * without a destructive restore. */
+export async function verifyRecoveryPath() {
+  await requireRole("admin");
+  const { verifyLatestSelfBackup } = await import("@/lib/self-backup");
+  const r = await verifyLatestSelfBackup();
+  return r.ok ? { ok: true, detail: r.detail } : { error: r.error };
+}
+
 /* ----------------------------- instances ----------------------------- */
 
 export async function connectInstance(fd: FormData) {
@@ -316,6 +357,60 @@ export async function deleteInstance(instanceId: string) {
   await prisma.coolifyInstance.delete({ where: { id: instanceId } });
   revalidatePath("/instances");
   revalidatePath("/resources");
+}
+
+/**
+ * Re-point an instance at a different Coolify (disaster recovery: the old panel
+ * is gone, redirect the SAME record so every resource/snapshot/schedule keeps
+ * following it). Leave the token blank to keep the stored one (URL-only moves).
+ */
+export async function repointInstance(instanceId: string, fd: FormData) {
+  await requireRole("admin");
+  const baseUrl = s(fd, "baseUrl").replace(/\/$/, "");
+  const token = s(fd, "apiToken");
+  if (!baseUrl) return { error: "Base URL is required" };
+  const inst = await prisma.coolifyInstance.findUnique({ where: { id: instanceId } });
+  if (!inst) return { error: "Instance not found" };
+
+  const ping = await new CoolifyClient(baseUrl, token || decryptSecret(inst.apiTokenEnc)).ping();
+  if (!ping.ok) return { error: `Cannot reach Coolify at ${baseUrl}: ${ping.error}` };
+
+  await prisma.coolifyInstance.update({
+    where: { id: instanceId },
+    data: { baseUrl, ...(token ? { apiTokenEnc: encryptSecret(token) } : {}) },
+  });
+  let warning: string | undefined;
+  try {
+    await syncInstance(instanceId);
+  } catch (e) {
+    warning = `Re-pointed, but sync failed: ${(e as Error).message}`;
+  }
+  revalidatePath("/instances");
+  revalidatePath("/resources");
+  revalidatePath("/agents");
+  return warning ? { ok: true, warning } : { ok: true, detail: `Instance now points at ${baseUrl}` };
+}
+
+/**
+ * Save the restore-time server remap for a multi-server TARGET instance:
+ * { <source server uuid>: <this instance's server uuid> }. Empty map clears it.
+ */
+export async function updateInstanceServerMap(
+  instanceId: string,
+  map: Record<string, string>,
+): Promise<{ ok?: boolean; error?: string }> {
+  await requireRole("admin");
+  const clean = Object.fromEntries(
+    Object.entries(map ?? {})
+      .map(([k, v]) => [k.trim(), v.trim()])
+      .filter(([k, v]) => k && v),
+  );
+  await prisma.coolifyInstance.update({
+    where: { id: instanceId },
+    data: { serverUuidMap: Object.keys(clean).length ? clean : Prisma.DbNull },
+  });
+  revalidatePath("/instances");
+  return { ok: true };
 }
 
 /* ----------------------------- agents ----------------------------- */
@@ -727,10 +822,12 @@ export async function backupNow(resourceId: string): Promise<{ ok?: boolean; err
 export async function restoreSnapshot(
   snapshotId: string,
   target: "in_place" | "new_resource",
+  /** Restore "→ new" onto a DIFFERENT connected Coolify (migration). */
+  targetInstanceId?: string,
 ): Promise<{ ok?: boolean; error?: string; detail?: string }> {
   await requireRole("operator");
   try {
-    await enqueueRestore(snapshotId, target);
+    await enqueueRestore(snapshotId, target, targetInstanceId);
   } catch (e) {
     return { error: (e as Error).message };
   }

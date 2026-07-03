@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { requireUser, can } from "@/lib/session";
 import { getTimezone } from "@/lib/settings";
 import { smtpReady, smtpEnvOverrides } from "@/lib/email";
+import { formatDateTime } from "@/lib/cn";
 import { SettingsView } from "./settings-view";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +29,48 @@ export default async function SettingsPage() {
     envLocked,
   };
 
+  // Disaster recovery: destinations eligible for the metadata self-backup
+  // ("local" dies with the machine, so it's excluded).
+  const drDestinations = await prisma.destination.findMany({
+    where: { type: { not: "local" } },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, type: true },
+  });
+  const selfBackup = {
+    enabled: setting?.selfBackupEnabled ?? false,
+    destinationId: setting?.selfBackupDestinationId ?? drDestinations[0]?.id ?? "",
+    lastRunAt: setting?.selfBackupLastRunAt ? formatDateTime(setting.selfBackupLastRunAt, tz) : null,
+    lastStatus: setting?.selfBackupLastStatus ?? null,
+  };
+
+  // The recovery-file seed only points to the self-backup destination + master
+  // key, so it's stale when either changes since the file was last generated.
+  // A change is: a different destination, edited destination CREDENTIALS (its
+  // row updated after the file was made), or a rotated master key.
+  const { masterKeyFingerprint } = await import("@/lib/crypto");
+  const currentFp = masterKeyFingerprint();
+  const hasFile = !!setting?.recoveryFileGeneration;
+  const selfDest = setting?.selfBackupDestinationId
+    ? await prisma.destination.findUnique({ where: { id: setting.selfBackupDestinationId }, select: { updatedAt: true } })
+    : null;
+  const destChanged = hasFile && (setting?.recoveryFileDestId ?? null) !== (setting?.selfBackupDestinationId ?? null);
+  const credsChanged =
+    hasFile && !destChanged && !!selfDest && !!setting?.recoveryFileAt && selfDest.updatedAt > setting.recoveryFileAt;
+  const keyChanged = hasFile && setting?.recoveryFileKeyFp !== currentFp;
+  const recoveryFile = {
+    generation: setting?.recoveryFileGeneration ?? 0,
+    at: setting?.recoveryFileAt ? formatDateTime(setting.recoveryFileAt, tz) : null,
+    stale: destChanged || credsChanged || keyChanged,
+    staleReason: destChanged
+      ? "self-backup destination changed"
+      : credsChanged
+        ? "destination credentials changed"
+        : keyChanged
+          ? "master key changed"
+          : null,
+    hasSelfBackup: !!(setting?.selfBackupEnabled && setting.selfBackupDestinationId),
+  };
+
   return (
     <SettingsView
       tz={tz}
@@ -35,6 +78,9 @@ export default async function SettingsPage() {
       requireEmailVerification={setting?.requireEmailVerification ?? false}
       ready={ready}
       smtpCurrent={smtpCurrent}
+      drDestinations={drDestinations}
+      selfBackup={selfBackup}
+      recoveryFile={recoveryFile}
     />
   );
 }

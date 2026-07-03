@@ -7,6 +7,7 @@ import {
   connectInstance,
   syncInstanceAction,
   deleteInstance,
+  repointInstance,
   setInstanceSchedule,
   removeInstanceSchedule,
   setServerSchedule,
@@ -15,12 +16,13 @@ import {
 } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { RevealInstall } from "@/components/reveal-install";
+import { ServerMapForm } from "@/components/server-map-form";
 import { Gate } from "@/components/role-gate";
 import { timeAgo } from "@/lib/cn";
 import { describeCron, cronToFrequency } from "@/lib/schedule";
 import { isAgentOnline as agentOnline } from "@/lib/agent-status";
 import type { groupServersByInstance } from "@/lib/servers";
-import { Server, RefreshCw, Trash2, CalendarClock, ShieldCheck } from "lucide-react";
+import { Server, RefreshCw, Trash2, CalendarClock, ShieldCheck, Pencil } from "lucide-react";
 import type { BackupPolicy, Destination } from "@/generated/prisma/client";
 
 type PolicyWithDest = BackupPolicy & { destination: Destination };
@@ -196,6 +198,25 @@ export function InstancesView({
                       </div>
                       <Gate min="admin">
                         <RevealInstall instanceId={i.id} hasToken={!!i.enrollTokenHash} />
+                        <details className="text-xs">
+                          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                            <Pencil className="mr-1 inline h-3.5 w-3.5" />
+                            Edit instance (re-point to another Coolify)
+                          </summary>
+                          <div className="mt-3 max-w-md">
+                            <p className="mb-3 text-xs text-muted-foreground">Point this instance at a different Coolify (disaster recovery: the old panel is gone). Every resource, snapshot and schedule keeps following it. Re-run the install command on the new host afterwards so an agent serves it.</p>
+                            <ActionForm action={repointInstance.bind(null, i.id)} submitLabel="Re-point instance" resetOnSuccess={false}>
+                              <div className="flex flex-col gap-1.5">
+                                <Label htmlFor={`baseUrl-${i.id}`}>Base URL</Label>
+                                <Input id={`baseUrl-${i.id}`} name="baseUrl" defaultValue={i.baseUrl} required />
+                              </div>
+                              <div className="flex flex-col gap-1.5">
+                                <Label htmlFor={`apiToken-${i.id}`}>API token (blank = keep current)</Label>
+                                <Input id={`apiToken-${i.id}`} name="apiToken" type="password" placeholder="cf_…" />
+                              </div>
+                            </ActionForm>
+                          </div>
+                        </details>
                       </Gate>
                       {multiServer && (
                         <p className="text-xs text-muted-foreground">
@@ -236,6 +257,18 @@ export function InstancesView({
                             </div>
                           );
                         })}
+                        <Gate min="admin">
+                          <details className="text-xs">
+                            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Server mapping for restores (source → here)</summary>
+                            <div className="mt-3 max-w-lg">
+                              <ServerMapForm
+                                instanceId={i.id}
+                                servers={servers}
+                                current={(i.serverUuidMap as Record<string, string> | null) ?? {}}
+                              />
+                            </div>
+                          </details>
+                        </Gate>
                       </div>
                     ) : (
                       // Single server (or none discovered yet): instance-wide schedule.

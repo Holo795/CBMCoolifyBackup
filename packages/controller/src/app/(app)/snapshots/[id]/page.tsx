@@ -28,5 +28,11 @@ export default async function SnapshotDetail({ params }: { params: Promise<{ id:
   const agentDown = !liveAgent;
   const tz = await getTimezone();
 
-  return <SnapshotDetailView snapshot={snapshot} restores={restores} tz={tz} agentDown={agentDown} />;
+  // Offered as "Restore onto" targets when several Coolify instances are connected.
+  const instances = await prisma.coolifyInstance.findMany({
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true },
+  });
+
+  return <SnapshotDetailView snapshot={snapshot} restores={restores} tz={tz} agentDown={agentDown} instances={instances} />;
 }
