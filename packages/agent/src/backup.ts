@@ -254,6 +254,7 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
     artifacts,
     provenance,
     envEnc: job.envEnc,
+    capturedConfig: job.capturedConfig,
     encrypted: job.encryption.enabled,
     destinationDir: job.destinationDir,
   };

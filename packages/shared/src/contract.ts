@@ -122,6 +122,42 @@ export const Provenance = z.object({
 });
 export type Provenance = z.infer<typeof Provenance>;
 
+/**
+ * Full Coolify resource definition captured at backup time, so a snapshot can
+ * be recreated on a fresh Coolify even after the source instance is gone
+ * (disaster recovery / migration). Captured by the controller (the agent stores
+ * it verbatim — it can't read the encrypted parts):
+ *  - `raw` is a whitelisted, non-secret subset of the Coolify API object —
+ *    exactly the fields the clone builders read (git/build-pack/image fields
+ *    for apps, `image` for databases, `service_type` for services).
+ *  - Credential-bearing db fields and the compose YAML (which may inline
+ *    secrets) are master-key-encrypted in `dbCredsEnc` / `composeEnc`.
+ */
+export const CapturedConfig = z.object({
+  version: z.literal(1).default(1),
+  kind: z.enum(["application", "service", "database"]),
+  projectName: z.string(),
+  environmentName: z.string().default("production"),
+  /** The source server this resource ran on — a remap hint, not a requirement. */
+  serverUuid: z.string().optional(),
+  serverName: z.string().optional(),
+  /** Source-side versions, to warn about API drift at a much-later restore. */
+  coolifyVersion: z.string().optional(),
+  cbmVersion: z.string().optional(),
+  /** Domain(s) configured on the source (informational for the operator). */
+  fqdn: z.string().optional(),
+  /** Whitelisted non-secret Coolify fields (see above). */
+  raw: z.record(z.string(), z.unknown()).default({}),
+  /** Master-key-encrypted JSON of the per-engine db credential fields. */
+  dbCredsEnc: z.string().optional(),
+  /** Master-key-encrypted compose YAML (services; may contain inline secrets). */
+  composeEnc: z.string().optional(),
+  /** Git-auth remap hints: numeric ids are meaningless on a new Coolify. */
+  gitSourceName: z.string().optional(),
+  privateKeyName: z.string().optional(),
+});
+export type CapturedConfig = z.infer<typeof CapturedConfig>;
+
 export const SnapshotManifest = z.object({
   version: z.literal(1).default(1),
   resource: ResourceDescriptor,
@@ -136,6 +172,9 @@ export const SnapshotManifest = z.object({
   /** The resource's env vars (master-key-encrypted JSON), so the snapshot can be
    * restored even if the original resource no longer exists in Coolify. */
   envEnc: z.string().optional(),
+  /** Full resource definition captured at backup time (see CapturedConfig), so
+   * a restore can rebuild the resource on a fresh Coolify without the source. */
+  capturedConfig: CapturedConfig.optional(),
   encrypted: z.boolean().default(false),
   /** Relative directory at the destination that holds this snapshot. */
   destinationDir: z.string(),
@@ -160,6 +199,9 @@ export const BackupJob = z.object({
    * controller. The agent stores it verbatim in the manifest (it can't read it),
    * so a backup is self-contained for a later restore. */
   envEnc: z.string().optional(),
+  /** Full resource definition captured by the controller (see CapturedConfig).
+   * The agent stores it verbatim in the manifest. */
+  capturedConfig: CapturedConfig.optional(),
   resource: ResourceDescriptor,
   destination: ResolvedDestination,
   encryption: EncryptionSpec,
