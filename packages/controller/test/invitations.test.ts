@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decideInviteSignup, inviteExpiry, INVITE_TTL_MS, type InviteFacts } from "../src/lib/invitations";
+import { decideInviteSignup, inviteExpiry, INVITE_TTL_MS, CLAIM_WINDOW_MS, type InviteFacts } from "../src/lib/invitations";
 
 const NOW = new Date("2026-06-29T12:00:00Z");
 const future = new Date(NOW.getTime() + 60_000);
@@ -59,5 +59,17 @@ test("already-accepted invite is rejected (single use)", () => {
 
 test("email mismatch is rejected", () => {
   const r = decideInviteSignup({ userCount: 1, email: "eve@example.com", invite: claimedInvite(), now: NOW });
+  assert.equal(r.allow, false);
+});
+
+test("claim just inside the window is allowed", () => {
+  const claimedAt = new Date(NOW.getTime() - (CLAIM_WINDOW_MS - 1000));
+  const r = decideInviteSignup({ userCount: 1, email: "bob@example.com", invite: claimedInvite({ claimedAt }), now: NOW });
+  assert.equal(r.allow, true);
+});
+
+test("claim older than the window is rejected (stale claim can't be exploited later)", () => {
+  const claimedAt = new Date(NOW.getTime() - (CLAIM_WINDOW_MS + 1000));
+  const r = decideInviteSignup({ userCount: 1, email: "bob@example.com", invite: claimedInvite({ claimedAt }), now: NOW });
   assert.equal(r.allow, false);
 });
