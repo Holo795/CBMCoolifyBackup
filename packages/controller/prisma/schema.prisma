@@ -97,6 +97,10 @@ model CoolifyInstance {
   enrollTokenHash   String?    @unique // sha256 of the per-instance enrollment token; plaintext is shown once and never stored
   enrollTokenHint   String     @default("") // masked display of the current token, e.g. cbm_ab12…7f4c
   enrollTokenSetAt  DateTime?  // when the current enrollment token was last generated
+  // Restore-time server remap when THIS instance is the target and has several
+  // servers: { <source server uuid>: <this instance's server uuid> }. Unmapped
+  // sources fall back to the first server; single-server targets ignore it.
+  serverUuidMap     Json?
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
   lastSyncedAt      DateTime?
@@ -318,5 +322,18 @@ model Setting {
   // Soft account-email verification: when on, a verification email is sent but
   // sign-in is never blocked.
   requireEmailVerification Boolean @default(false)
+  // --- Self-backup (disaster recovery) ---
+  // The controller pg_dumps its own metadata DB (encrypted) to this destination
+  // as a SINGLE artefact overwritten in place — recovery always uses the latest.
+  // Change-driven + throttled, with a daily safety re-run. Never "local".
+  selfBackupEnabled       Boolean   @default(false)
+  selfBackupDestinationId String?
+  selfBackupLastRunAt     DateTime?
+  selfBackupLastStatus    String?
+  // Recovery-file bookkeeping (generation counter + staleness fingerprints).
+  recoveryFileGeneration  Int       @default(0)
+  recoveryFileAt          DateTime?
+  recoveryFileDestId      String?
+  recoveryFileKeyFp       String?
   updatedAt DateTime @updatedAt
 }
