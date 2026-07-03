@@ -117,3 +117,16 @@ docker compose pull && docker compose up -d        # controller (migrations run 
 
 For agents, re-run the install command on each host (it recreates the container with the
 latest image), or `docker pull ghcr.io/holo795/cbm-agent:latest` then recreate `cbm-agent`.
+
+---
+
+## Scaling: run exactly one controller replica
+
+The controller runs the backup **scheduler in-process**. Running two or more
+controller replicas against the same database would double-fire scheduled
+backups (and the metadata self-backup). Deploy a **single controller replica**;
+scale by giving it more resources, not more replicas.
+
+As a backstop, the scheduler takes a Postgres advisory lock at startup, so if a
+second replica is started by accident only one of them runs scheduled work — but
+this is a safety net, not a supported HA mode.
