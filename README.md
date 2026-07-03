@@ -50,10 +50,12 @@ needs to actually come back to life isn't covered. CBM backs up the whole resour
 | **No restart** of the running resource during backup | n/a | ✅ |
 | **Incremental + deduplicated + encrypted** storage (restic) | ❌ | ✅ |
 | Restore **to a new resource** (clone, re‑pin commit/image) | ❌ | ✅ |
+| Restore onto a **fresh / different Coolify** (source can be gone) | ❌ | ✅ |
 | **Multiple destinations** (local / SSH‑SFTP / S3, jump host) | partial | ✅ |
 | **Multi‑server** Coolify instances | n/a | ✅ |
 | Alerts on **failed / missing / overdue** backups | ❌ | ✅ |
 | **Reconciliation** (detect backups deleted at the destination) | ❌ | ✅ |
+| **Disaster recovery** — back up CBM itself, restore it elsewhere | ❌ | ✅ |
 
 ---
 
@@ -73,6 +75,11 @@ needs to actually come back to life isn't covered. CBM backs up the whole resour
 - **Restore → new.** Recreate any resource type as a brand‑new Coolify resource (the original
   is never touched): databases, git apps (commit re‑pinned), docker‑image apps (exact
   tag/digest), and compose services (volumes re‑mapped to the clone).
+- **Disaster recovery.** CBM backs up **its own metadata** to an off‑site destination and hands
+  you a portable **recovery file**, so a dead machine never takes the "brain" with it. Snapshots
+  are self‑describing, so `Restore → new` works onto a **fresh or different Coolify** even when
+  the source is gone — CBM recreates the projects/environments and re‑injects the config. See
+  [docs/disaster-recovery.md](docs/disaster-recovery.md).
 - **Multiple destinations** — local folder, SSH/SFTP (with optional **jump host / bastion**),
   or S3 — with optional AES‑256‑GCM encryption at rest (the restic engine encrypts natively).
 - **Multi‑server instances.** A Coolify panel can manage several servers; install one agent
@@ -192,6 +199,7 @@ Detailed docs live in **[`/docs`](docs/)**:
 - [Destinations](docs/destinations.md) — local · SSH/SFTP · jump host · S3 · tar vs restic
 - [Backups](docs/backups.md) — how each resource type is captured, hooks, live mode
 - [Restore](docs/restore.md) — in place vs → new
+- [Disaster recovery](docs/disaster-recovery.md) — self‑backup, recovery file, restore onto a fresh Coolify
 - [Multi‑server](docs/multi-server.md), [Alerts](docs/alerts.md),
   [Reconciliation & retention](docs/reconciliation-retention.md)
 - [Security](docs/security.md) · [Troubleshooting / FAQ](docs/troubleshooting.md)

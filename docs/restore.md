@@ -34,6 +34,12 @@ For apps and services, the clone is created **but not deployed** by default (no 
 design) — you review it in Coolify, then deploy. Its data is already in place. Environment
 variables captured in the snapshot are applied to the clone automatically.
 
+Because each snapshot also captures the **full resource definition** (git/build pack, image,
+compose, domains, database credentials), `→ new` works even when the **source Coolify is gone**,
+and it **creates any missing project/environment** on the target. When several Coolify instances
+are connected, a **"Restore onto"** picker lets you clone the snapshot onto a *different* Coolify
+(migration). See **[disaster-recovery.md](disaster-recovery.md)**.
+
 ## With the restic engine
 
 Restore is transparent: the agent pulls the exact snapshot from the restic repository (local,
