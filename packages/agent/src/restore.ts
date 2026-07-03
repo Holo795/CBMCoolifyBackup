@@ -140,7 +140,9 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
         }
         for (const v of volumes) {
           if (v.meta.bindSource) {
-            emit("info", `Restoring host folder ${v.meta.bindSource}`, 70);
+            // Docker auto-creates a missing host path for the bind mount (fresh
+            // machine after DR) — root-owned, so permissions may need review.
+            emit("info", `Restoring host folder ${v.meta.bindSource} (created if missing)`, 70);
             await restoreToPath(v.meta.bindSource, localFiles[v.filename]);
             continue;
           }

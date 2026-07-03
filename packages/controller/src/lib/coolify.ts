@@ -40,7 +40,7 @@ export interface DbConfig {
 export type CloneEngine = DbEngine | "redis" | "keydb" | "dragonfly" | "clickhouse";
 
 /** Loosely-typed Coolify API resource JSON — only the fields we read are named. */
-interface CoolifyRaw {
+export interface CoolifyRaw {
   uuid?: string;
   name?: string;
   type?: string;
@@ -216,6 +216,51 @@ export class CoolifyClient {
     return (projects ?? []).find((p) => p.name === name)?.uuid;
   }
 
+  /** Create a project; returns its uuid. */
+  async createProject(name: string): Promise<string> {
+    const created = await this.post<{ uuid?: string }>("/api/v1/projects", {
+      name,
+      description: "Created by CBM during a restore",
+    });
+    if (!created?.uuid) throw new Error(`Coolify did not return a uuid for created project "${name}"`);
+    return created.uuid;
+  }
+
+  /** Find-or-create a project by name — a blank Coolify has none of the
+   * source's projects, so restores scaffold them on demand. */
+  async ensureProjectUuid(name: string): Promise<string> {
+    return (await this.findProjectUuid(name)) ?? (await this.createProject(name));
+  }
+
+  /** Make sure an environment exists on a project (find-or-create, idempotent).
+   * Best-effort: new projects get "production" automatically, older Coolify
+   * versions may lack the environments endpoints — failures are left for the
+   * resource-create call to surface. */
+  async ensureEnvironment(projectUuid: string, name: string): Promise<void> {
+    if (name === "production") return; // every project is born with it
+    const envs = await this.get<Array<{ name?: string }>>(`/api/v1/projects/${projectUuid}/environments`).catch(
+      () => null,
+    );
+    if (envs?.some((e) => e?.name === name)) return;
+    // 409 = already exists (race) — fine either way.
+    await this.post(`/api/v1/projects/${projectUuid}/environments`, { name }).catch(() => undefined);
+  }
+
+  /**
+   * Pick the server a clone should land on, driven by the TARGET's topology:
+   * the captured/source server if it still exists here, else its mapped
+   * counterpart, else the only/first server (the single-server DR case
+   * collapses every source server onto the one box).
+   */
+  async resolveTargetServer(hintUuid?: string, map?: Record<string, string>): Promise<string | undefined> {
+    const servers = await this.listServers();
+    if (!servers.length) return undefined;
+    if (hintUuid && servers.some((s) => s.uuid === hintUuid)) return hintUuid;
+    const mapped = hintUuid && map ? map[hintUuid] : undefined;
+    if (mapped && servers.some((s) => s.uuid === mapped)) return mapped;
+    return servers[0].uuid;
+  }
+
   /**
    * Clone a standalone database into a NEW Coolify resource: same project /
    * environment / server, same image + credentials, new name. `instantDeploy`
@@ -230,12 +275,16 @@ export class CoolifyClient {
     projectName: string;
     environmentName: string;
     instantDeploy: boolean;
+    /** Captured source definition (DR/migration) — skips the live source read. */
+    src?: DbConfig;
+    /** Explicit target server (already remapped); default: the source's server. */
+    serverUuid?: string;
   }): Promise<string> {
-    const src = await this.getDatabase(opts.sourceUuid);
-    const serverUuid = src?.destination?.server?.uuid;
+    const src = opts.src ?? (await this.getDatabase(opts.sourceUuid));
+    const serverUuid = opts.serverUuid ?? src?.destination?.server?.uuid;
     if (!serverUuid) throw new Error("Could not resolve the source database's server for cloning");
-    const projectUuid = await this.findProjectUuid(opts.projectName);
-    if (!projectUuid) throw new Error(`Coolify project "${opts.projectName}" not found for cloning`);
+    const projectUuid = await this.ensureProjectUuid(opts.projectName);
+    await this.ensureEnvironment(projectUuid, opts.environmentName);
 
     const body = compact({
       server_uuid: serverUuid,
@@ -279,12 +328,20 @@ export class CoolifyClient {
     imageRef?: string;
     /** Captured pullable digest ("org/name@sha256:…"); used to pin a floating tag. */
     imageDigest?: string;
+    /** Captured source definition (DR/migration) — skips the live source read. */
+    src?: CoolifyRaw;
+    /** Explicit target server (already remapped); default: the source's server. */
+    serverUuid?: string;
+    /** Pre-resolved git auth on the TARGET (remapped by name); overrides the
+     * numeric-id resolution that only works against the live source Coolify. */
+    githubAppUuid?: string;
+    privateKeyUuid?: string;
   }): Promise<{ uuid: string; type: "application" | "service" }> {
-    const src = await this.getApplication(opts.sourceUuid);
-    const serverUuid = src?.destination?.server?.uuid;
+    const src = opts.src ?? (await this.getApplication(opts.sourceUuid));
+    const serverUuid = opts.serverUuid ?? src?.destination?.server?.uuid;
     if (!serverUuid) throw new Error("Could not resolve the source application's server for cloning");
-    const projectUuid = await this.findProjectUuid(opts.projectName);
-    if (!projectUuid) throw new Error(`Coolify project "${opts.projectName}" not found for cloning`);
+    const projectUuid = await this.ensureProjectUuid(opts.projectName);
+    await this.ensureEnvironment(projectUuid, opts.environmentName);
 
     const base = {
       project_uuid: projectUuid,
@@ -367,9 +424,17 @@ export class CoolifyClient {
 
     // Use the create endpoint that carries over the source's auth so private /
     // self-hosted repos still resolve: a GitHub-App source, an SSH deploy key,
-    // or the public endpoint (for full-URL / inline-credential repos).
+    // or the public endpoint (for full-URL / inline-credential repos). Auth
+    // pre-resolved on the target (name-remapped captured config) wins; the
+    // numeric-id resolution only works against the live source Coolify.
     let endpoint = "/api/v1/applications/public";
-    if (src.source_id != null) {
+    if (opts.githubAppUuid) {
+      body.github_app_uuid = opts.githubAppUuid;
+      endpoint = "/api/v1/applications/private-github-app";
+    } else if (opts.privateKeyUuid) {
+      body.private_key_uuid = opts.privateKeyUuid;
+      endpoint = "/api/v1/applications/private-deploy-key";
+    } else if (src.source_id != null) {
       const ghUuid = await this.resolveSourceUuid(src.source_id as number);
       if (ghUuid) {
         body.github_app_uuid = ghUuid;
@@ -408,6 +473,32 @@ export class CoolifyClient {
     return (sources ?? []).find((s) => s?.id === id)?.uuid;
   }
 
+  /** Name of a git source (GitHub App) by numeric id — a portable remap hint
+   * for restores onto a different Coolify (numeric ids don't travel). */
+  async getSourceNameById(id: number): Promise<string | undefined> {
+    const sources = await this.get<Array<{ id?: number; name?: string }>>("/api/v1/sources").catch(() => []);
+    return (sources ?? []).find((s) => s?.id === id)?.name;
+  }
+
+  /** Name of a private SSH key by numeric id — same portable remap purpose. */
+  async getPrivateKeyNameById(id: number): Promise<string | undefined> {
+    const keys = await this.get<Array<{ id?: number; name?: string }>>("/api/v1/security/keys").catch(() => []);
+    return (keys ?? []).find((k) => k?.id === id)?.name;
+  }
+
+  /** Resolve a git source's (GitHub App) uuid by NAME on this (target) Coolify —
+   * the restore-side counterpart of getSourceNameById. */
+  async findSourceUuidByName(name: string): Promise<string | undefined> {
+    const sources = await this.get<Array<{ name?: string; uuid?: string }>>("/api/v1/sources").catch(() => []);
+    return (sources ?? []).find((s) => s?.name === name)?.uuid;
+  }
+
+  /** Resolve a private SSH key's uuid by NAME on this (target) Coolify. */
+  async findPrivateKeyUuidByName(name: string): Promise<string | undefined> {
+    const keys = await this.get<Array<{ name?: string; uuid?: string }>>("/api/v1/security/keys").catch(() => []);
+    return (keys ?? []).find((k) => k?.name === name)?.uuid;
+  }
+
   /**
    * Clone a service into a NEW Coolify resource using its compose (or one-click
    * type). NOT deployed and NO domain - the operator wires env + URL then
@@ -418,12 +509,16 @@ export class CoolifyClient {
     newName: string;
     projectName: string;
     environmentName: string;
+    /** Captured source definition (DR/migration) — skips the live source read. */
+    src?: CoolifyRaw;
+    /** Explicit target server (already remapped); default: the source's server. */
+    serverUuid?: string;
   }): Promise<string> {
-    const src = await this.getService(opts.sourceUuid);
-    const serverUuid = src?.server?.uuid ?? src?.destination?.server?.uuid;
+    const src = opts.src ?? (await this.getService(opts.sourceUuid));
+    const serverUuid = opts.serverUuid ?? src?.server?.uuid ?? src?.destination?.server?.uuid;
     if (!serverUuid) throw new Error("Could not resolve the source service's server for cloning");
-    const projectUuid = await this.findProjectUuid(opts.projectName);
-    if (!projectUuid) throw new Error(`Coolify project "${opts.projectName}" not found for cloning`);
+    const projectUuid = await this.ensureProjectUuid(opts.projectName);
+    await this.ensureEnvironment(projectUuid, opts.environmentName);
 
     const compose = src.docker_compose_raw ?? src.docker_compose ?? src.docker_compose_yaml;
     const base = {

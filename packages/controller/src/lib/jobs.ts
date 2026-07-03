@@ -8,14 +8,16 @@ import {
   type ResourceDescriptor,
   type ResourceType,
   type StorageSpec,
+  type CapturedConfig,
   snapshotDir,
 } from "@cbm/shared";
 import { prisma } from "./prisma";
 import { decryptSecret, encryptSecret } from "./crypto";
 import { effectivePolicy } from "./schedule";
-import { CoolifyClient, type DbEngine, type CloneEngine } from "./coolify";
+import { CoolifyClient, type DbEngine, type CloneEngine, type DbConfig, type CoolifyRaw } from "./coolify";
 import { syncInstance } from "./discovery";
 import type { Destination } from "@/generated/prisma/client";
+import { version as CBM_VERSION } from "../../package.json";
 
 const DUMP_ENGINES: DbEngine[] = ["postgresql", "mysql", "mariadb", "mongodb"];
 const VOLUME_DB_ENGINES = ["redis", "keydb", "dragonfly", "clickhouse"];
@@ -144,6 +146,9 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
   const db = await dbCredsFor(resource);
   // Capture env vars (apps/services) into the snapshot so it's self-contained.
   const envEnc = await envEncFor(resource);
+  // Capture the full resource definition so the snapshot can be rebuilt on a
+  // fresh Coolify even after the source instance is gone (DR / migration).
+  const capturedConfig = await capturedConfigFor(resource);
 
   const snapshot = await prisma.snapshot.create({
     data: {
@@ -177,6 +182,7 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
     mode,
     liveBackup,
     envEnc,
+    capturedConfig,
     resource: {
       coolifyUuid: resource.coolifyUuid,
       name: resource.name,
@@ -214,14 +220,35 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
 async function cloneForRestore(
   resource: { coolifyUuid: string; name: string; type: string; projectName: string; environment: string; instanceId: string },
   manifest: SnapshotManifest,
+  /** Clone onto a DIFFERENT connected Coolify (migration). Default: the snapshot's own instance. */
+  targetInstanceId?: string,
 ): Promise<ResourceDescriptor> {
-  const instance = await prisma.coolifyInstance.findUniqueOrThrow({ where: { id: resource.instanceId } });
+  const migrating = !!targetInstanceId && targetInstanceId !== resource.instanceId;
+  const instance = await prisma.coolifyInstance.findUniqueOrThrow({
+    where: { id: targetInstanceId ?? resource.instanceId },
+  });
   const client = new CoolifyClient(instance.baseUrl, decryptSecret(instance.apiTokenEnc));
   const short = resource.coolifyUuid.slice(0, 4) + Date.now().toString(36).slice(-4);
   const newName = `${resource.name}-restored-${short}`.slice(0, 48);
-  const projectName = resource.projectName;
-  const environmentName = resource.environment || "production";
+  // With a captured config (DR/migration) the clone is fully reconstructed from
+  // the snapshot and never reads the source resource — the source Coolify may
+  // be gone. Without one (older snapshots), fall back to the live-read path —
+  // and when migrating, live-read from the SOURCE instance (alive in that case)
+  // since the source resource doesn't exist on the target.
+  const cfg = manifest.capturedConfig;
+  const srcClient = migrating
+    ? await prisma.coolifyInstance
+        .findUnique({ where: { id: resource.instanceId } })
+        .then((src) => (src ? new CoolifyClient(src.baseUrl, decryptSecret(src.apiTokenEnc)) : null))
+    : null;
+  const projectName = cfg?.projectName ?? resource.projectName;
+  const environmentName = cfg?.environmentName ?? resource.environment ?? "production";
   const type = resource.type as ResourceType;
+  // Land on a server that exists on the TARGET: the captured one if it's still
+  // there, else its mapped counterpart (multi-server targets), else the
+  // only/first server (single-server DR collapses everything).
+  const serverMap = (instance.serverUuidMap as Record<string, string> | null) ?? undefined;
+  const serverUuid = cfg || migrating ? await client.resolveTargetServer(cfg?.serverUuid, serverMap) : undefined;
   // The clone usually keeps the source type, but a floating-tag docker-image app
   // is cloned as a digest-pinned service (see cloneApplication), so track it.
   let clonedType: ResourceType = type;
@@ -235,9 +262,21 @@ async function cloneForRestore(
   });
 
   let newUuid: string;
-  if (DUMP_ENGINES.includes(resource.type as DbEngine)) {
-    // Deploy only when there's a logical dump to load into a running container.
-    const hasDump = (manifest.artifacts ?? []).some((a) => a.kind === "db-dump");
+  if (DUMP_ENGINES.includes(resource.type as DbEngine) || VOLUME_DB_ENGINES.includes(resource.type)) {
+    // Databases: dump engines deploy only when there's a logical dump to load;
+    // volume-based ones (redis/keydb/...) stay undeployed for volume pre-fill.
+    const hasDump =
+      DUMP_ENGINES.includes(resource.type as DbEngine) &&
+      (manifest.artifacts ?? []).some((a) => a.kind === "db-dump");
+    const src =
+      cfg?.kind === "database"
+        ? ({
+            ...cfg.raw,
+            ...(cfg.dbCredsEnc ? (JSON.parse(decryptSecret(cfg.dbCredsEnc)) as Record<string, unknown>) : {}),
+          } as unknown as DbConfig)
+        : migrating && srcClient
+          ? await srcClient.getDatabase(resource.coolifyUuid)
+          : undefined;
     newUuid = await client.cloneDatabase({
       sourceUuid: resource.coolifyUuid,
       type: resource.type as CloneEngine,
@@ -245,21 +284,20 @@ async function cloneForRestore(
       projectName,
       environmentName,
       instantDeploy: hasDump,
+      src,
+      serverUuid,
     });
     if (hasDump) await client.waitDatabaseRunning(newUuid);
-  } else if (VOLUME_DB_ENGINES.includes(resource.type)) {
-    // redis/keydb/dragonfly/clickhouse: volume-based, restore into the (not yet
-    // deployed) clone's volumes.
-    newUuid = await client.cloneDatabase({
-      sourceUuid: resource.coolifyUuid,
-      type: resource.type as CloneEngine,
-      newName,
-      projectName,
-      environmentName,
-      instantDeploy: false,
-    });
   } else if (type === "application") {
     const sha = manifest.provenance?.gitCommitSha;
+    // Remap the captured git auth by NAME onto the target (numeric ids don't
+    // travel); missing auth falls through to the public-endpoint path.
+    let githubAppUuid: string | undefined;
+    let privateKeyUuid: string | undefined;
+    if (cfg?.kind === "application") {
+      if (cfg.gitSourceName) githubAppUuid = await client.findSourceUuidByName(cfg.gitSourceName);
+      else if (cfg.privateKeyName) privateKeyUuid = await client.findPrivateKeyUuidByName(cfg.privateKeyName);
+    }
     const cloned = await client.cloneApplication({
       sourceUuid: resource.coolifyUuid,
       newName,
@@ -268,6 +306,15 @@ async function cloneForRestore(
       gitCommitSha: sha && sha !== "HEAD" ? sha : undefined,
       imageRef: manifest.provenance?.imageRef,
       imageDigest: manifest.provenance?.imageDigest,
+      src:
+        cfg?.kind === "application"
+          ? (cfg.raw as CoolifyRaw)
+          : migrating && srcClient
+            ? await srcClient.getApplication(resource.coolifyUuid)
+            : undefined,
+      serverUuid,
+      githubAppUuid,
+      privateKeyUuid,
     });
     newUuid = cloned.uuid;
     clonedType = cloned.type;
@@ -281,11 +328,22 @@ async function cloneForRestore(
       resource.coolifyUuid,
     );
   } else if (type === "service") {
+    const src =
+      cfg?.kind === "service"
+        ? ({
+            ...cfg.raw,
+            docker_compose_raw: cfg.composeEnc ? decryptSecret(cfg.composeEnc) : undefined,
+          } as CoolifyRaw)
+        : migrating && srcClient
+          ? await srcClient.getService(resource.coolifyUuid)
+          : undefined;
     newUuid = await client.cloneService({
       sourceUuid: resource.coolifyUuid,
       newName,
       projectName,
       environmentName,
+      src,
+      serverUuid,
     });
     await applyEnv(client, manifest, "services", newUuid, "services", resource.coolifyUuid);
   } else {
@@ -348,6 +406,180 @@ async function envEncFor(resource: { type: string; coolifyUuid: string; instance
   return envs.length ? encryptSecret(JSON.stringify(envs)) : undefined;
 }
 
+/* --------------------- captured config (disaster recovery) --------------------- */
+
+/** Non-secret application fields the clone builder reads (see cloneApplication). */
+const APP_CONFIG_FIELDS = [
+  "name",
+  "build_pack",
+  "git_repository",
+  "git_branch",
+  "git_commit_sha",
+  "base_directory",
+  "install_command",
+  "build_command",
+  "start_command",
+  "publish_directory",
+  "static_image",
+  "dockerfile_location",
+  "docker_compose_location",
+  "docker_registry_image_name",
+  "docker_registry_image_tag",
+  "ports_exposes",
+] as const;
+
+/** Per-engine credential fields (superset; see dbCredsBody in coolify.ts).
+ * Captured encrypted — they are secrets. */
+const DB_CRED_FIELDS = [
+  "postgres_user",
+  "postgres_password",
+  "postgres_db",
+  "mysql_user",
+  "mysql_password",
+  "mysql_database",
+  "mysql_root_password",
+  "mariadb_user",
+  "mariadb_password",
+  "mariadb_database",
+  "mariadb_root_password",
+  "mongo_initdb_root_username",
+  "mongo_initdb_root_password",
+  "mongo_initdb_database",
+  "redis_password",
+  "redis_conf",
+  "keydb_password",
+  "keydb_conf",
+  "dragonfly_password",
+  "clickhouse_admin_user",
+  "clickhouse_admin_password",
+] as const;
+
+function pick(src: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of keys) if (src[k] !== undefined && src[k] !== null) out[k] = src[k];
+  return out;
+}
+
+/**
+ * Capture the full Coolify resource definition into the snapshot, so a restore
+ * can rebuild it on a fresh Coolify with the source instance gone (DR /
+ * migration). Best-effort: returns undefined rather than failing the backup.
+ */
+async function capturedConfigFor(resource: {
+  type: string;
+  name: string;
+  coolifyUuid: string;
+  instanceId: string;
+  projectName: string;
+  environment: string;
+  serverUuid: string | null;
+  serverName: string | null;
+}): Promise<CapturedConfig | undefined> {
+  if (resource.coolifyUuid.startsWith("coolify-self")) return undefined;
+  const instance = await prisma.coolifyInstance.findUnique({ where: { id: resource.instanceId } });
+  if (!instance) return undefined;
+  const client = new CoolifyClient(instance.baseUrl, decryptSecret(instance.apiTokenEnc));
+
+  const base = {
+    version: 1 as const,
+    projectName: resource.projectName || "default",
+    environmentName: resource.environment || "production",
+    serverUuid: resource.serverUuid ?? undefined,
+    serverName: resource.serverName ?? undefined,
+    coolifyVersion: (await client.ping().catch(() => ({ version: undefined as string | undefined }))).version,
+    cbmVersion: CBM_VERSION,
+  };
+
+  try {
+    if (resource.type === "application") {
+      const src = await client.getApplication(resource.coolifyUuid);
+      const cfg: CapturedConfig = {
+        ...base,
+        kind: "application",
+        fqdn: typeof src.fqdn === "string" ? src.fqdn : undefined,
+        raw: pick(src, APP_CONFIG_FIELDS),
+        dbCredsEnc: undefined,
+        composeEnc: undefined,
+        gitSourceName: undefined,
+        privateKeyName: undefined,
+      };
+      // Portable git-auth hints (numeric ids don't travel to a new Coolify).
+      if (typeof src.source_id === "number") cfg.gitSourceName = await client.getSourceNameById(src.source_id);
+      else if (typeof src.private_key_id === "number")
+        cfg.privateKeyName = await client.getPrivateKeyNameById(src.private_key_id);
+      return cfg;
+    }
+
+    if (resource.type === "service") {
+      const src = await client.getService(resource.coolifyUuid);
+      const compose = src.docker_compose_raw ?? src.docker_compose ?? src.docker_compose_yaml;
+      return {
+        ...base,
+        kind: "service",
+        fqdn: undefined,
+        raw: pick(src, ["name", "service_type"]),
+        dbCredsEnc: undefined,
+        // Compose may inline secrets (environment: blocks) - store encrypted.
+        composeEnc: compose ? encryptSecret(String(compose)) : undefined,
+        gitSourceName: undefined,
+        privateKeyName: undefined,
+      };
+    }
+
+    // Everything else: try it as a standalone database (postgresql, mysql,
+    // redis, ...). Unknown types simply fail the read and return undefined.
+    const src = (await client.getDatabase(resource.coolifyUuid)) as Record<string, unknown>;
+    const creds = pick(src, DB_CRED_FIELDS);
+    return {
+      ...base,
+      kind: "database",
+      fqdn: undefined,
+      raw: pick(src, ["name", "image"]),
+      dbCredsEnc: Object.keys(creds).length ? encryptSecret(JSON.stringify(creds)) : undefined,
+      composeEnc: undefined,
+      gitSourceName: undefined,
+      privateKeyName: undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Dump/restore credentials from the snapshot's captured config (survives the
+ * source Coolify) — mapped per engine exactly like getDbCredentials. */
+function dbCredsFromCaptured(
+  cfg: CapturedConfig | undefined,
+  type: string,
+): { user?: string; password?: string; database?: string } | undefined {
+  if (!cfg?.dbCredsEnc) return undefined;
+  try {
+    const raw = JSON.parse(decryptSecret(cfg.dbCredsEnc)) as Record<string, unknown>;
+    const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+    switch (type) {
+      case "postgresql":
+        return { user: str(raw.postgres_user), password: str(raw.postgres_password), database: str(raw.postgres_db) };
+      case "mysql":
+        return { user: "root", password: str(raw.mysql_root_password), database: str(raw.mysql_database) };
+      case "mariadb":
+        return {
+          user: "root",
+          password: str(raw.mariadb_root_password) ?? str(raw.mysql_root_password),
+          database: str(raw.mariadb_database) ?? str(raw.mysql_database),
+        };
+      case "mongodb":
+        return {
+          user: str(raw.mongo_initdb_root_username),
+          password: str(raw.mongo_initdb_root_password),
+          database: str(raw.mongo_initdb_database),
+        };
+      default:
+        return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+}
+
 /** Set env on the cloned resource from the snapshot (self-contained) when
  * available, else copy live from the still-present original. */
 async function applyEnv(
@@ -371,25 +603,45 @@ async function applyEnv(
 }
 
 /** Create a RestoreJob + queued AgentJob from an existing snapshot. */
-export async function enqueueRestore(snapshotId: string, target: "in_place" | "new_resource" = "in_place") {
+export async function enqueueRestore(
+  snapshotId: string,
+  target: "in_place" | "new_resource" = "in_place",
+  /** Restore "→ new" onto a DIFFERENT connected Coolify (migration). */
+  targetInstanceId?: string,
+) {
   const snapshot = await prisma.snapshot.findUniqueOrThrow({
     where: { id: snapshotId },
     include: { destination: true, resource: true },
   });
   if (!snapshot.manifest) throw new Error("Snapshot has no manifest; cannot restore");
 
+  const migrating =
+    target === "new_resource" && !!targetInstanceId && targetInstanceId !== snapshot.resource.instanceId;
+  // A "local" destination's files live on the producing agent's host — an agent
+  // on the target instance can't reach them.
+  if (migrating && snapshot.destination.type === "local") {
+    throw new Error(
+      "This snapshot is stored on a 'local' destination (files on the source host), " +
+        "so it can't be restored onto another instance. Use an SSH/S3 destination.",
+    );
+  }
+
   // Prefer the agent that produced this snapshot (its files live on that host
   // for a "local" destination); otherwise route to an agent on the resource's
-  // server.
-  const producer = await agentById(snapshot.agentId);
-  const agent =
-    producer && producer.status === "online"
+  // server. A migration instead runs on the TARGET instance — that's where the
+  // clone's volumes live, and ssh/s3 artifacts are reachable from anywhere.
+  const producer = migrating ? null : await agentById(snapshot.agentId);
+  const agent = migrating
+    ? await pickAgent(targetInstanceId, null)
+    : producer && producer.status === "online"
       ? producer
       : await pickAgent(snapshot.resource.instanceId, snapshot.resource.serverUuid);
   if (!agent) {
     throw new Error(
-      `No online agent on server "${snapshot.resource.serverName ?? snapshot.resource.serverUuid}" ` +
-        `to restore ${snapshot.resource.name}.`,
+      migrating
+        ? `No online agent on the target instance to restore ${snapshot.resource.name} onto - install one there first.`
+        : `No online agent on server "${snapshot.resource.serverName ?? snapshot.resource.serverUuid}" ` +
+          `to restore ${snapshot.resource.name}.`,
     );
   }
 
@@ -401,7 +653,7 @@ export async function enqueueRestore(snapshotId: string, target: "in_place" | "n
   let targetResource: ResourceDescriptor | undefined;
   let volumeMap: Record<string, string> | undefined;
   if (target === "new_resource") {
-    targetResource = await cloneForRestore(snapshot.resource, manifest);
+    targetResource = await cloneForRestore(snapshot.resource, manifest, targetInstanceId);
     volumeMap = buildVolumeMap(manifest, snapshot.resource.coolifyUuid, targetResource.coolifyUuid);
   }
 
@@ -431,7 +683,8 @@ export async function enqueueRestore(snapshotId: string, target: "in_place" | "n
     targetResource,
     volumeMap,
     // Same DB keeps its name/creds in the clone, so the original's creds work.
-    db: await dbCredsFor(snapshot.resource),
+    // Prefer the snapshot's captured creds (survive the source Coolify).
+    db: dbCredsFromCaptured(manifest.capturedConfig, snapshot.resource.type) ?? (await dbCredsFor(snapshot.resource)),
   };
 
   await prisma.agentJob.update({ where: { id: agentJob.id }, data: { payload: job as unknown as object } });
