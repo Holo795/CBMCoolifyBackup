@@ -5,6 +5,7 @@ import { enqueueBackup, enqueueVerifyDestination } from "./jobs";
 import { applyRetention } from "./retention";
 import { reaper } from "./reaper";
 import { checkOverdue } from "./overdue";
+import { maybeSelfBackup, checkSelfBackupOverdue } from "./self-backup";
 import { syncInstance } from "./discovery";
 import { getTimezone } from "./settings";
 
@@ -28,7 +29,48 @@ async function syncAllInstances(): Promise<void> {
   }
 }
 
-const globalForSched = globalThis as unknown as { cbmSchedulerStarted?: boolean };
+const globalForSched = globalThis as unknown as {
+  cbmSchedulerStarted?: boolean;
+  cbmSchedulerLockClient?: import("pg").Client;
+};
+
+/**
+ * The scheduler is a single in-process loop; running two controller replicas
+ * would double-fire crons. Deploy exactly ONE controller replica.
+ *
+ * As a backstop against an accidental second replica, we hold a Postgres
+ * session-level advisory lock: only the replica that grabs it runs scheduled
+ * work; the other's loop stays dormant. Best-effort — if the lock can't be
+ * evaluated (no DB URL / error), we assume leadership so a single-instance
+ * deploy is never left without a scheduler.
+ */
+const SCHEDULER_ADVISORY_LOCK_KEY = 4242000001;
+let isSchedulerLeader = true;
+
+async function acquireSchedulerLeadership(): Promise<void> {
+  if (!process.env.DATABASE_URL) return; // assume leader (dev / no DB)
+  try {
+    const { Client } = await import("pg");
+    const client = new Client({ connectionString: process.env.DATABASE_URL });
+    await client.connect();
+    const res = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [
+      SCHEDULER_ADVISORY_LOCK_KEY,
+    ]);
+    if (res.rows[0]?.ok === true) {
+      // Hold the connection (and the lock) for the process lifetime.
+      globalForSched.cbmSchedulerLockClient = client;
+      isSchedulerLeader = true;
+    } else {
+      await client.end().catch(() => undefined);
+      isSchedulerLeader = false;
+      console.warn("[scheduler] another replica holds the scheduler lock - this one stays dormant");
+    }
+  } catch (e) {
+    // Never leave a single-instance deploy without a scheduler over a lock hiccup.
+    console.warn("[scheduler] advisory lock unavailable, assuming leadership:", (e as Error).message);
+    isSchedulerLeader = true;
+  }
+}
 
 /** Evaluate all enabled policies and enqueue backups for those due now. */
 export async function tick(now = new Date()): Promise<number> {
@@ -126,10 +168,18 @@ export function startScheduler(): void {
   if (globalForSched.cbmSchedulerStarted) return;
   globalForSched.cbmSchedulerStarted = true;
 
+  // Try to become the scheduler leader before the first tick (best-effort).
+  void acquireSchedulerLeadership();
+
   const schedule = () => {
     const now = new Date();
     const msToNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
     setTimeout(async () => {
+      // Only the leader replica runs scheduled work (see the advisory lock above).
+      if (!isSchedulerLeader) {
+        schedule();
+        return;
+      }
       try {
         await tick(new Date());
       } catch (e) {
@@ -158,6 +208,19 @@ export function startScheduler(): void {
         if (new Date().getMinutes() === 7) await checkOverdue(new Date());
       } catch (e) {
         console.error("[scheduler] overdue check error", e);
+      }
+      try {
+        // Self-backup of the controller metadata DB: change-driven + throttled,
+        // with a daily safety re-run (see lib/self-backup.ts).
+        await maybeSelfBackup(new Date());
+      } catch (e) {
+        console.error("[scheduler] self-backup error", e);
+      }
+      try {
+        // Alert if the self-backup hasn't succeeded in over a day (hourly).
+        if (new Date().getMinutes() === 11) await checkSelfBackupOverdue(new Date());
+      } catch (e) {
+        console.error("[scheduler] self-backup overdue check error", e);
       }
       schedule();
     }, msToNextMinute);

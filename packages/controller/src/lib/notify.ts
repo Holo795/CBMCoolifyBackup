@@ -71,6 +71,14 @@ export async function notifyOverdue(
   );
 }
 
+/** Notify that the controller's metadata self-backup failed or is overdue
+ * (disaster recovery: without it, a dead machine takes the "brain" with it). */
+export async function notifySelfBackupProblem(reason: string): Promise<void> {
+  const base = (env.authUrl || "").replace(/\/$/, "");
+  const link = base ? `\n${base}/settings#disaster-recovery` : "";
+  await sendAlert(`🧠 CBM self-backup problem - the metadata backup is at risk:\n${reason}${link}`);
+}
+
 /** Notify that a backup snapshot failed (best-effort). */
 export async function notifyBackupFailed(snapshotId: string): Promise<void> {
   const snap = await prisma.snapshot

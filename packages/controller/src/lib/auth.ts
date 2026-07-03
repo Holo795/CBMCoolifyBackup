@@ -153,3 +153,16 @@ export const auth = betterAuth({
 });
 
 export type Auth = typeof auth;
+
+/**
+ * Verify a user's password against their credential account — step-up re-auth
+ * for crown-jewel actions (e.g. downloading the recovery file). Returns false
+ * for OAuth-only accounts (no credential password to check).
+ */
+export async function verifyUserPassword(userId: string, password: string): Promise<boolean> {
+  if (!password) return false;
+  const account = await prisma.account.findFirst({ where: { userId, providerId: "credential" } });
+  if (!account?.password) return false;
+  const ctx = await auth.$context;
+  return ctx.password.verify({ hash: account.password, password }).catch(() => false);
+}
