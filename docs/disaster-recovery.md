@@ -1,5 +1,7 @@
 # Disaster recovery
 
+![Settings → Disaster recovery](screenshots/disaster-recovery.png)
+
 Backing up your resources is only half of "never lose data". The other half is
 surviving the loss of the **machine that runs CBM itself** — and being able to
 bring everything back on new infrastructure. CBM's disaster-recovery (DR) tools
@@ -98,8 +100,10 @@ Machine (Coolify + CBM) is gone. To fully recover:
    re-encrypts every secret under the new install's master key. You are signed
    out — **sign back in with your OLD credentials** (the imported accounts).
 3. **Re-point the instance** at your new, blank Coolify (Edit instance).
-4. **Re-install the agent** on the new Coolify host (same install command; set
-   `AGENT_SERVER_UUID` per server if multi-server).
+4. **Re-install the agent** on the new Coolify host (same per-instance install
+   command). The agent auto-detects its server; on a brand-new empty host where
+   it can't yet, set the server on the **Agents** page or pass
+   `AGENT_SERVER_UUID` at install (see [multi-server.md](multi-server.md)).
 5. *(Multi-server)* set the server map on the instance.
 6. **Restore → new** each resource. CBM recreates the project/environment,
    reconstructs the resource from the captured config (pinned commit/image),
