@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { HardDrive, Server, Cpu, Clock, Bell, User, Mail } from "lucide-react";
+import { HardDrive, Server, Cpu, Clock, Bell, User, Mail, LifeBuoy } from "lucide-react";
 import { navFor } from "@/components/nav";
 import { CommandPaletteView, type Entry } from "./view";
 
@@ -64,6 +64,15 @@ const EXTRA_STATIC: Entry[] = [
     group: "Settings",
     keywords: ["smtp", "email", "mail", "mailer", "password reset", "verification", "reset"],
     icon: Mail,
+  },
+  {
+    id: "settings:disaster-recovery",
+    label: "Disaster recovery",
+    sub: "Settings",
+    href: "/settings#disaster-recovery",
+    group: "Settings",
+    keywords: ["disaster", "recovery", "dr", "self-backup", "self backup", "metadata backup", "recovery file", "restore cbm", "backup cbm"],
+    icon: LifeBuoy,
   },
 ];
 
