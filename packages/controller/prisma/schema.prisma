@@ -435,3 +435,12 @@ model RestoreDrill {
 
   @@index([snapshotId, createdAt])
 }
+
+// Scheduler bookkeeping, kept out of Setting (whose updatedAt drives the
+// change-detected self-backup): the last minute whose schedules were
+// evaluated, so the minutes missed while the controller was down (an upgrade,
+// a restart) are replayed instead of skipped.
+model SchedulerState {
+  id         String @id @default("global")
+  lastMinute Int
+}

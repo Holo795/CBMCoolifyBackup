@@ -275,10 +275,24 @@ export function startScheduler(): void {
   void acquireSchedulerLeadership();
 
   let lastEvaluated: number | null = null;
+  let loaded = false;
 
   const loop = async () => {
+    // Resume where the previous process stopped (persisted), so a restart
+    // replays the minutes it missed rather than skipping their schedules.
+    if (!loaded) {
+      loaded = true;
+      const saved = await prisma.schedulerState.findUnique({ where: { id: "global" } }).catch(() => null);
+      if (saved) lastEvaluated = saved.lastMinute;
+    }
     const minutes = minutesToEvaluate(lastEvaluated, Date.now());
-    if (minutes.length) lastEvaluated = minutes[minutes.length - 1];
+    if (minutes.length) {
+      lastEvaluated = minutes[minutes.length - 1];
+      const lastMinute = lastEvaluated;
+      await prisma.schedulerState
+        .upsert({ where: { id: "global" }, create: { lastMinute }, update: { lastMinute } })
+        .catch(() => undefined);
+    }
     const tz = await getTimezone().catch(() => "UTC");
     for (const m of minutes) {
       const at = new Date(m * 60_000);
