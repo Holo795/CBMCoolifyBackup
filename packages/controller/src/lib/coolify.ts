@@ -368,6 +368,9 @@ export class CoolifyClient {
      * numeric-id resolution that only works against the live source Coolify. */
     githubAppUuid?: string;
     privateKeyUuid?: string;
+    /** Named volumes to declare when the clone is a digest-pinned service (an
+     * application clone gets them through addAppVolumes instead). */
+    volumes?: AppVolume[];
   }): Promise<{ uuid: string; type: "application" | "service" }> {
     const src = opts.src ?? (await this.getApplication(opts.sourceUuid));
     const serverUuid = opts.serverUuid ?? src?.destination?.server?.uuid;
@@ -399,8 +402,10 @@ export class CoolifyClient {
         const svc = (pinned.name || String(src.docker_registry_image_name || "app")).split("/").pop() || "app";
         const svcName = svc.replace(/[^a-z0-9_-]/gi, "-").toLowerCase() || "app";
         const ports = String(src.ports_exposes || "80").split(",")[0].trim();
+        const vols = (opts.volumes ?? []).map((v) => ({ ...v, name: v.name.replace(/[^a-zA-Z0-9_.-]/g, "_") }));
         const compose =
-          `services:\n  ${svcName}:\n    image: ${opts.imageDigest}\n    ports:\n      - "${ports}"\n`;
+          `services:\n  ${svcName}:\n    image: ${opts.imageDigest}\n    ports:\n      - "${ports}"\n` +
+          (vols.length ? `    volumes:\n${vols.map((v) => `      - "${v.name}:${v.mountPath}"`).join("\n")}\n` : "");
         const created = await this.post<{ uuid?: string }>(
           `/api/v1/services`,
           compact({
@@ -498,6 +503,16 @@ export class CoolifyClient {
   async getAppVolumes(uuid: string): Promise<AppVolume[]> {
     const r = await this.get<{ persistent_storages?: Array<Record<string, unknown>> }>(
       `/api/v1/applications/${uuid}/storages`,
+    ).catch(() => null);
+    return (r?.persistent_storages ?? [])
+      .filter((v) => typeof v.name === "string" && typeof v.mount_path === "string" && !v.host_path)
+      .map((v) => ({ name: String(v.name), mountPath: String(v.mount_path) }));
+  }
+
+  /** A service's named volumes (all its containers), as Coolify named them. */
+  async getServiceVolumes(uuid: string): Promise<AppVolume[]> {
+    const r = await this.get<{ persistent_storages?: Array<Record<string, unknown>> }>(
+      `/api/v1/services/${uuid}/storages`,
     ).catch(() => null);
     return (r?.persistent_storages ?? [])
       .filter((v) => typeof v.name === "string" && typeof v.mount_path === "string" && !v.host_path)

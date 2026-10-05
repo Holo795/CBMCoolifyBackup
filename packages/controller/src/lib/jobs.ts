@@ -341,7 +341,10 @@ async function cloneForRestore(
       if (cfg.gitSourceName) githubAppUuid = await client.findSourceUuidByName(cfg.gitSourceName);
       else if (cfg.privateKeyName) privateKeyUuid = await client.findPrivateKeyUuidByName(cfg.privateKeyName);
     }
+    const captured = cfg?.kind === "application" ? (cfg.raw.volumes as AppVolume[] | undefined) : undefined;
+    const volumes = captured ?? (await (srcClient ?? client).getAppVolumes(resource.coolifyUuid));
     const cloned = await client.cloneApplication({
+      volumes: cloneVolumes(volumes, resource.coolifyUuid),
       sourceUuid: resource.coolifyUuid,
       newName,
       projectName,
@@ -361,15 +364,15 @@ async function cloneForRestore(
     });
     newUuid = cloned.uuid;
     clonedType = cloned.type;
-    // Applications declare their volumes outside the image: recreate them under
-    // the clone's uuid (the names the agent restores the data into, see
-    // buildVolumeMap) or the restored data never gets mounted.
+    // An application's volumes live outside its image: recreate them on the
+    // clone (a digest-pinned service clone declared them in its compose), or
+    // the restored data never gets mounted. Coolify names them itself, so the
+    // data goes into whatever it actually created, matched by mount path.
     if (cloned.type === "application") {
-      const captured = cfg?.kind === "application" ? (cfg.raw.volumes as AppVolume[] | undefined) : undefined;
-      const volumes = captured ?? (await (srcClient ?? client).getAppVolumes(resource.coolifyUuid));
       await client.addAppVolumes(newUuid, cloneVolumes(volumes, resource.coolifyUuid));
-      // Coolify names them itself: restore into whatever it actually created.
       volumeRenames = matchVolumes(volumes, await client.getAppVolumes(newUuid));
+    } else {
+      volumeRenames = matchVolumes(volumes, await client.getServiceVolumes(newUuid));
     }
     // Env from the snapshot if present (autonomous), else live from the original.
     changes = await applyEnv(
