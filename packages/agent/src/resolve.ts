@@ -34,15 +34,24 @@ export async function resolveResource(resource: ResourceDescriptor): Promise<Res
     return r;
   }
 
-  // Volumes: any volume whose name contains the (dash-stripped) uuid.
+  // The controller passes the facts cached from the last backup as hints. They go
+  // stale: Coolify renames app containers on every deploy (`<uuid>-<timestamp>`)
+  // and resources gain volumes. So hints are kept only while they still exist,
+  // discovery always runs, and a vanished primary container is re-picked.
   const uuid = resource.coolifyUuid.replace(/-/g, "");
-  if (r.volumes.length === 0) {
-    const vols = await listLines(["volume", "ls", "--format", "{{.Name}}"]);
-    r.volumes = vols.filter((v) => v.includes(uuid));
-  }
+  const hostVolumes = await listLines(["volume", "ls", "--format", "{{.Name}}"]);
+  const hostContainers = new Set(await listLines(["ps", "-a", "--format", "{{.Names}}"]));
 
-  // Containers: those using one of the volumes, plus name/label matches.
-  const containerSet = new Set<string>(r.containerNames);
+  // Volumes: still-existing hints + any volume whose name contains the uuid.
+  const hostVolumeSet = new Set(hostVolumes);
+  r.volumes = [
+    ...new Set([...r.volumes.filter((v) => hostVolumeSet.has(v)), ...hostVolumes.filter((v) => v.includes(uuid))]),
+  ];
+
+  if (r.containerName && !hostContainers.has(r.containerName)) r.containerName = undefined;
+
+  // Containers: still-existing hints, those using one of the volumes, plus name/label matches.
+  const containerSet = new Set<string>(r.containerNames.filter((c) => hostContainers.has(c)));
   for (const v of r.volumes) {
     for (const c of await listLines(["ps", "-a", "--filter", `volume=${v}`, "--format", "{{.Names}}"])) {
       containerSet.add(c);
