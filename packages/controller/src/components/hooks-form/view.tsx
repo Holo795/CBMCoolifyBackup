@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, Input, Label, Badge } from "@/components/ui";
+import { useId } from "react";
 import { useT } from "@/components/i18n-provider";
 
 export type HookRow = {
@@ -34,13 +35,17 @@ export function HooksFormView({
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
 }) {
   const t = useT();
+  const uid = useId();
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-5">
-      {rows.map((r, i) => (
+      {rows.map((r, i) => {
+        // Every row repeats the same three labels: name the target too.
+        const target = r.target || t("resources.hooks.primary");
+        return (
         <div key={r.target || "__primary"} className="flex flex-col gap-2">
           {multi && (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-xs font-medium text-foreground">{r.target || t("resources.hooks.primary")}</span>
+              <span className="font-mono text-xs font-medium text-foreground">{target}</span>
               {r.containers.length > 0 && r.containers[0] !== r.target && (
                 <span className="truncate font-mono text-[11px] text-muted-foreground">{r.containers.join(", ")}</span>
               )}
@@ -49,9 +54,10 @@ export function HooksFormView({
           )}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_7rem]">
             <div className="flex flex-col gap-1">
-              <Label htmlFor={`pre-${i}`}>{t("resources.hooks.pre")}</Label>
+              <Label htmlFor={`${uid}-pre-${i}`}>{t("resources.hooks.pre")}</Label>
               <Input
-                id={`pre-${i}`}
+                id={`${uid}-pre-${i}`}
+                aria-label={`${t("resources.hooks.pre")} - ${target}`}
                 value={r.pre}
                 onChange={(e) => onUpdate(i, "pre", e.target.value)}
                 placeholder="php artisan down"
@@ -59,9 +65,10 @@ export function HooksFormView({
               />
             </div>
             <div className="flex flex-col gap-1">
-              <Label htmlFor={`post-${i}`}>{t("resources.hooks.post")}</Label>
+              <Label htmlFor={`${uid}-post-${i}`}>{t("resources.hooks.post")}</Label>
               <Input
-                id={`post-${i}`}
+                id={`${uid}-post-${i}`}
+                aria-label={`${t("resources.hooks.post")} - ${target}`}
                 value={r.post}
                 onChange={(e) => onUpdate(i, "post", e.target.value)}
                 placeholder="php artisan up"
@@ -69,9 +76,10 @@ export function HooksFormView({
               />
             </div>
             <div className="flex flex-col gap-1">
-              <Label htmlFor={`timeout-${i}`}>{t("resources.hooks.timeout")}</Label>
+              <Label htmlFor={`${uid}-timeout-${i}`}>{t("resources.hooks.timeout")}</Label>
               <Input
-                id={`timeout-${i}`}
+                id={`${uid}-timeout-${i}`}
+                aria-label={`${t("resources.hooks.timeout")} - ${target}`}
                 type="number"
                 min={1}
                 max={3600}
@@ -84,7 +92,8 @@ export function HooksFormView({
             </div>
           </div>
         </div>
-      ))}
+        );
+      })}
       <p className="text-xs text-muted-foreground">
         {multi ? t("resources.hooks.helpMulti") : t("resources.hooks.helpSingle")} {t("resources.hooks.helpRules")}
         {noneDiscovered && ` ${t("resources.hooks.noneDiscovered")}`}

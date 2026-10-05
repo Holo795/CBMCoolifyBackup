@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ConfirmDeleteView } from "./view";
 
@@ -33,7 +33,14 @@ export function ConfirmDeleteButton({
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  // The element that opened the dialog, to give focus back when it closes.
+  const opener = useRef<HTMLElement | null>(null);
   const ok = text.trim() === confirmWord;
+
+  const close = () => {
+    setOpen(false);
+    opener.current?.focus();
+  };
 
   const onConfirm = () => {
     if (!ok) return;
@@ -65,11 +72,12 @@ export function ConfirmDeleteButton({
       variant={variant}
       size={size}
       onOpenClick={() => {
+        opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         setText("");
         setError(null);
         setOpen(true);
       }}
-      onClose={() => setOpen(false)}
+      onClose={close}
       onConfirm={onConfirm}
       error={error}
     />
