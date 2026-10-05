@@ -71,15 +71,24 @@ jobs:
             VERSION="${REF#refs/tags/v}"
           fi
           if [ -n "$VERSION" ]; then
-            # A release version: :X.Y.Z, :X.Y and :latest.
-            TAGS="$IMAGE:$VERSION,$IMAGE:${VERSION%.*},$IMAGE:latest"
+            # A release version: :X.Y.Z, plus :X.Y and :latest only when it is
+            # the newest of its minor / of all releases, so rebuilding an older
+            # version never moves them backwards.
+            TAGS="$IMAGE:$VERSION"
+            RELEASES="$(git ls-remote --tags --refs "https://github.com/$GITHUB_REPOSITORY" 'v*' \
+              | sed 's#.*refs/tags/v##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)"
+            NEWEST="$(printf '%s\n' "$RELEASES" | tail -1)"
+            NEWEST_IN_MINOR="$(printf '%s\n' "$RELEASES" | grep "^${VERSION%.*}\." | tail -1)"
+            [ "$VERSION" = "$NEWEST_IN_MINOR" ] && TAGS="$TAGS,$IMAGE:${VERSION%.*}"
+            [ "$VERSION" = "$NEWEST" ] && TAGS="$TAGS,$IMAGE:latest"
           elif [ "$REF" = "refs/heads/main" ]; then
             # No release: only the rolling :edge tag.
             TAGS="$IMAGE:edge"
           else
             TAGS="$IMAGE:${GITHUB_REF_NAME//\//-}"
           fi
-          TAGS="$TAGS,$IMAGE:sha-${GITHUB_SHA::7}"
+          # The commit actually built (a rebuild checks out an old tag, not GITHUB_SHA).
+          TAGS="$TAGS,$IMAGE:sha-$(git rev-parse --short=7 HEAD)"
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
           echo "Tags -> $TAGS"
 
