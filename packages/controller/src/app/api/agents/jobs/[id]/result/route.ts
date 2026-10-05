@@ -13,6 +13,7 @@ import {
 import { enqueueMirror } from "@/lib/jobs";
 import { scrubPayload } from "@/lib/scrub";
 import { removeSnapshots, settlePrune } from "@/lib/snapshot-removal";
+import { applyRetention } from "@/lib/retention";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const agent = await authenticateAgentFromRequest(req);
@@ -104,6 +105,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             console.error("[sync] removing the previous copy failed:", (e as Error).message),
           );
         }
+      } else if (done.policyId) {
+        // Retention counts this backup now that it exists (the scheduler's own
+        // pass runs when it queues a backup, i.e. one run late).
+        await applyRetention(done.policyId).catch((e) =>
+          console.error("[retention] failed:", (e as Error).message),
+        );
       }
     } else if (result.status === "skipped") {
       // Nothing on the host to back up - a clear "ignored" outcome, not a failure
