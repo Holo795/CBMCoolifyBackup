@@ -37,3 +37,18 @@ test("validates cron expressions", () => {
   assert.equal(isValidCron("nonsense"), false);
   assert.equal(isValidCron("0 2 * *"), false);
 });
+
+test("a zero, negative or malformed step is rejected instead of looping forever", () => {
+  for (const bad of ["*/0 * * * *", "*/-1 * * * *", "*/x * * * *", "0-60 * * * *", "0 24 * * *", "0 0 0 * *", "0 0 * 13 *", "5-1 * * * *", "1,,2 * * * *"]) {
+    assert.equal(isValidCron(bad), false, bad);
+  }
+});
+
+test("valid crons still parse, and 7 means Sunday in the weekday field", () => {
+  for (const ok of ["* * * * *", "*/15 2-4 * * 1-5", "0 2 * * *", "0 2 1 * *", "0 2 * * 0", "0 2 * * 7", "30 3 * * *"]) {
+    assert.equal(isValidCron(ok), true, ok);
+  }
+  // 2026-01-04 is a Sunday.
+  assert.equal(cronMatches("0 2 * * 7", new Date("2026-01-04T02:00:00Z"), "UTC"), true);
+  assert.equal(cronMatches("0 2 * * 7", new Date("2026-01-05T02:00:00Z"), "UTC"), false);
+});

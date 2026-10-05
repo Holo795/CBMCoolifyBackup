@@ -14,6 +14,7 @@ import { CoolifyClient } from "@/lib/coolify";
 import { syncInstance } from "@/lib/discovery";
 import { enqueueBackup, enqueueRestore, enqueuePrune, enqueueVerifyDestination, enqueueDrill, resolveDestination, groupSnapshotsForPrune } from "@/lib/jobs";
 import { freqToCron } from "@/lib/schedule";
+import { isValidCron } from "@/lib/cron";
 import { setTimezone, isValidTimezone } from "@/lib/settings";
 
 function s(fd: FormData, key: string): string {
@@ -680,11 +681,28 @@ function scheduleData(fd: FormData) {
   };
 }
 
+/** Why a schedule can't be saved, or null. An invalid cron used to be stored
+ * and then never fire (or, with a step of 0, freeze the scheduler). */
+function scheduleError(data: ReturnType<typeof scheduleData>): string | null {
+  if (!data.destinationId) return "Pick a destination";
+  if (!isValidCron(data.cron)) return `Invalid cron expression "${data.cron}" (5 fields: minute hour day month weekday)`;
+  if (data.mode !== "backup" && data.mode !== "sync") return "Unknown backup mode";
+  for (const [k, v] of [
+    ["daily", data.retentionDaily],
+    ["weekly", data.retentionWeekly],
+    ["monthly", data.retentionMonthly],
+  ] as const) {
+    if (!Number.isInteger(v) || v < 0 || v > 1000) return `Retention (${k}) must be a whole number between 0 and 1000`;
+  }
+  return null;
+}
+
 /** Create/update the default schedule for a whole Coolify instance. */
 export async function setInstanceSchedule(instanceId: string, fd: FormData) {
   await requireRole("admin");
   const data = scheduleData(fd);
-  if (!data.destinationId) return { error: "Pick a destination" };
+  const invalid = scheduleError(data);
+  if (invalid) return { error: invalid };
   const instance = await prisma.coolifyInstance.findUniqueOrThrow({ where: { id: instanceId } });
   const existing = await prisma.backupPolicy.findFirst({ where: { instanceId, resourceId: null } });
   if (existing) {
@@ -707,7 +725,8 @@ export async function removeInstanceSchedule(instanceId: string): Promise<void> 
 export async function setServerSchedule(instanceId: string, serverUuid: string, fd: FormData) {
   await requireRole("admin");
   const data = scheduleData(fd);
-  if (!data.destinationId) return { error: "Pick a destination" };
+  const invalid = scheduleError(data);
+  if (invalid) return { error: invalid };
   const instance = await prisma.coolifyInstance.findUniqueOrThrow({ where: { id: instanceId } });
   const sample = await prisma.resource.findFirst({
     where: { instanceId, serverUuid },
@@ -811,7 +830,8 @@ export async function setIntegrityCheck(destinationId: string, enabled: boolean)
 export async function setResourceSchedule(resourceId: string, fd: FormData) {
   await requireRole("admin");
   const data = scheduleData(fd);
-  if (!data.destinationId) return { error: "Pick a destination" };
+  const invalid = scheduleError(data);
+  if (invalid) return { error: invalid };
   const resource = await prisma.resource.findUniqueOrThrow({ where: { id: resourceId } });
   const existing = await prisma.backupPolicy.findFirst({ where: { resourceId } });
   if (existing) {

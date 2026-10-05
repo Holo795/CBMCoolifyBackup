@@ -1,21 +1,30 @@
 /** Minimal 5-field cron matcher: "min hour dom month dow" (dow 0-6, Sun=0). */
 
-function parseField(field: string, min: number, max: number): Set<number> {
+const PART_RE = /^(\*|\d{1,2}(?:-\d{1,2})?)(?:\/(\d{1,2}))?$/;
+
+/**
+ * Parse one cron field strictly. Anything malformed throws instead of being
+ * guessed at: a step of 0 used to loop forever (`v += 0`) and freeze the whole
+ * controller, and out-of-range values were silently dropped. `isDow` accepts 7
+ * as Sunday, like most crons.
+ */
+function parseField(field: string, min: number, max: number, isDow = false): Set<number> {
   const out = new Set<number>();
+  const hiLimit = isDow ? 7 : max;
   for (const part of field.split(",")) {
-    const stepSplit = part.split("/");
-    const range = stepSplit[0];
-    const step = stepSplit[1] ? parseInt(stepSplit[1], 10) : 1;
+    const m = PART_RE.exec(part);
+    if (!m) throw new Error(`Invalid cron field "${field}"`);
+    const step = m[2] !== undefined ? Number(m[2]) : 1;
+    if (step < 1) throw new Error(`Invalid cron step in "${field}"`);
     let lo = min;
     let hi = max;
-    if (range !== "*") {
-      const m = range.split("-");
-      lo = parseInt(m[0], 10);
-      hi = m[1] !== undefined ? parseInt(m[1], 10) : lo;
+    if (m[1] !== "*") {
+      const [a, b] = m[1].split("-");
+      lo = Number(a);
+      hi = b !== undefined ? Number(b) : lo;
+      if (lo < min || hi > hiLimit || lo > hi) throw new Error(`Cron value out of range in "${field}"`);
     }
-    for (let v = lo; v <= hi; v += step) {
-      if (v >= min && v <= max) out.add(v);
-    }
+    for (let v = lo; v <= hi; v += step) out.add(isDow && v === 7 ? 0 : v);
   }
   return out;
 }
@@ -75,7 +84,7 @@ export function cronMatches(expr: string, date: Date, timeZone = "UTC"): boolean
   const hours = parseField(hour, 0, 23);
   const doms = parseField(dom, 1, 31);
   const mons = parseField(mon, 1, 12);
-  const dows = parseField(dow, 0, 6);
+  const dows = parseField(dow, 0, 6, true);
 
   const now = partsInZone(date, timeZone);
   const matchDom = dom !== "*";

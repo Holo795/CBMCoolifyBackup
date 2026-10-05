@@ -8,6 +8,7 @@ import { checkOverdue } from "./overdue";
 import { maybeSelfBackup, checkSelfBackupOverdue } from "./self-backup";
 import { syncInstance } from "./discovery";
 import { getTimezone } from "./settings";
+import { cleanupJobHistory } from "./housekeeping";
 
 /**
  * Record the outcome of a scheduled verify so "no agent could reach this
@@ -218,6 +219,51 @@ export async function tick(now = new Date()): Promise<number> {
   return triggered;
 }
 
+/**
+ * Housekeeping tasks as crons, evaluated in the configured timezone (they used
+ * to compare the container's clock, i.e. UTC). Heavy ones run detached so they
+ * never delay backup scheduling, with a guard so a slow run can't overlap itself.
+ */
+const TASKS: Array<{ name: string; cron: string; run: () => Promise<unknown>; detached: boolean }> = [
+  { name: "auto-sync", cron: "*/5 * * * *", run: () => syncAllInstances(), detached: true },
+  { name: "reconcile", cron: "30 3 * * *", run: () => reconcileAllDestinations(), detached: true },
+  { name: "integrity check", cron: "0 4 * * 0", run: () => integrityCheckAllDestinations(), detached: true },
+  { name: "restore drills", cron: "0 5 * * 6", run: () => drillAllResources(), detached: true },
+  { name: "overdue check", cron: "7 * * * *", run: () => checkOverdue(new Date()), detached: true },
+  { name: "self-backup overdue check", cron: "11 * * * *", run: () => checkSelfBackupOverdue(new Date()), detached: true },
+  { name: "job history cleanup", cron: "45 2 * * *", run: () => cleanupJobHistory(new Date()), detached: true },
+];
+const taskInFlight = new Set<string>();
+
+function runTask(t: (typeof TASKS)[number]): Promise<void> | void {
+  if (taskInFlight.has(t.name)) return; // the previous run is still going
+  taskInFlight.add(t.name);
+  const p = t
+    .run()
+    .then(() => undefined)
+    .catch((e) => console.error(`[scheduler] ${t.name} error`, e))
+    .finally(() => taskInFlight.delete(t.name));
+  return t.detached ? undefined : p;
+}
+
+/** Longest gap re-evaluated after a slow tick (or a short pause of the process). */
+const MAX_REPLAY_MINUTES = 15;
+
+/**
+ * Pure: which minutes (epoch minutes) to evaluate now, given the last evaluated
+ * one. Every minute since the previous tick is evaluated once - a tick that ran
+ * long no longer skips crons or the fixed daily/weekly tasks - bounded so a long
+ * outage doesn't fire a burst of stale schedules.
+ */
+export function minutesToEvaluate(lastEvaluated: number | null, nowMs: number, max = MAX_REPLAY_MINUTES): number[] {
+  const current = Math.floor(nowMs / 60_000);
+  if (lastEvaluated === null || lastEvaluated >= current) return lastEvaluated === current ? [] : [current];
+  const from = Math.max(lastEvaluated + 1, current - max + 1);
+  const out: number[] = [];
+  for (let m = from; m <= current; m++) out.push(m);
+  return out;
+}
+
 /** Start the minute-aligned scheduler loop (idempotent). */
 export function startScheduler(): void {
   if (globalForSched.cbmSchedulerStarted) return;
@@ -226,71 +272,49 @@ export function startScheduler(): void {
   // Try to become the scheduler leader before the first tick (best-effort).
   void acquireSchedulerLeadership();
 
+  let lastEvaluated: number | null = null;
+
+  const loop = async () => {
+    const minutes = minutesToEvaluate(lastEvaluated, Date.now());
+    if (minutes.length) lastEvaluated = minutes[minutes.length - 1];
+    const tz = await getTimezone().catch(() => "UTC");
+    for (const m of minutes) {
+      const at = new Date(m * 60_000);
+      try {
+        await tick(at);
+      } catch (e) {
+        console.error("[scheduler] tick error", e);
+      }
+      for (const t of TASKS) {
+        let due = false;
+        try {
+          due = cronMatches(t.cron, at, tz);
+        } catch {
+          due = false;
+        }
+        if (due) await runTask(t);
+      }
+    }
+    try {
+      await reaper(new Date());
+    } catch (e) {
+      console.error("[scheduler] reaper error", e);
+    }
+    try {
+      // Self-backup of the controller metadata DB: change-driven + throttled,
+      // with a daily safety re-run (see lib/self-backup.ts).
+      await maybeSelfBackup(new Date());
+    } catch (e) {
+      console.error("[scheduler] self-backup error", e);
+    }
+  };
+
   const schedule = () => {
     const now = new Date();
     const msToNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
     setTimeout(async () => {
       // Only the leader replica runs scheduled work (see the advisory lock above).
-      if (!isSchedulerLeader) {
-        schedule();
-        return;
-      }
-      try {
-        await tick(new Date());
-      } catch (e) {
-        console.error("[scheduler] tick error", e);
-      }
-      try {
-        await reaper(new Date());
-      } catch (e) {
-        console.error("[scheduler] reaper error", e);
-      }
-      try {
-        // Refresh discovery every 5 minutes (status + prune/mark removed).
-        if (new Date().getMinutes() % 5 === 0) await syncAllInstances();
-      } catch (e) {
-        console.error("[scheduler] auto-sync error", e);
-      }
-      try {
-        // Reconcile destinations once a day (detect backups deleted at rest).
-        const n = new Date();
-        if (n.getHours() === 3 && n.getMinutes() === 30) await reconcileAllDestinations();
-      } catch (e) {
-        console.error("[scheduler] reconcile error", e);
-      }
-      try {
-        // Weekly deep integrity check (Sunday 04:00) for opted-in destinations.
-        const n = new Date();
-        if (n.getDay() === 0 && n.getHours() === 4 && n.getMinutes() === 0) await integrityCheckAllDestinations();
-      } catch (e) {
-        console.error("[scheduler] integrity check error", e);
-      }
-      try {
-        // Weekly restore drills (Saturday 05:00), when enabled in Settings.
-        const n = new Date();
-        if (n.getDay() === 6 && n.getHours() === 5 && n.getMinutes() === 0) await drillAllResources();
-      } catch (e) {
-        console.error("[scheduler] restore drill error", e);
-      }
-      try {
-        // Detect scheduled backups that never ran (hourly).
-        if (new Date().getMinutes() === 7) await checkOverdue(new Date());
-      } catch (e) {
-        console.error("[scheduler] overdue check error", e);
-      }
-      try {
-        // Self-backup of the controller metadata DB: change-driven + throttled,
-        // with a daily safety re-run (see lib/self-backup.ts).
-        await maybeSelfBackup(new Date());
-      } catch (e) {
-        console.error("[scheduler] self-backup error", e);
-      }
-      try {
-        // Alert if the self-backup hasn't succeeded in over a day (hourly).
-        if (new Date().getMinutes() === 11) await checkSelfBackupOverdue(new Date());
-      } catch (e) {
-        console.error("[scheduler] self-backup overdue check error", e);
-      }
+      if (isSchedulerLeader) await loop().catch((e) => console.error("[scheduler] loop error", e));
       schedule();
     }, msToNextMinute);
   };

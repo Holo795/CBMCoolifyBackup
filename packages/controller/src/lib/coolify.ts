@@ -123,6 +123,10 @@ export function parseImageRef(ref?: string): { name?: string; tag?: string } {
   return { name: core };
 }
 
+/** Every Coolify API call is bounded: one that hangs would otherwise block the
+ * scheduler (it enqueues backups through these calls) for minutes. */
+const COOLIFY_TIMEOUT_MS = 30_000;
+
 export class CoolifyClient {
   constructor(
     private baseUrl: string,
@@ -133,6 +137,7 @@ export class CoolifyClient {
 
   private async get<T>(path: string): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
+      signal: AbortSignal.timeout(COOLIFY_TIMEOUT_MS),
       headers: { authorization: `Bearer ${this.token}`, accept: "application/json" },
     });
     if (!res.ok) {
@@ -143,6 +148,7 @@ export class CoolifyClient {
 
   private async patch<T>(path: string, body: unknown): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
+      signal: AbortSignal.timeout(COOLIFY_TIMEOUT_MS),
       method: "PATCH",
       headers: { authorization: `Bearer ${this.token}`, accept: "application/json", "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -154,6 +160,7 @@ export class CoolifyClient {
 
   private async post<T>(path: string, body: unknown): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
+      signal: AbortSignal.timeout(COOLIFY_TIMEOUT_MS),
       method: "POST",
       headers: { authorization: `Bearer ${this.token}`, accept: "application/json", "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -596,6 +603,7 @@ export class CoolifyClient {
   async ping(): Promise<{ ok: boolean; version?: string; error?: string }> {
     try {
       const res = await fetch(`${this.baseUrl}/api/v1/version`, {
+        signal: AbortSignal.timeout(COOLIFY_TIMEOUT_MS),
         headers: { authorization: `Bearer ${this.token}`, accept: "application/json" },
       });
       const body = (await res.text()).trim();
