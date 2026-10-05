@@ -144,3 +144,22 @@ test("a Redis snapshot restored into a volume is loaded even with AOF on", { ski
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("start-up sweeps the staging of interrupted jobs, never the outbox or state", async () => {
+  const { sweepOrphanedStages } = await import("../src/disk.js");
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const dir = await mkdtemp(join(tmpdir(), "cbm-sweep-"));
+  try {
+    for (const d of ["4606c07a-ba45-420e-90a2-92ef3b18c9b0", "drill-abc", "mirror-xyz", "pending-results", "state", "keep-me"]) {
+      await mkdir(join(dir, d));
+      await writeFile(join(dir, d, "f"), "x");
+    }
+    await mkdir(join(dir, "tmp", "cbm-verify-1"), { recursive: true });
+    await mkdir(join(dir, "tmp", "other"));
+    await sweepOrphanedStages(dir, () => undefined, join(dir, "tmp"));
+    assert.deepEqual((await readdir(dir)).sort(), ["keep-me", "pending-results", "state", "tmp"]);
+    assert.deepEqual(await readdir(join(dir, "tmp")), ["other"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

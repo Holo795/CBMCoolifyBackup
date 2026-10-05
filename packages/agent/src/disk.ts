@@ -1,4 +1,6 @@
-import { statfs } from "node:fs/promises";
+import { readdir, rm, statfs } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /**
  * Staging needs room on the agent host: fail early with a clear message rather
@@ -35,3 +37,31 @@ export function isDiskFull(e: unknown): boolean {
   const err = e as { code?: string; message?: string };
   return err?.code === "ENOSPC" || /ENOSPC|no space left on device/i.test(err?.message ?? "");
 }
+
+const JOB_STAGE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|drill-.+|mirror-.+)$/i;
+const TMP_STAGE = /^cbm-(restic|verify)-/;
+
+/**
+ * Remove the staging a previous run left behind (killed mid-job: crash, OOM,
+ * upgrade), which could otherwise pile up gigabytes on the host. Only call it
+ * before any job starts. Never touches the outbox or the agent's state.
+ */
+export async function sweepOrphanedStages(
+  workDir: string,
+  log: (m: string) => void,
+  tmp: string = tmpdir(),
+): Promise<void> {
+  for (const [dir, re] of [
+    [workDir, JOB_STAGE],
+    [tmp, TMP_STAGE],
+  ] as const) {
+    const names = await readdir(dir).catch(() => [] as string[]);
+    for (const name of names) {
+      if (!re.test(name)) continue;
+      await rm(join(dir, name), { recursive: true, force: true })
+        .then(() => log(`Removed ${join(dir, name)} left by an interrupted job`))
+        .catch(() => undefined);
+    }
+  }
+}
+

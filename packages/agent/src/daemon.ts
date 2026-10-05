@@ -12,6 +12,7 @@ import { logger } from "./logger.js";
 import * as client from "./client.js";
 import { runJobForController } from "./runner.js";
 import { initHeldContainers } from "./held.js";
+import { sweepOrphanedStages } from "./disk.js";
 import { deliverResult, flushPendingResults, pendingResultIds } from "./outbox.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -50,6 +51,7 @@ export async function startDaemon(): Promise<void> {
   // and on SIGTERM before exiting (see held.ts).
   initHeldContainers(cfg.workDir);
   await recoverHeldContainers((m) => logger.warn(m));
+  await sweepOrphanedStages(cfg.workDir, (m) => logger.info(m));
   let stopping = false;
   for (const sig of ["SIGTERM", "SIGINT"] as const) {
     process.on(sig, () => {
