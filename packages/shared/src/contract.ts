@@ -406,6 +406,11 @@ export const HeartbeatRequest = z.object({
   /** Containers per Coolify resource uuid on this host, so per-container hooks
    * can be configured before the first backup and stay current after redeploys. */
   resourceContainers: z.record(z.string(), z.array(DiscoveredContainer)).optional(),
+  /** Jobs this agent process is running, or holds a result for in its outbox.
+   * The controller fails any job it thinks the agent runs that isn't listed
+   * (e.g. after an agent restart) instead of leaving it "running" for hours.
+   * Absent (older agents): no such check. */
+  activeJobIds: z.array(z.string()).max(1000).optional(),
 });
 export type HeartbeatRequest = z.infer<typeof HeartbeatRequest>;
 

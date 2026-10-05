@@ -123,6 +123,41 @@ export function queueExpiredReason(job: { type: string; createdAt: Date }, now: 
   return `no agent picked this job up within ${Math.round(ttl / 60_000)} min - cancelled`;
 }
 
+/** A job claimed this recently may not be in the agent's list yet (the claim
+ * and the heartbeat race). */
+const LOST_JOB_GRACE_MS = 2 * 60_000;
+
+/** Pure: which of an agent's running jobs it no longer reports as its own. */
+export function lostJobIds(
+  running: { id: string; claimedAt: Date | null }[],
+  activeIds: string[],
+  now: Date,
+  graceMs = LOST_JOB_GRACE_MS,
+): string[] {
+  const active = new Set(activeIds);
+  return running
+    .filter((j) => !active.has(j.id) && j.claimedAt != null && j.claimedAt.getTime() < now.getTime() - graceMs)
+    .map((j) => j.id);
+}
+
+/**
+ * Fail the running jobs an agent says it isn't running any more (it restarted
+ * mid-job, e.g. for an upgrade). Without this they stayed "running" until the
+ * per-type cap - hours during which the resource refused new backups.
+ */
+export async function releaseLostJobs(agentId: string, activeIds: string[], now = new Date()): Promise<number> {
+  const running = await prisma.agentJob.findMany({
+    where: { agentId, status: "running" },
+    select: { id: true, type: true, snapshotId: true, restoreId: true, claimedAt: true },
+  });
+  const lost = new Set(lostJobIds(running, activeIds, now));
+  let n = 0;
+  for (const j of running) {
+    if (lost.has(j.id) && (await failJob(j, "running", "the agent restarted or lost this job", now))) n++;
+  }
+  return n;
+}
+
 /**
  * Fail a job that is still in `from` (the condition makes it race-free against
  * a concurrent claim or result), and everything that waits on it. Also drops

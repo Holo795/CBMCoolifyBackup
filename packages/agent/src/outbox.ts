@@ -52,6 +52,12 @@ export async function deliverResult(
 }
 
 /** Resend results kept on disk (at startup, then periodically). */
+/** Job ids whose result is waiting in the outbox (still "ours" until delivered). */
+export async function pendingResultIds(workDir: string): Promise<string[]> {
+  const files = await readdir(outboxDir(workDir)).catch(() => [] as string[]);
+  return files.filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -".json".length));
+}
+
 export async function flushPendingResults(
   workDir: string,
   send: SendResult,

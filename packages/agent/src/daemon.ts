@@ -12,9 +12,12 @@ import { logger } from "./logger.js";
 import * as client from "./client.js";
 import { runJobForController } from "./runner.js";
 import { initHeldContainers } from "./held.js";
-import { deliverResult, flushPendingResults } from "./outbox.js";
+import { deliverResult, flushPendingResults, pendingResultIds } from "./outbox.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Jobs running in this process, reported with each heartbeat. */
+const activeJobs = new Set<string>();
 
 export async function startDaemon(): Promise<void> {
   const cfg = loadConfig();
@@ -71,13 +74,17 @@ export async function startDaemon(): Promise<void> {
   const startJob = (job: Awaited<ReturnType<typeof client.poll>>["job"]) => {
     if (!job) return;
     logger.info(`Picked up job ${job.id} (${job.type})`);
+    activeJobs.add(job.id);
     const p = (async () => {
       const result = await runJobForController(job, cfg);
       await deliverResult(cfg.workDir, result, (r) => client.sendResult(cfg, r), { log: (m) => logger.warn(m) });
       logger.info(`Job ${job.id} finished: ${result.status}`);
     })()
       .catch((e) => logger.error(`job ${job.id} crashed: ${(e as Error).message}`))
-      .finally(() => inFlight.delete(p));
+      .finally(() => {
+        inFlight.delete(p);
+        activeJobs.delete(job.id);
+      });
     inFlight.add(p);
   };
 
@@ -114,6 +121,7 @@ async function heartbeatLoop(cfg: AgentConfig): Promise<void> {
         resourceUuids: await detectCoolifyResourceUuids().catch(() => []),
         // Containers per resource (one `docker ps`), for per-container hook targets.
         resourceContainers: groupContainersByResource(await listContainersForDiscovery(PS_FORMAT).catch(() => "")),
+        activeJobIds: [...activeJobs, ...(await pendingResultIds(cfg.workDir))],
       });
     } catch {
       /* ignore */

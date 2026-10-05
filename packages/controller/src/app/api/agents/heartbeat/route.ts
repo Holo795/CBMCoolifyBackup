@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { HeartbeatRequest } from "@cbm/shared";
 import { prisma } from "@/lib/prisma";
 import { authenticateAgentFromRequest } from "@/lib/agent-auth";
+import { releaseLostJobs } from "@/lib/reaper";
 
 export async function POST(req: Request) {
   const agent = await authenticateAgentFromRequest(req);
@@ -56,6 +57,9 @@ export async function POST(req: Request) {
       }
     }
   }
+
+  // Jobs we think it runs but it doesn't report (agent restarted mid-job).
+  if (data.activeJobIds) await releaseLostJobs(agent.id, data.activeJobIds).catch(() => undefined);
 
   await prisma.agent.update({
     where: { id: agent.id },

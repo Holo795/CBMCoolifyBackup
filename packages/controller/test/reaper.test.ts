@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stuckReason, queueExpiredReason } from "../src/lib/reaper";
+import { stuckReason, queueExpiredReason, lostJobIds } from "../src/lib/reaper";
 
 const NOW = new Date("2026-01-01T12:00:00Z");
 const OFFLINE_MS = 2 * 60_000; // agent offline after 2 min silent
@@ -68,4 +68,17 @@ test("queue limits are per type: backups 2h, prunes may wait days", () => {
   assert.equal(queueExpiredReason({ type: "prune", createdAt: ago(3 * 24 * 3600_000) }, NOW), null);
   assert.ok(queueExpiredReason({ type: "prune", createdAt: ago(8 * 24 * 3600_000) }, NOW));
   assert.ok(queueExpiredReason({ type: "unknown", createdAt: ago(13 * 3600_000) }, NOW));
+});
+
+test("jobs an agent no longer reports are lost, after a grace period", () => {
+  const now = new Date("2026-10-05T12:00:00Z");
+  const ago = (min: number) => new Date(now.getTime() - min * 60_000);
+  const running = [
+    { id: "kept", claimedAt: ago(30) },
+    { id: "gone", claimedAt: ago(30) },
+    { id: "just-claimed", claimedAt: ago(1) },
+    { id: "never-claimed", claimedAt: null },
+  ];
+  assert.deepEqual(lostJobIds(running, ["kept"], now), ["gone"]);
+  assert.deepEqual(lostJobIds(running, ["kept", "gone"], now), []);
 });
