@@ -303,8 +303,18 @@ model RestoreJob {
   target     String   @default("in_place")
   status     String   @default("running")
   error      String?
+  // "→ new" only: the source resource's Coolify uuid, the clone's uuid and the
+  // instance it landed on. Later "→ new" restores onto that instance use these
+  // pairs to rewire references (env values) from originals to their clones.
+  sourceUuid       String?
+  targetUuid       String?
+  targetInstanceId String?
+  // The references rewired into this clone: [{ key, from, to }].
+  remapped   Json?
   createdAt  DateTime @default(now())
   finishedAt DateTime?
+
+  @@index([targetInstanceId])
 }
 
 // Agent-facing job queue (pulled by agents). pg-boss schedules policy runs

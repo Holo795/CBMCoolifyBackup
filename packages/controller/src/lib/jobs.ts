@@ -17,7 +17,8 @@ import { decryptSecret, encryptSecret } from "./crypto";
 import { effectivePolicy } from "./schedule";
 import { CoolifyClient, type DbEngine, type CloneEngine, type DbConfig, type CoolifyRaw } from "./coolify";
 import { syncInstance } from "./discovery";
-import type { Destination } from "@/generated/prisma/client";
+import { remapEnv, type RemapChange } from "./remap";
+import type { Destination, Prisma } from "@/generated/prisma/client";
 import { version as CBM_VERSION } from "../../package.json";
 
 const DUMP_ENGINES: DbEngine[] = ["postgresql", "mysql", "mariadb", "mongodb"];
@@ -223,7 +224,10 @@ async function cloneForRestore(
   manifest: SnapshotManifest,
   /** Clone onto a DIFFERENT connected Coolify (migration). Default: the snapshot's own instance. */
   targetInstanceId?: string,
-): Promise<ResourceDescriptor> {
+  /** Original → clone uuids of resources already restored onto the target, to
+   * rewire this clone's env references (see lib/remap). */
+  mapping: Record<string, string> = {},
+): Promise<{ descriptor: ResourceDescriptor; changes: RemapChange[] }> {
   const migrating = !!targetInstanceId && targetInstanceId !== resource.instanceId;
   const instance = await prisma.coolifyInstance.findUniqueOrThrow({
     where: { id: targetInstanceId ?? resource.instanceId },
@@ -263,6 +267,7 @@ async function cloneForRestore(
   });
 
   let newUuid: string;
+  let changes: RemapChange[] = [];
   if (DUMP_ENGINES.includes(resource.type as DbEngine) || VOLUME_DB_ENGINES.includes(resource.type)) {
     // Databases: dump engines deploy only when there's a logical dump to load;
     // volume-based ones (redis/keydb/...) stay undeployed for volume pre-fill.
@@ -320,13 +325,14 @@ async function cloneForRestore(
     newUuid = cloned.uuid;
     clonedType = cloned.type;
     // Env from the snapshot if present (autonomous), else live from the original.
-    await applyEnv(
+    changes = await applyEnv(
       client,
       manifest,
       cloned.type === "service" ? "services" : "applications",
       newUuid,
       "applications",
       resource.coolifyUuid,
+      mapping,
     );
   } else if (type === "service") {
     const src =
@@ -346,14 +352,14 @@ async function cloneForRestore(
       src,
       serverUuid,
     });
-    await applyEnv(client, manifest, "services", newUuid, "services", resource.coolifyUuid);
+    changes = await applyEnv(client, manifest, "services", newUuid, "services", resource.coolifyUuid, mapping);
   } else {
     throw new Error(`Restore → new resource is not supported for type "${resource.type}"`);
   }
 
   // Surface the new resource in the controller UI.
   await syncInstance(instance.id).catch(() => undefined);
-  return descriptor(newUuid);
+  return { descriptor: descriptor(newUuid), changes };
 }
 
 /**
@@ -582,7 +588,9 @@ function dbCredsFromCaptured(
 }
 
 /** Set env on the cloned resource from the snapshot (self-contained) when
- * available, else copy live from the still-present original. */
+ * available, else from the still-present original — with references to
+ * already-restored resources rewired to their clones BEFORE the write (the
+ * clone's env is created once; we never update an existing resource). */
 async function applyEnv(
   client: CoolifyClient,
   manifest: SnapshotManifest,
@@ -590,17 +598,53 @@ async function applyEnv(
   newUuid: string,
   srcKind: "applications" | "services",
   srcUuid: string,
-): Promise<void> {
+  mapping: Record<string, string>,
+): Promise<RemapChange[]> {
+  let envs: Array<Record<string, unknown>> | null = null;
   if (manifest.envEnc) {
     try {
-      const envs = JSON.parse(decryptSecret(manifest.envEnc)) as Array<Record<string, unknown>>;
-      await client.setEnvVars(destKind, newUuid, envs);
-      return;
+      envs = JSON.parse(decryptSecret(manifest.envEnc)) as Array<Record<string, unknown>>;
     } catch {
-      /* fall back to live copy below */
+      envs = null; // fall back to the live original below
     }
   }
-  await client.copyEnvVars(srcKind, srcUuid, destKind, newUuid).catch(() => 0);
+  if (!envs) envs = await client.getEnvVars(srcKind, srcUuid).catch(() => []);
+  const { envs: rewired, changes } = remapEnv(envs, mapping);
+  await client.setEnvVars(destKind, newUuid, rewired);
+  return changes;
+}
+
+/**
+ * Original → clone uuid pairs for resources already restored "→ new" onto
+ * `instanceId` — the latest clone per source that still exists there — so the
+ * clone being created now points at those clones rather than the originals.
+ */
+async function cloneMappingsFor(instanceId: string, excludeSourceUuid: string): Promise<Record<string, string>> {
+  const rows = await prisma.restoreJob.findMany({
+    where: {
+      targetInstanceId: instanceId,
+      targetUuid: { not: null },
+      sourceUuid: { not: null },
+      NOT: { sourceUuid: excludeSourceUuid },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { sourceUuid: true, targetUuid: true },
+  });
+  if (rows.length === 0) return {};
+  const present = new Set(
+    (
+      await prisma.resource.findMany({
+        where: { instanceId, coolifyUuid: { in: rows.map((r) => r.targetUuid!) }, status: { not: "deleted" } },
+        select: { coolifyUuid: true },
+      })
+    ).map((r) => r.coolifyUuid),
+  );
+  const map: Record<string, string> = {};
+  for (const r of rows) {
+    if (!r.sourceUuid || !r.targetUuid || map[r.sourceUuid]) continue; // newest present clone wins
+    if (present.has(r.targetUuid)) map[r.sourceUuid] = r.targetUuid;
+  }
+  return map;
 }
 
 /** Create a RestoreJob + queued AgentJob from an existing snapshot. */
@@ -653,13 +697,32 @@ export async function enqueueRestore(
   // volume map tells the agent which (uuid-swapped) volumes to fill.
   let targetResource: ResourceDescriptor | undefined;
   let volumeMap: Record<string, string> | undefined;
+  let remapped: RemapChange[] = [];
+  const cloneInstanceId = targetInstanceId ?? snapshot.resource.instanceId;
   if (target === "new_resource") {
-    targetResource = await cloneForRestore(snapshot.resource, manifest, targetInstanceId);
+    // Point this clone at clones of resources already restored onto the same
+    // instance (e.g. the restored DB), never back at the originals.
+    const mapping = await cloneMappingsFor(cloneInstanceId, snapshot.resource.coolifyUuid);
+    const cloned = await cloneForRestore(snapshot.resource, manifest, targetInstanceId, mapping);
+    targetResource = cloned.descriptor;
+    remapped = cloned.changes;
     volumeMap = buildVolumeMap(manifest, snapshot.resource.coolifyUuid, targetResource.coolifyUuid);
   }
 
   const restore = await prisma.restoreJob.create({
-    data: { snapshotId: snapshot.id, target, status: "running" },
+    data: {
+      snapshotId: snapshot.id,
+      target,
+      status: "running",
+      ...(targetResource
+        ? {
+            sourceUuid: snapshot.resource.coolifyUuid,
+            targetUuid: targetResource.coolifyUuid,
+            targetInstanceId: cloneInstanceId,
+            remapped: remapped.length ? (remapped as unknown as Prisma.InputJsonValue) : undefined,
+          }
+        : {}),
+    },
   });
 
   const agentJob = await prisma.agentJob.create({
@@ -689,6 +752,17 @@ export async function enqueueRestore(
   };
 
   await prisma.agentJob.update({ where: { id: agentJob.id }, data: { payload: job as unknown as object } });
+
+  // Make the rewiring visible in the restore's live log.
+  if (remapped.length) {
+    await prisma.jobEvent.createMany({
+      data: remapped.map((c) => ({
+        jobId: agentJob.id,
+        level: "info",
+        message: `Rewired ${c.key}: ${c.from} -> ${c.to} (points at the restored clone, not the original)`,
+      })),
+    });
+  }
 
   return { restoreId: restore.id, agentId: agent.id, jobId: agentJob.id };
 }

@@ -40,6 +40,25 @@ and it **creates any missing project/environment** on the target. When several C
 are connected, a **"Restore onto"** picker lets you clone the snapshot onto a *different* Coolify
 (migration). See **[disaster-recovery.md](disaster-recovery.md)**.
 
+### Restoring a whole stack: references are rewired
+
+Coolify containers reach each other by a hostname derived from the resource uuid — an app's
+`DATABASE_URL` looks like `postgres://app:pw@<db-uuid>:5432/app`. A plain clone keeps those values,
+so a restored app would still talk to the **original** database: a test copy writing to production.
+
+To avoid that, when you restore an app or service **→ new**, CBM rewires its environment so any
+reference to a resource you've **already restored → new on the same instance** points at that
+clone instead of the original. Every rewired variable is listed in the restore log
+(`Rewired DATABASE_URL: <original> -> <clone>`).
+
+- **Restore the data tier first** (databases, caches), then the apps that use them — rewiring
+  happens when the app is cloned, so the database clone must already exist.
+- Only resources restored → new are rewired. An app restored on its own still points at the live
+  originals, as before.
+- If a resource was restored several times, the newest clone that still exists is used. Delete
+  test clones you no longer need so a later restore doesn't pick them up.
+- Only env values are rewired (not compose files).
+
 ## With the restic engine
 
 Restore is transparent: the agent pulls the exact snapshot from the restic repository (local,
