@@ -128,6 +128,9 @@ export function parseImageRef(ref?: string): { name?: string; tag?: string } {
  * the data in its volumes was created with them, so they must follow it to a
  * clone. Domains (SERVICE_FQDN_* / SERVICE_URL_*) are per-resource and don't.
  */
+/** A named volume mounted into an application (Coolify "persistent storage"). */
+export type AppVolume = { name: string; mountPath: string };
+
 export const GENERATED_SECRET = /^SERVICE_(USER|PASSWORD|BASE64|REALBASE64)_/;
 
 /** Every Coolify API call is bounded: one that hangs would otherwise block the
@@ -488,6 +491,33 @@ export class CoolifyClient {
       await this.patch(`/api/v1/applications/${uuid}`, { git_repository: src.git_repository }).catch(() => undefined);
     }
     return { uuid, type: "application" };
+  }
+
+  /** An application's named (Docker) volumes. Bind mounts are left out: a
+   * clone must not share the original's host folder. Empty when unknown. */
+  async getAppVolumes(uuid: string): Promise<AppVolume[]> {
+    const r = await this.get<{ persistent_storages?: Array<Record<string, unknown>> }>(
+      `/api/v1/applications/${uuid}/storages`,
+    ).catch(() => null);
+    return (r?.persistent_storages ?? [])
+      .filter((v) => typeof v.name === "string" && typeof v.mount_path === "string" && !v.host_path)
+      .map((v) => ({ name: String(v.name), mountPath: String(v.mount_path) }));
+  }
+
+  /** Add named volumes to an application. Best effort; returns how many were added. */
+  async addAppVolumes(uuid: string, volumes: AppVolume[]): Promise<number> {
+    let n = 0;
+    for (const v of volumes) {
+      const ok = await this.post(`/api/v1/applications/${uuid}/storages`, {
+        type: "persistent",
+        name: v.name,
+        mount_path: v.mountPath,
+      })
+        .then(() => true)
+        .catch(() => false);
+      if (ok) n++;
+    }
+    return n;
   }
 
   /** Resolve a private SSH key's uuid from its numeric id (deploy-key clones). */

@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "./prisma";
 import { decryptSecret, encryptSecret } from "./crypto";
 import { effectivePolicy } from "./schedule";
-import { CoolifyClient, GENERATED_SECRET, type DbEngine, type CloneEngine, type DbConfig, type CoolifyRaw } from "./coolify";
+import { CoolifyClient, GENERATED_SECRET, type AppVolume, type DbEngine, type CloneEngine, type DbConfig, type CoolifyRaw } from "./coolify";
 import { syncInstance } from "./discovery";
 import { remapEnv, type RemapChange } from "./remap";
 import type { Destination, Prisma } from "@/generated/prisma/client";
@@ -263,7 +263,7 @@ async function cloneForRestore(
   /** Original → clone uuids of resources already restored onto the target, to
    * rewire this clone's env references (see lib/remap). */
   mapping: Record<string, string> = {},
-): Promise<{ descriptor: ResourceDescriptor; changes: RemapChange[] }> {
+): Promise<{ descriptor: ResourceDescriptor; changes: RemapChange[]; volumeRenames?: Record<string, string> }> {
   const migrating = !!targetInstanceId && targetInstanceId !== resource.instanceId;
   const instance = await prisma.coolifyInstance.findUniqueOrThrow({
     where: { id: targetInstanceId ?? resource.instanceId },
@@ -293,6 +293,7 @@ async function cloneForRestore(
   // The clone usually keeps the source type, but a floating-tag docker-image app
   // is cloned as a digest-pinned service (see cloneApplication), so track it.
   let clonedType: ResourceType = type;
+  let volumeRenames: Record<string, string> | undefined;
   const descriptor = (newUuid: string): ResourceDescriptor => ({
     coolifyUuid: newUuid,
     name: newName,
@@ -360,6 +361,16 @@ async function cloneForRestore(
     });
     newUuid = cloned.uuid;
     clonedType = cloned.type;
+    // Applications declare their volumes outside the image: recreate them under
+    // the clone's uuid (the names the agent restores the data into, see
+    // buildVolumeMap) or the restored data never gets mounted.
+    if (cloned.type === "application") {
+      const captured = cfg?.kind === "application" ? (cfg.raw.volumes as AppVolume[] | undefined) : undefined;
+      const volumes = captured ?? (await (srcClient ?? client).getAppVolumes(resource.coolifyUuid));
+      await client.addAppVolumes(newUuid, cloneVolumes(volumes, resource.coolifyUuid));
+      // Coolify names them itself: restore into whatever it actually created.
+      volumeRenames = matchVolumes(volumes, await client.getAppVolumes(newUuid));
+    }
     // Env from the snapshot if present (autonomous), else live from the original.
     changes = await applyEnv(
       client,
@@ -396,7 +407,26 @@ async function cloneForRestore(
 
   // Surface the new resource in the controller UI.
   await syncInstance(instance.id).catch(() => undefined);
-  return { descriptor: descriptor(newUuid), changes };
+  return { descriptor: descriptor(newUuid), changes, volumeRenames };
+}
+
+/** The volumes to create on a clone: same mounts, names without the original's
+ * uuid prefix (Coolify prefixes a new volume with its application's uuid, so
+ * the clone never mounts the original's volume). */
+export function cloneVolumes(volumes: AppVolume[], oldUuid: string): AppVolume[] {
+  const prefix = `${oldUuid.replace(/-/g, "")}-`;
+  return volumes.map((v) => ({ ...v, name: v.name.startsWith(prefix) ? v.name.slice(prefix.length) : v.name }));
+}
+
+/** Original volume name → the clone's volume mounted at the same path. */
+export function matchVolumes(original: AppVolume[], clone: AppVolume[]): Record<string, string> {
+  const byMount = new Map(clone.map((v) => [v.mountPath, v.name]));
+  const out: Record<string, string> = {};
+  for (const v of original) {
+    const name = byMount.get(v.mountPath);
+    if (name) out[v.name] = name;
+  }
+  return out;
 }
 
 /**
@@ -541,7 +571,8 @@ async function capturedConfigFor(resource: {
         ...base,
         kind: "application",
         fqdn: typeof src.fqdn === "string" ? src.fqdn : undefined,
-        raw: pick(src, APP_CONFIG_FIELDS),
+        // + its named volumes, which the clone must recreate (not part of the app object).
+        raw: { ...pick(src, APP_CONFIG_FIELDS), volumes: await client.getAppVolumes(resource.coolifyUuid) },
         dbCredsEnc: undefined,
         composeEnc: undefined,
         gitSourceName: undefined,
@@ -753,6 +784,9 @@ export async function enqueueRestore(
     targetResource = cloned.descriptor;
     remapped = cloned.changes;
     volumeMap = buildVolumeMap(manifest, snapshot.resource.coolifyUuid, targetResource.coolifyUuid);
+    if (cloned.volumeRenames && Object.keys(cloned.volumeRenames).length > 0) {
+      volumeMap = { ...volumeMap, ...cloned.volumeRenames };
+    }
   }
 
   const restore = await prisma.restoreJob.create({
