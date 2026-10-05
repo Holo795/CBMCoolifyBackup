@@ -42,6 +42,17 @@ export const en = {
   backupOptionsInfo:
     "Backups never restart this resource. Databases are exported live; for files, the agent briefly freezes (pauses) only the containers that write to them for a few seconds, then resumes them - with no restart at all. Settings are saved automatically.",
   backupHooks: "Backup hooks",
+  toggles: {
+    enabledLabel: "Include in scheduled backups",
+    enabledDesc:
+      "When enabled, this resource is backed up by its instance's schedule (or its own override). Unchecked, it's skipped by scheduled backups.",
+    liveLabel: "Copy live, without freezing (at my own risk)",
+    liveDesc:
+      "Copies files without any freeze: zero downtime, but a file rewritten right as it's copied could be inconsistent. Avoid if the resource writes a lot outside its database.",
+    on: "on",
+    live: "live",
+    liveTitle: "Copy files without freezing the containers (zero downtime, but a risk of inconsistency)",
+  },
   hooks: {
     primary: "primary container",
     notFound: "not seen right now",
@@ -140,6 +151,17 @@ export const fr: typeof en = {
   backupOptionsInfo:
     "Les sauvegardes ne redémarrent jamais cette ressource. Les bases de données sont exportées à chaud ; pour les fichiers, l'agent gèle brièvement (met en pause) uniquement les conteneurs qui y écrivent pendant quelques secondes, puis les relance - sans aucun redémarrage. Les réglages sont enregistrés automatiquement.",
   backupHooks: "Hooks de sauvegarde",
+  toggles: {
+    enabledLabel: "Inclure dans les sauvegardes planifiées",
+    enabledDesc:
+      "Activée, cette ressource est sauvegardée par la planification de son instance (ou sa propre surcharge). Décochée, les sauvegardes planifiées l'ignorent.",
+    liveLabel: "Copier à chaud, sans gel (à mes risques)",
+    liveDesc:
+      "Copie les fichiers sans aucun gel : zéro interruption, mais un fichier réécrit pendant sa copie peut être incohérent. À éviter si la ressource écrit beaucoup en dehors de sa base de données.",
+    on: "activée",
+    live: "à chaud",
+    liveTitle: "Copier les fichiers sans geler les conteneurs (zéro interruption, mais un risque d'incohérence)",
+  },
   hooks: {
     primary: "conteneur principal",
     notFound: "introuvable pour l'instant",
