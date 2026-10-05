@@ -177,7 +177,22 @@ export class CoolifyClient {
    */
   async repinCommit(appUuid: string, commitSha: string): Promise<void> {
     await this.patch(`/api/v1/applications/${appUuid}`, { git_commit_sha: commitSha });
-    await this.get(`/api/v1/deploy?uuid=${appUuid}&force=true`);
+    await this.action(`/api/v1/deploy?uuid=${appUuid}&force=true`);
+  }
+
+  /** Trigger an action endpoint: POST since Coolify 4.2 (GET now answers 405),
+   * GET on older versions (whose GET-only routes answer a POST with 405). */
+  private async action(path: string): Promise<void> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      signal: AbortSignal.timeout(COOLIFY_TIMEOUT_MS),
+      method: "POST",
+      headers: { authorization: `Bearer ${this.token}`, accept: "application/json" },
+    });
+    if (res.status === 405) {
+      await this.get(path);
+      return;
+    }
+    if (!res.ok) throw new Error(`Coolify POST ${path} -> ${res.status} ${(await res.text().catch(() => "")).slice(0, 300)}`);
   }
 
   /** Raw config of a standalone database resource. */
