@@ -9,6 +9,7 @@ import { maybeSelfBackup, checkSelfBackupOverdue } from "./self-backup";
 import { syncInstance } from "./discovery";
 import { getTimezone } from "./settings";
 import { cleanupJobHistory } from "./housekeeping";
+import { retryStuckDeletions } from "./snapshot-removal";
 
 /**
  * Record the outcome of a scheduled verify so "no agent could reach this
@@ -232,6 +233,7 @@ const TASKS: Array<{ name: string; cron: string; run: () => Promise<unknown>; de
   { name: "overdue check", cron: "7 * * * *", run: () => checkOverdue(new Date()), detached: true },
   { name: "self-backup overdue check", cron: "11 * * * *", run: () => checkSelfBackupOverdue(new Date()), detached: true },
   { name: "job history cleanup", cron: "45 2 * * *", run: () => cleanupJobHistory(new Date()), detached: true },
+  { name: "deletion retry", cron: "20 */6 * * *", run: () => retryStuckDeletions(new Date()), detached: true },
 ];
 const taskInFlight = new Set<string>();
 

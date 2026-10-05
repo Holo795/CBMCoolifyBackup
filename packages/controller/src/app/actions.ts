@@ -16,6 +16,7 @@ import { enqueueBackup, enqueueRestore, enqueuePrune, enqueueVerifyDestination, 
 import { freqToCron } from "@/lib/schedule";
 import { isValidCron } from "@/lib/cron";
 import { setTimezone, isValidTimezone } from "@/lib/settings";
+import { removeSnapshots } from "@/lib/snapshot-removal";
 
 function s(fd: FormData, key: string): string {
   return (fd.get(key) ?? "").toString().trim();
@@ -543,8 +544,15 @@ export async function createDestination(fd: FormData) {
   return { ok: true };
 }
 
-export async function deleteDestination(id: string) {
+export async function deleteDestination(id: string): Promise<{ ok?: boolean; error?: string } | void> {
   await requireRole("admin");
+  // Its schedules used to be cascade-deleted silently, so backups just stopped.
+  const policies = await prisma.backupPolicy.findMany({ where: { destinationId: id }, select: { name: true } });
+  if (policies.length > 0) {
+    return {
+      error: `Still used by ${policies.length} schedule(s): ${policies.map((p) => p.name).join(", ")}. Point them at another destination first.`,
+    };
+  }
   const dest = await prisma.destination.findUnique({ where: { id } });
   if (dest) {
     // Delete the actual files first, before the records cascade away with the
@@ -610,30 +618,20 @@ export async function cancelSnapshot(snapshotId: string): Promise<void> {
 /** Delete a snapshot: removes its files from the destination (via the agent),
  * then drops the record. If no agent is online the record is still removed and
  * the files are left in place. */
-export async function deleteSnapshot(snapshotId: string): Promise<void> {
+/**
+ * Delete a snapshot (and its mirror copies): the files are deleted by an agent
+ * first and the rows removed once that succeeded; meanwhile it shows "deleting".
+ */
+export async function deleteSnapshot(snapshotId: string): Promise<{ ok?: boolean; error?: string }> {
   await requireRole("operator");
-  const snap = await prisma.snapshot.findUnique({
-    where: { id: snapshotId },
-    include: { destination: true, resource: true },
-  });
-  if (snap) {
-    try {
-      await enqueuePrune({
-        instanceId: snap.resource.instanceId,
-        destination: snap.destination,
-        dirs: [snap.destinationDir],
-        resticSnapshotIds: snap.resticSnapshotId ? [snap.resticSnapshotId] : [],
-        // For a "local" destination the files live on the producing agent's host.
-        agentId: snap.destination.type === "local" ? snap.agentId : null,
-      });
-    } catch (e) {
-      console.warn("[delete] file prune enqueue failed", (e as Error).message);
-    }
-  }
-  await prisma.snapshot.delete({ where: { id: snapshotId } });
+  const snap = await prisma.snapshot.findUnique({ where: { id: snapshotId }, select: { resourceId: true, status: true } });
+  if (!snap) return { ok: true };
+  if (snap.status === "running") return { error: "This backup is still running - cancel it first." };
+  await removeSnapshots([snapshotId]);
   revalidatePath("/snapshots");
   revalidatePath("/destinations");
-  if (snap) revalidatePath(`/resources/${snap.resourceId}`);
+  revalidatePath(`/resources/${snap.resourceId}`);
+  return { ok: true };
 }
 
 /** Re-pin a Git app to the commit captured in a snapshot, then redeploy. */

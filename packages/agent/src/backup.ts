@@ -333,9 +333,6 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
     emit("info", "Uploading to destination", 80);
     const transfer = await makeTransfer(job.destination);
     try {
-      if (job.mode === "sync") {
-        await transfer.removeDir(job.destinationDir).catch(() => undefined);
-      }
       for (const a of artifacts) {
         const local = join(stage, a.filename);
         await transfer.put(local, `${job.destinationDir}/${a.filename}`);

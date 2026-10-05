@@ -21,6 +21,7 @@ export function ConfirmDeleteView({
   onOpenClick,
   onClose,
   onConfirm,
+  error,
 }: {
   open: boolean;
   text: string;
@@ -36,6 +37,8 @@ export function ConfirmDeleteView({
   onOpenClick: () => void;
   onClose: () => void;
   onConfirm: () => void;
+  /** Why the action refused (shown in the dialog, which stays open). */
+  error?: string | null;
 }) {
   const t = useT();
   return (
@@ -65,12 +68,13 @@ export function ConfirmDeleteView({
               placeholder={confirmWord}
               className="mb-4 w-full rounded-md border bg-background px-3 py-2 font-mono text-sm outline-none focus:border-[var(--color-danger)]"
             />
+            {error && <p className="mb-4 text-sm text-[var(--color-danger)]">{error}</p>}
             <div className="flex justify-end gap-2">
               <Button size="sm" variant="outline" onClick={onClose}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button size="sm" variant="danger" disabled={!ok || pending} onClick={onConfirm}>
-                {pending ? "Deleting…" : "Delete"}
+                {pending ? t("components.deleting") : t("common.delete")}
               </Button>
             </div>
           </div>

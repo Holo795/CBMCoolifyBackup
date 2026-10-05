@@ -12,6 +12,7 @@ import {
 } from "@/lib/notify";
 import { enqueueMirror } from "@/lib/jobs";
 import { scrubPayload } from "@/lib/scrub";
+import { removeSnapshots, settlePrune } from "@/lib/snapshot-removal";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const agent = await authenticateAgentFromRequest(req);
@@ -22,6 +23,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!job || job.agentId !== agent.id) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
+
+  // Idempotent: an agent resends a result it couldn't deliver. A job that is
+  // already settled is acknowledged without being processed again - except one
+  // the reaper failed (agent offline / time limit / never picked up), which the
+  // real result may still correct (e.g. a backup that did finish during an outage).
+  const reaped = job.status === "failed" && /went offline|time limit|picked this job up/.test(job.error ?? "");
+  if (job.status !== "running" && !reaped) return NextResponse.json({ ok: true, duplicate: true });
 
   const parsed = JobResult.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {
@@ -40,7 +48,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (succeeded && result.manifest) {
       const m = result.manifest;
       const totalSize = m.artifacts.reduce((acc, a) => acc + (a.sizeBytes ?? 0), 0);
-      await prisma.snapshot.update({
+      // A late result for a reaped job may follow a partial earlier write.
+      await prisma.artifact.deleteMany({ where: { snapshotId: job.snapshotId } });
+      const done = await prisma.snapshot.update({
         where: { id: job.snapshotId },
         data: {
           status: "succeeded",
@@ -75,6 +85,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         .catch(() => undefined);
       // If the destination mirrors to a second one, copy this backup there too.
       await enqueueMirror(job.snapshotId).catch((e) => console.error("[mirror] enqueue failed:", (e as Error).message));
+      // Sync keeps ONE copy: the new one is verified and stored, so the older
+      // copies of this resource on this destination go now (never before).
+      if (done.mode === "sync") {
+        const older = await prisma.snapshot.findMany({
+          where: {
+            resourceId: done.resourceId,
+            destinationId: done.destinationId,
+            mode: "sync",
+            mirrorOfId: null,
+            id: { not: done.id },
+            status: { notIn: ["running", "deleting"] },
+          },
+          select: { id: true },
+        });
+        if (older.length > 0) {
+          await removeSnapshots(older.map((o) => o.id)).catch((e) =>
+            console.error("[sync] removing the previous copy failed:", (e as Error).message),
+          );
+        }
+      }
     } else if (result.status === "skipped") {
       // Nothing on the host to back up - a clear "ignored" outcome, not a failure
       // (no alert).
@@ -143,6 +173,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         finishedAt: new Date(),
       },
     });
+  }
+
+  if (job.type === "prune") {
+    // Rows removed only now that the files are gone (see lib/snapshot-removal).
+    const ids = (job.payload as { snapshotIds?: string[] } | null)?.snapshotIds ?? [];
+    await settlePrune(ids, succeeded, result.error);
   }
 
   if (job.type === "restore-drill") {

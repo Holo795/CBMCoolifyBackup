@@ -46,15 +46,20 @@ source.
 Each schedule keeps a configurable number of **daily / weekly / monthly** snapshots and deletes
 the rest. Retention runs after each scheduled fire (cheap, idempotent).
 
-- **tar engine:** CBM deletes the old snapshot directories at the destination via the agent, then
-  removes the database records. Empty parent directories are cleaned up too. The database record
-  is only dropped once the delete was actually handed to an agent — so files aren't orphaned if
-  no agent is online (it retries next run).
+- **Files first, records second.** A snapshot being deleted shows as **deleting**: an agent
+  deletes its files (and those of its mirror copies), and the database record is removed **only
+  once that succeeded**. If no agent can take it or the deletion fails, the snapshot stays
+  *deleting* (with the reason) and CBM retries every 6 hours — files are never orphaned.
+- **tar engine:** the snapshot directories are deleted at the destination; empty parent
+  directories are cleaned up too.
 - **restic engine:** deletion is delegated to `restic forget --prune`, which removes the
   snapshots and frees the deduplicated data.
 
-`sync` mode keeps a single overwritten copy instead of versioned snapshots, so retention doesn't
-apply to it.
+`sync` mode keeps **one** copy instead of versioned snapshots, so retention doesn't apply to it.
+Each sync run writes a new copy, and the previous one is deleted only once the new one is stored
+and verified — a failed run never leaves you without a copy.
 
-Deleting a snapshot manually (or deleting a destination) also removes its files at the
-destination via the agent.
+Deleting a snapshot manually goes through the same files-first deletion (a running backup must be
+cancelled first). A destination that schedules still use can't be deleted — point them at another
+destination first; deleting an unused destination removes its records and asks an agent to delete
+its files.

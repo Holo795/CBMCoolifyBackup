@@ -45,7 +45,13 @@ test("SnapshotManifest applies defaults", () => {
 });
 
 test("naming helpers are deterministic", () => {
-  assert.equal(snapshotDir("inst", "uuid", "sync", "2026-06-23T00:00:00.000Z"), "inst/uuid/sync");
+  assert.equal(
+    snapshotDir("inst", "uuid", "sync", "2026-06-23T00:00:00.000Z"),
+    "inst/uuid/sync-copies/2026-06-23T00-00-00-000Z",
+  );
+  // A sync copy is never inside the legacy "<uuid>/sync" folder (deleting a
+  // legacy copy must not touch it).
+  assert.equal(snapshotDir("inst", "uuid", "sync", "2026-06-23T00:00:00.000Z").startsWith("inst/uuid/sync/"), false);
   assert.equal(
     snapshotDir("inst", "uuid", "backup", "2026-06-23T00:00:00.000Z"),
     "inst/uuid/backups/2026-06-23T00-00-00-000Z",

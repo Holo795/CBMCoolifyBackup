@@ -41,6 +41,7 @@ export const en = {
     corrupt: "corrupt",
     skipped: "skipped",
     cancelled: "cancelled",
+    deleting: "deleting",
   },
 
   // Detail page.
@@ -123,6 +124,7 @@ export const fr: typeof en = {
     corrupt: "corrompu",
     skipped: "ignoré",
     cancelled: "annulé",
+    deleting: "suppression",
   },
 
   repin: "Réépingler le code",

@@ -809,6 +809,9 @@ export async function enqueuePrune(opts: {
   /** Target a specific agent (the producer) - required for a "local" destination
    * whose files live on that agent's host. */
   agentId?: string | null;
+  /** Snapshots whose rows are removed once this prune succeeds (see
+   * lib/snapshot-removal). Extra payload field, ignored by the agent. */
+  snapshotIds?: string[];
 }): Promise<{ jobId: string; agentId: string } | null> {
   const isRestic = opts.destination.engine === "restic";
   const dirs = opts.dirs.filter(Boolean);
@@ -818,13 +821,14 @@ export async function enqueuePrune(opts: {
   if (!agent) return null;
 
   const jobId = newJobId();
-  const job: PruneJob = {
+  const job: PruneJob & { snapshotIds?: string[] } = {
     id: jobId,
     type: "prune",
     destination: resolveDestination(opts.destination),
     storage: resolveStorage(opts.destination),
     dirs,
     resticSnapshotIds,
+    snapshotIds: opts.snapshotIds,
   };
   await createAgentJob({ id: jobId, agentId: agent.id, type: "prune", payload: job });
   return { jobId, agentId: agent.id };

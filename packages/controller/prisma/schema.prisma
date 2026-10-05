@@ -283,7 +283,12 @@ model Snapshot {
   // A mirror copy points at the source snapshot it was copied from, so retention
   // can prune both together. Null for an original (non-mirror) snapshot.
   mirrorOfId    String?
-  mirrorOf      Snapshot?    @relation("SnapshotMirror", fields: [mirrorOfId], references: [id], onDelete: Cascade)
+  // Set when the snapshot is being deleted (status "deleting"): the row goes
+  // only once an agent has deleted its files; a failed or stuck deletion retries.
+  deleteRequestedAt DateTime?
+  // SetNull, not Cascade: a mirror copy's row is removed only once ITS files are
+  // deleted (see lib/snapshot-removal); a cascade dropped it even when that failed.
+  mirrorOf      Snapshot?    @relation("SnapshotMirror", fields: [mirrorOfId], references: [id], onDelete: SetNull)
   mirrors       Snapshot[]   @relation("SnapshotMirror")
 
   @@index([runId])

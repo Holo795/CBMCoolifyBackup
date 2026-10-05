@@ -4,7 +4,7 @@ import { CbmClient, CbmError } from "./client.js";
 
 // Mirror the controller's /api/v1 validation so agents pick valid values up
 // front instead of getting a 400 back.
-const SNAPSHOT_STATUS = z.enum(["queued", "pending", "running", "succeeded", "failed", "missing", "corrupt", "skipped", "cancelled"]);
+const SNAPSHOT_STATUS = z.enum(["queued", "pending", "running", "succeeded", "failed", "missing", "corrupt", "skipped", "cancelled", "deleting"]);
 const JOB_TYPE = z.enum(["backup", "restore", "prune", "mirror", "verify-destination", "restore-drill"]);
 const JOB_STATUS = z.enum(["queued", "running", "succeeded", "failed", "skipped", "cancelled"]);
 

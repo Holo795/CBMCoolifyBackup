@@ -68,7 +68,7 @@ Each schedule has a destination, a mode, and **grandfather-father-son retention*
 delegated to `restic forget --prune`. See
 [Reconciliation & retention](reconciliation-retention.md).
 
-**Modes:** `backup` keeps versioned snapshots; `sync` keeps a single overwritten copy.
+**Modes:** `backup` keeps versioned snapshots; `sync` keeps a single copy — each run writes a new one and the previous copy is deleted only once the new one is verified.
 
 A resource must have **"Include in scheduled backups"** enabled to be picked up — and a schedule
 must exist (enabling the toggle alone doesn't back anything up).

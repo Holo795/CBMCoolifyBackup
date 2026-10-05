@@ -13,11 +13,15 @@ export function snapshotDir(
   mode: "backup" | "sync",
   isoTimestamp: string,
 ): string {
-  if (mode === "sync") {
-    // Single overwritten copy — no timestamp.
-    return `${instanceKey}/${resourceUuid}/sync`;
-  }
   const safe = isoTimestamp.replace(/[:.]/g, "-");
+  if (mode === "sync") {
+    // Sync keeps ONE copy, but each run writes a folder of its own and the
+    // previous copy is deleted only once the new one is stored and verified
+    // (overwriting in place left nothing when an upload failed). Deliberately
+    // NOT under the pre-2.1 "<uuid>/sync" folder, so deleting a legacy copy can
+    // never touch a new one.
+    return `${instanceKey}/${resourceUuid}/sync-copies/${safe}`;
+  }
   return `${instanceKey}/${resourceUuid}/backups/${safe}`;
 }
 

@@ -31,13 +31,20 @@ export function ConfirmDeleteButton({
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const ok = text.trim() === confirmWord;
 
   const onConfirm = () => {
     if (!ok) return;
+    setError(null);
     start(async () => {
-      await action();
+      const r = await action();
+      // An action may refuse (e.g. a destination still used by schedules).
+      if (r && typeof r === "object" && "error" in r && (r as { error?: string }).error) {
+        setError(String((r as { error?: string }).error));
+        return;
+      }
       setOpen(false);
       if (redirectTo) router.push(redirectTo);
       else router.refresh();
@@ -59,10 +66,12 @@ export function ConfirmDeleteButton({
       size={size}
       onOpenClick={() => {
         setText("");
+        setError(null);
         setOpen(true);
       }}
       onClose={() => setOpen(false)}
       onConfirm={onConfirm}
+      error={error}
     />
   );
 }
