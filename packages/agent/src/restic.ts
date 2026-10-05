@@ -209,6 +209,23 @@ export async function resticForget(ctx: ResticCtx, snapshotIds: string[]): Promi
   if (r.code !== 0) throw new Error(`restic forget failed: ${r.stderr.slice(0, 500)}`);
 }
 
+/**
+ * Integrity check of the whole repository (`restic check`): verifies the index,
+ * that every referenced pack exists, and the tree structure. When
+ * `readDataSubset` is given (e.g. "5%" or "100%"), restic also re-reads and
+ * re-hashes that share of the pack data to catch silent on-disk corruption.
+ * Returns { ok, detail } rather than throwing, so the caller can report it.
+ */
+export async function resticCheck(ctx: ResticCtx, readDataSubset?: string): Promise<{ ok: boolean; detail: string }> {
+  const args = ["check", "--no-lock"];
+  if (readDataSubset) args.push(`--read-data-subset=${readDataSubset}`);
+  const r = await restic(ctx, args);
+  const out = `${r.stdout}\n${r.stderr}`.trim();
+  // `restic check` exits non-zero on any error; the last lines carry the reason.
+  const detail = out.split("\n").slice(-6).join("\n").slice(0, 800);
+  return { ok: r.code === 0, detail: r.code === 0 ? "no errors" : detail || "restic check failed" };
+}
+
 /** List all snapshot ids currently in the repo (full + short ids). */
 export async function resticListSnapshotIds(ctx: ResticCtx): Promise<Set<string>> {
   const r = await restic(ctx, ["snapshots", "--no-lock", "--json"]);

@@ -270,6 +270,17 @@ export const VerifyDestinationJob = z.object({
   /** For the restic engine: the restic snapshot ids to confirm still exist. The
    * agent reports the present/missing sets using these ids as the keys. */
   resticSnapshotIds: z.array(z.string()).optional(),
+  /** Deep integrity check (not just presence): tar re-downloads each artifact and
+   * compares its sha256 to the manifest; restic runs `restic check`. Expensive,
+   * so it's opt-in per destination and scheduled less often than reconciliation. */
+  deep: z.boolean().default(false),
+  /** restic deep check: percentage of pack data to actually re-read and hash,
+   * e.g. "5%" (sampling) or "100%". Omitted = structure/metadata check only. */
+  readDataSubset: z.string().optional(),
+  /** tar deep check: base64 AES-256-GCM key to decrypt encrypted artifacts. The
+   * GCM auth tag itself proves integrity; for plaintext artifacts the sha256 is
+   * compared to the manifest instead. */
+  decryptionKey: z.string().optional(),
 });
 export type VerifyDestinationJob = z.infer<typeof VerifyDestinationJob>;
 
@@ -330,11 +341,18 @@ export const JobResult = z.object({
   error: z.string().optional(),
   /** restic snapshot id created by a restic-engine backup (for forget/verify). */
   resticSnapshotId: z.string().optional(),
-  /** For a verify-destination job: which snapshot dirs are still present vs gone. */
+  /** For a verify-destination job: which snapshot dirs are still present vs gone,
+   * plus (deep check) which are corrupt and any repo-level integrity error. */
   verify: z
     .object({
       present: z.array(z.string()).default([]),
       missing: z.array(z.string()).default([]),
+      /** Deep check: snapshots whose stored content no longer matches its sha256
+       * (tar engine, per-snapshot). */
+      corrupt: z.array(z.string()).default([]),
+      /** Deep check: a repo-level integrity failure (restic `check`), which isn't
+       * attributable to a single snapshot. */
+      integrityError: z.string().optional(),
     })
     .optional(),
 });
