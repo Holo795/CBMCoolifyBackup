@@ -102,6 +102,9 @@ needs to actually come back to life isn't covered. CBM backs up the whole resour
   UI hiding what a role can't use.
 - **Email (SMTP).** Optional self‑service **password reset** and **account verification**;
   configured from Settings (or env), with a built‑in test that verifies the connection.
+- **MCP server.** An [MCP](https://modelcontextprotocol.io) server lets any AI agent (Claude
+  Desktop, Claude Code, Cursor, Cline…) inspect your fleet and trigger backups over a
+  token‑authenticated API, with the same role model as the UI. See [docs/mcp.md](docs/mcp.md).
 
 ---
 
@@ -205,6 +208,7 @@ Detailed docs live in **[`/docs`](docs/)**:
 - [Backups](docs/backups.md) — how each resource type is captured, hooks, live mode
 - [Restore](docs/restore.md) — in place vs → new
 - [Disaster recovery](docs/disaster-recovery.md) — self‑backup, recovery file, restore onto a fresh Coolify
+- [MCP server](docs/mcp.md) — drive CBM from any AI agent (Claude Desktop, Cursor, Cline…)
 - [Multi‑server](docs/multi-server.md), [Alerts](docs/alerts.md),
   [Reconciliation & retention](docs/reconciliation-retention.md)
 - [Security](docs/security.md) · [Troubleshooting / FAQ](docs/troubleshooting.md)

@@ -34,6 +34,8 @@ jobs:
             dockerfile: Dockerfile.agent
           - name: cbm-controller
             dockerfile: Dockerfile.controller
+          - name: cbm-mcp
+            dockerfile: Dockerfile.mcp
     steps:
       - name: Resolve build ref
         id: ref
@@ -123,10 +125,12 @@ jobs:
           ```sh
           docker pull ghcr.io/__OWNER__/cbm-controller:__VERSION__
           docker pull ghcr.io/__OWNER__/cbm-agent:__VERSION__
+          docker pull ghcr.io/__OWNER__/cbm-mcp:__VERSION__
           ```
 
           - 📦 [cbm-controller](https://github.com/__REPO__/pkgs/container/cbm-controller)
           - 📦 [cbm-agent](https://github.com/__REPO__/pkgs/container/cbm-agent)
+          - 📦 [cbm-mcp](https://github.com/__REPO__/pkgs/container/cbm-mcp)
           EOF
           sed -i "s|__VERSION__|$VERSION|g; s|__MM__|${VERSION%.*}|g; s|__OWNER__|$OWNER|g; s|__REPO__|$GITHUB_REPOSITORY|g" /tmp/images.md
           { printf '%s\n' "$BODY"; cat /tmp/images.md; } > /tmp/body.md
