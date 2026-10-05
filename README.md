@@ -89,6 +89,11 @@ needs to actually come back to life isn't covered. CBM backs up the whole resour
   with a schedule per server.
 - **Alerts** via a generic webhook (Discord / Slack / custom) on **failed**, **missing**
   (deleted at the destination), and **overdue** (never ran) backups.
+- **Automatic test restores.** A restore drill proves a backup actually restores: an agent
+  loads each database dump into a network‑less sandbox container of the same engine and checks
+  every table came back, reads volume archives back end to end, then deletes everything —
+  Coolify and your resources are never touched. On demand, via the API/MCP, or weekly; a failure
+  alerts you. See [docs/restore.md](docs/restore.md#test-restores-restore-drills).
 - **Reconciliation, integrity & mirroring.** A daily check confirms every backup is still
   **present**; an opt‑in weekly **integrity** check re‑reads the stored data to catch **silent
   corruption** (`restic check` / tar re‑checksum); and a destination can **mirror** every backup
@@ -219,9 +224,10 @@ Detailed docs live in **[`/docs`](docs/)**:
 
 Being upfront so you don't lose data by surprise.
 
-- **No automatic restore verification** — destinations are reconciled (presence) and an opt‑in
-  **integrity check** re‑reads the stored data to catch silent corruption, but backups are not
-  (yet) automatically *test‑restored*. Still do a periodic real restore.
+- **Test restores prove the data, not the redeploy** — a restore drill restores each snapshot
+  into an agent‑side sandbox (databases loaded into a real engine, archives read back), but it
+  doesn't redeploy the application in Coolify. An occasional real **→ new** restore remains the
+  ultimate check.
 - **Volume copies are crash‑consistent** (the app recovers), not application‑consistent; an
   in‑service database restored from its *volume* is version‑locked to the same engine version
   — use the logical dump captured alongside it for a portable restore.

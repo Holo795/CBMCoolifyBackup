@@ -5,6 +5,7 @@ import { runRestore } from "./restore.js";
 import { runPrune } from "./prune.js";
 import { runVerifyDestination } from "./verify.js";
 import { runMirror } from "./mirror.js";
+import { runRestoreDrill } from "./drill.js";
 import { logger } from "./logger.js";
 import { sendEvent } from "./client.js";
 
@@ -39,6 +40,10 @@ export async function executeJob(
     } else if (job.type === "mirror") {
       const { resticSnapshotId, manifest } = await runMirror(job, workDir, emit);
       return { jobId: job.id, status: "succeeded", resticSnapshotId, manifest };
+    } else if (job.type === "restore-drill") {
+      // The job itself succeeds when the drill ran; the verdict is in `drill`.
+      const drill = await runRestoreDrill(job, workDir, emit);
+      return { jobId: job.id, status: "succeeded", drill };
     } else {
       await runPrune(job, emit);
       return { jobId: job.id, status: "succeeded" };

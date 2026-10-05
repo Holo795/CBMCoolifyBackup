@@ -11,8 +11,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const snap = await prisma.snapshot.findUnique({ where: { id }, select: { status: true } });
   if (!snap) return NextResponse.json({ error: "not found" }, { status: 404 });
 
+  // The backup job's log (a snapshot can also have restore-drill jobs).
   const job = await prisma.agentJob.findFirst({
-    where: { snapshotId: id },
+    where: { snapshotId: id, type: "backup" },
+    orderBy: { createdAt: "asc" },
     include: { events: { orderBy: { ts: "asc" } } },
   });
 

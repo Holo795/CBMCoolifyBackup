@@ -112,6 +112,14 @@ export const en = {
   importedDefault: "Imported.",
   importedSignedOut: " You are signed out now - sign back in with your OLD credentials.",
 
+  // Restore drills
+  drillsTitle: "Restore drills",
+  drillsDesc:
+    "Prove your backups actually restore. A drill restores a snapshot into a throwaway sandbox on an agent - databases are loaded into a network-less container of the same engine, volumes are read back - then everything is deleted. Coolify and your resources are never touched.",
+  drillsToggle: "Run a drill every week",
+  drillsToggleHint:
+    "Saturday 05:00: each backup-enabled resource's latest snapshot is test-restored once. Drills use CPU and disk on the agent hosts. A failure sends an alert.",
+
   // API tokens (MCP)
   apiTokensTitle: "API tokens (MCP)",
   apiTokensDesc:
@@ -236,6 +244,14 @@ export const fr: typeof en = {
   importFailed: "Échec de l'import ({status})",
   importedDefault: "Importé.",
   importedSignedOut: " Vous êtes maintenant déconnecté - reconnectez-vous avec vos ANCIENS identifiants.",
+
+  // Tests de restauration
+  drillsTitle: "Tests de restauration",
+  drillsDesc:
+    "Prouvez que vos sauvegardes se restaurent vraiment. Un test restaure un snapshot dans un bac à sable jetable sur un agent - les bases sont chargées dans un conteneur sans réseau du même moteur, les volumes sont relus - puis tout est supprimé. Coolify et vos ressources ne sont jamais touchés.",
+  drillsToggle: "Lancer un test chaque semaine",
+  drillsToggleHint:
+    "Samedi 05:00 : le dernier snapshot de chaque ressource sauvegardée est testé une fois. Les tests consomment du CPU et du disque sur les hôtes des agents. Un échec envoie une alerte.",
 
   // Jetons API (MCP)
   apiTokensTitle: "Jetons API (MCP)",

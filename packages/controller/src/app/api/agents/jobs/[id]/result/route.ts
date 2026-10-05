@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
 import { JobResult } from "@cbm/shared";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@/generated/prisma/client";
 import { authenticateAgentFromRequest } from "@/lib/agent-auth";
-import { notifyBackupFailed, notifyMissingBackups, notifyCorruptBackups, notifyIntegrityFailure } from "@/lib/notify";
+import {
+  notifyBackupFailed,
+  notifyMissingBackups,
+  notifyCorruptBackups,
+  notifyIntegrityFailure,
+  notifyDrillFailed,
+} from "@/lib/notify";
 import { enqueueMirror } from "@/lib/jobs";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -134,6 +141,32 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         finishedAt: new Date(),
       },
     });
+  }
+
+  if (job.type === "restore-drill") {
+    // passed/failed = the drill ran and every check passed (or one didn't);
+    // error = the drill itself couldn't run (staging, agent crash).
+    const drill = result.drill;
+    const status = !succeeded || !drill ? "error" : drill.ok ? "passed" : "failed";
+    const updated = await prisma.restoreDrill
+      .update({
+        where: { agentJobId: id },
+        data: {
+          status,
+          checks: drill ? (drill.checks as unknown as Prisma.InputJsonValue) : undefined,
+          durationMs: drill?.durationMs != null ? Math.round(drill.durationMs) : undefined,
+          error: status === "error" ? (result.error ?? "the drill did not complete") : null,
+          finishedAt: new Date(),
+        },
+        select: { snapshotId: true },
+      })
+      .catch(() => null);
+    if (updated && status !== "passed") {
+      const failed = drill?.checks.filter((c) => !c.ok).map((c) => `${c.artifact}: ${c.detail}`) ?? [];
+      await notifyDrillFailed(updated.snapshotId, failed.join("\n") || result.error || "the drill did not complete").catch(
+        () => undefined,
+      );
+    }
   }
 
   if (job.type === "verify-destination" && result.verify) {

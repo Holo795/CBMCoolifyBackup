@@ -81,6 +81,16 @@ test("a network failure throws CbmError with status 0", async () => {
   );
 });
 
+test("POST test-restore targets the snapshot drill endpoint", async () => {
+  const client = new CbmClient("https://cbm.example.com", "t");
+  await withFetch(Response.json({ queued: true }, { status: 202 }), async (cap) => {
+    await client.drillSnapshot("s/1");
+    const { url, init } = cap();
+    assert.equal(url, "https://cbm.example.com/api/v1/snapshots/s%2F1/drill");
+    assert.equal(init?.method, "POST");
+  });
+});
+
 test("POST verify passes the deep flag", async () => {
   const client = new CbmClient("https://cbm.example.com", "t");
   await withFetch(Response.json({ queued: 1 }), async (cap) => {

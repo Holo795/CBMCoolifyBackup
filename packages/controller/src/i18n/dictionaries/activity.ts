@@ -13,6 +13,7 @@ export const en = {
     mirror: "Mirror",
     "verify-destination": "Check",
     prune: "Prune",
+    "restore-drill": "Test restore",
   },
   status: {
     queued: "queued",
@@ -38,6 +39,7 @@ export const fr: typeof en = {
     mirror: "Miroir",
     "verify-destination": "Vérification",
     prune: "Purge",
+    "restore-drill": "Test de restauration",
   },
   status: {
     queued: "en file",

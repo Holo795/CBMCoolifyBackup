@@ -6,6 +6,7 @@ import { SmtpConfigForm, EmailVerificationToggle, type SmtpCurrent } from "@/com
 import { SelfBackupForm } from "@/components/self-backup-form";
 import { RecoveryFilePanel } from "@/components/recovery-file-panel";
 import { ApiTokens } from "@/components/api-tokens";
+import { DrillsToggle } from "@/components/drills-toggle";
 import { type ApiTokenRow } from "@/components/api-tokens/view";
 import { CheckCircle2, Circle } from "lucide-react";
 import { getT, type T } from "@/lib/i18n";
@@ -20,6 +21,7 @@ export async function SettingsView({
   drDestinations,
   selfBackup,
   recoveryFile,
+  drillsEnabled,
   apiTokens,
 }: {
   tz: string;
@@ -30,6 +32,7 @@ export async function SettingsView({
   drDestinations: { id: string; name: string; type: string }[];
   selfBackup: { enabled: boolean; destinationId: string; lastRunAt: string | null; lastStatus: string | null };
   recoveryFile: { generation: number; at: string | null; stale: boolean; staleReason: string | null; hasSelfBackup: boolean };
+  drillsEnabled: boolean;
   apiTokens: ApiTokenRow[];
 }) {
   const t = await getT();
@@ -87,6 +90,16 @@ export async function SettingsView({
             <div className="border-t pt-6">
               <RecoveryFilePanel current={recoveryFile} />
             </div>
+          </CardContent>
+        </Card>
+
+        <Card id="restore-drills" className="scroll-mt-20">
+          <CardHeader>
+            <CardTitle>{t("settings.drillsTitle")}</CardTitle>
+            <p className="text-sm text-muted-foreground">{t("settings.drillsDesc")}</p>
+          </CardHeader>
+          <CardContent>
+            <DrillsToggle enabled={drillsEnabled} />
           </CardContent>
         </Card>
 

@@ -116,6 +116,8 @@ Triggers (operator+):
 - `cbm_backup_resource` — back up a resource now
 - `cbm_mirror_snapshot` — copy a snapshot to its destination's mirror
 - `cbm_verify_destination` — check snapshots are present (and, with `deep`, intact)
+- `cbm_test_restore` — restore a snapshot into an agent-side sandbox to prove it restores
+  (never touches Coolify); read the outcome back as `lastDrill` from `cbm_get_snapshot`
 
 Restore, self-backup and recovery-file operations are intentionally **not**
 exposed — those stay in the controller UI so an agent can never overwrite a

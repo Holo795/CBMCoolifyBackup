@@ -118,3 +118,16 @@ export async function notifyBackupFailed(snapshotId: string): Promise<void> {
     `❌ Backup failed - **${snap.resource.name}** (${snap.resource.instance.name})\n${snap.error ?? "unknown error"}${link}`,
   );
 }
+
+/** Notify that a restore drill could not prove a snapshot restorable (best-effort). */
+export async function notifyDrillFailed(snapshotId: string, detail: string): Promise<void> {
+  const snap = await prisma.snapshot
+    .findUnique({ where: { id: snapshotId }, include: { resource: { include: { instance: true } } } })
+    .catch(() => null);
+  if (!snap) return;
+  const base = (env.authUrl || "").replace(/\/$/, "");
+  const link = base ? `\n${base}/snapshots/${snap.id}` : "";
+  await sendAlert(
+    `🧯 Restore drill FAILED - **${snap.resource.name}** (${snap.resource.instance.name}): this backup could not be restored in a sandbox.\n${detail.slice(0, 500)}${link}`,
+  );
+}

@@ -1,7 +1,7 @@
-import type { Prisma, RestoreJob } from "@/generated/prisma/client";
+import type { Prisma, RestoreJob, RestoreDrill } from "@/generated/prisma/client";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle, Badge, statusTone } from "@/components/ui";
-import { repinDeployment, deleteSnapshot } from "@/app/actions";
+import { repinDeployment, deleteSnapshot, drillSnapshotNow } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { RestoreActions } from "@/components/restore-actions";
@@ -9,7 +9,10 @@ import { Gate } from "@/components/role-gate";
 import { LiveLog } from "@/components/live-log";
 import { getT } from "@/lib/i18n";
 import { formatBytes, formatDateTime } from "@/lib/cn";
-import { GitCommitHorizontal } from "lucide-react";
+import { GitCommitHorizontal, ShieldCheck, Check, X } from "lucide-react";
+import { drillTone } from "@/lib/status";
+
+type DrillCheckRow = { artifact: string; kind: string; engine?: string; ok: boolean; detail: string };
 
 type SnapshotDetail = Prisma.SnapshotGetPayload<{
   include: { resource: true; destination: true; artifacts: true };
@@ -19,12 +22,14 @@ type SnapshotDetail = Prisma.SnapshotGetPayload<{
 export async function SnapshotDetailView({
   snapshot,
   restores,
+  drills,
   tz,
   agentDown,
   instances,
 }: {
   snapshot: SnapshotDetail;
   restores: RestoreJob[];
+  drills: RestoreDrill[];
   tz: string;
   agentDown: boolean;
   /** Connected instances, offered as "Restore onto" targets (migration). */
@@ -124,6 +129,58 @@ export async function SnapshotDetailView({
           <LiveLog id={snapshot.id} initialStatus={snapshot.status} timeZone={tz} />
         </CardContent>
       </Card>
+
+      {snapshot.status === "succeeded" && (
+        <Card className="mt-6">
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <CardTitle>{t("snapshots.drillsTitle")}</CardTitle>
+              <Gate min="operator">
+                <ActionButton action={drillSnapshotNow.bind(null, snapshot.id)} variant="outline" size="sm">
+                  <ShieldCheck className="h-3.5 w-3.5" /> {t("snapshots.drillNow")}
+                </ActionButton>
+              </Gate>
+            </div>
+            <p className="text-sm text-muted-foreground">{t("snapshots.drillsDesc")}</p>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-5">
+            {drills.length === 0 && <p className="text-sm text-muted-foreground">{t("snapshots.drillsNone")}</p>}
+            {drills.map((d) => {
+              const checks = (Array.isArray(d.checks) ? d.checks : []) as unknown as DrillCheckRow[];
+              return (
+                <div key={d.id} className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <Badge tone={drillTone(d.status)}>{t(`snapshots.drillStatus.${d.status}`)}</Badge>
+                    <span className="text-muted-foreground">
+                      {t(`snapshots.drillTrigger.${d.trigger}`)} · {formatDateTime(d.createdAt, tz)}
+                      {d.durationMs != null && ` · ${Math.max(1, Math.round(d.durationMs / 1000))}s`}
+                    </span>
+                    {d.error && <span className="text-xs text-[var(--color-danger)]">{d.error}</span>}
+                  </div>
+                  {checks.length > 0 && (
+                    <ul className="flex flex-col gap-1 rounded-md border p-3 text-xs">
+                      {checks.map((c, i) => (
+                        <li key={i} className="flex min-w-0 items-start gap-2">
+                          {c.ok ? (
+                            <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-success)]" />
+                          ) : (
+                            <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-danger)]" />
+                          )}
+                          <span className="min-w-0">
+                            <span className="font-mono">{c.artifact}</span>
+                            <span className="text-muted-foreground"> - {c.detail}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {d.status === "running" && <LiveLog id={d.id} kind="drill" initialStatus={d.status} timeZone={tz} />}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       {restores.length > 0 && (
         <Card className="mt-6">

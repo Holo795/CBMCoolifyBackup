@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "./prisma";
 import { cronMatches } from "./cron";
-import { enqueueBackup, enqueueVerifyDestination } from "./jobs";
+import { enqueueBackup, enqueueVerifyDestination, enqueueDrill } from "./jobs";
 import { applyRetention } from "./retention";
 import { reaper } from "./reaper";
 import { checkOverdue } from "./overdue";
@@ -49,6 +49,29 @@ async function integrityCheckAllDestinations(): Promise<void> {
     await enqueueVerifyDestination(d.id, { deep: true })
       .then((res) => recordVerifyOutcome(d.id, res))
       .catch((e) => console.error(`[scheduler] integrity check ${d.name} failed:`, (e as Error).message));
+  }
+}
+
+/**
+ * Weekly restore drills (opt-in in Settings): restore each backup-enabled
+ * resource's latest successful snapshot into an agent-side sandbox. A snapshot
+ * with a definitive result (passed/failed) or a drill in flight is skipped - its
+ * outcome won't change - while one whose drill errored is retried.
+ */
+async function drillAllResources(): Promise<void> {
+  const setting = await prisma.setting.findUnique({ where: { id: "global" }, select: { drillsEnabled: true } });
+  if (!setting?.drillsEnabled) return;
+  const resources = await prisma.resource.findMany({ where: { backupEnabled: true }, select: { id: true, name: true } });
+  for (const r of resources) {
+    const latest = await prisma.snapshot.findFirst({
+      where: { resourceId: r.id, status: "succeeded", mirrorOfId: null },
+      orderBy: { startedAt: "desc" },
+      select: { id: true, drills: { where: { status: { in: ["passed", "failed", "running"] } }, select: { id: true }, take: 1 } },
+    });
+    if (!latest || latest.drills.length > 0) continue;
+    await enqueueDrill(latest.id, "scheduled").catch((e) =>
+      console.error(`[scheduler] restore drill for ${r.name} not queued:`, (e as Error).message),
+    );
   }
 }
 
@@ -241,6 +264,13 @@ export function startScheduler(): void {
         if (n.getDay() === 0 && n.getHours() === 4 && n.getMinutes() === 0) await integrityCheckAllDestinations();
       } catch (e) {
         console.error("[scheduler] integrity check error", e);
+      }
+      try {
+        // Weekly restore drills (Saturday 05:00), when enabled in Settings.
+        const n = new Date();
+        if (n.getDay() === 6 && n.getHours() === 5 && n.getMinutes() === 0) await drillAllResources();
+      } catch (e) {
+        console.error("[scheduler] restore drill error", e);
       }
       try {
         // Detect scheduled backups that never ran (hourly).

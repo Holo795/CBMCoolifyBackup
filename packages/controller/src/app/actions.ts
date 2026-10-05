@@ -12,7 +12,7 @@ import { isRole, inviteExpiry } from "@/lib/invitations";
 import { encryptSecret, decryptSecret, generateAesKeyB64, randomToken, sha256Hex } from "@/lib/crypto";
 import { CoolifyClient } from "@/lib/coolify";
 import { syncInstance } from "@/lib/discovery";
-import { enqueueBackup, enqueueRestore, enqueuePrune, enqueueVerifyDestination, resolveDestination, groupSnapshotsForPrune } from "@/lib/jobs";
+import { enqueueBackup, enqueueRestore, enqueuePrune, enqueueVerifyDestination, enqueueDrill, resolveDestination, groupSnapshotsForPrune } from "@/lib/jobs";
 import { freqToCron } from "@/lib/schedule";
 import { setTimezone, isValidTimezone } from "@/lib/settings";
 
@@ -594,7 +594,7 @@ export async function cancelSnapshot(snapshotId: string): Promise<void> {
   // write: updateMany is atomic on the status filter, so a job already in flight
   // is left untouched and we only fail the snapshot when we actually cancelled.
   const cancelled = await prisma.agentJob.updateMany({
-    where: { snapshotId, status: "queued" },
+    where: { snapshotId, type: "backup", status: "queued" },
     data: { status: "failed", error: "cancelled", finishedAt: new Date() },
   });
   if (cancelled.count > 0) {
@@ -1041,4 +1041,38 @@ export async function revokeApiToken(id: string): Promise<void> {
   await requireRole("admin");
   await prisma.apiToken.delete({ where: { id } }).catch(() => {});
   revalidatePath("/settings");
+}
+
+/* ----------------------------- restore drills ----------------------------- */
+
+/**
+ * Test-restore a snapshot now: an agent restores it into a throwaway sandbox
+ * (never Coolify, never the original resource) and reports what it verified.
+ */
+export async function drillSnapshotNow(snapshotId: string): Promise<{ ok?: boolean; error?: string; detail?: string }> {
+  await requireRole("operator");
+  try {
+    await enqueueDrill(snapshotId, "manual");
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+  revalidatePath(`/snapshots/${snapshotId}`);
+  revalidatePath("/snapshots");
+  return { ok: true, detail: "Test restore queued" };
+}
+
+/** Turn the weekly automatic restore drills on or off. */
+export async function setDrillsEnabled(enabled: boolean): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    await requireRole("admin");
+    await prisma.setting.upsert({
+      where: { id: "global" },
+      update: { drillsEnabled: enabled },
+      create: { id: "global", drillsEnabled: enabled },
+    });
+    revalidatePath("/settings");
+    return { ok: true };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
 }

@@ -73,6 +73,16 @@ export const en = {
   cloneTitle: "Clone to a new Coolify resource and restore into it",
   noAgentTitle: "No live agent for this instance - restore needs one",
   restoreInPlaceConfirm: "Restore this snapshot in place? This overwrites current data.",
+
+  // Restore drills
+  drillsTitle: "Test restores",
+  drillsDesc:
+    "Restore this snapshot into a throwaway sandbox on an agent - never Coolify, never the original - to prove it actually restores.",
+  drillNow: "Test restore",
+  drillsNone: "Not test-restored yet.",
+  drillStatus: { running: "running", passed: "restore verified", failed: "restore failed", error: "did not run" },
+  drillTrigger: { manual: "manual", scheduled: "weekly drill", api: "via API" },
+  drillBadge: { passed: "Restore verified", failed: "Test restore failed", error: "Test restore did not run" },
 };
 
 export const fr: typeof en = {
@@ -143,4 +153,18 @@ export const fr: typeof en = {
   cloneTitle: "Cloner vers une nouvelle ressource Coolify et y restaurer",
   noAgentTitle: "Aucun agent actif pour cette instance - la restauration en nécessite un",
   restoreInPlaceConfirm: "Restaurer ce snapshot sur place ? Cela écrase les données actuelles.",
+
+  // Tests de restauration
+  drillsTitle: "Tests de restauration",
+  drillsDesc:
+    "Restaure ce snapshot dans un bac à sable jetable sur un agent - jamais dans Coolify, jamais sur l'original - pour prouver qu'il se restaure vraiment.",
+  drillNow: "Tester la restauration",
+  drillsNone: "Pas encore testé.",
+  drillStatus: { running: "en cours", passed: "restauration vérifiée", failed: "restauration en échec", error: "non exécuté" },
+  drillTrigger: { manual: "manuel", scheduled: "test hebdomadaire", api: "via l'API" },
+  drillBadge: {
+    passed: "Restauration vérifiée",
+    failed: "Test de restauration en échec",
+    error: "Test de restauration non exécuté",
+  },
 };

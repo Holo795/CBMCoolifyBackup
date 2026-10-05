@@ -98,6 +98,7 @@ export default async function SettingsPage() {
       drDestinations={drDestinations}
       selfBackup={selfBackup}
       recoveryFile={recoveryFile}
+      drillsEnabled={setting?.drillsEnabled ?? false}
       apiTokens={apiTokens}
     />
   );

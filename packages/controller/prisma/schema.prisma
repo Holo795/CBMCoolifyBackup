@@ -275,6 +275,7 @@ model Snapshot {
   finishedAt    DateTime?
   artifacts     Artifact[]
   restoreJobs   RestoreJob[]
+  drills        RestoreDrill[]
   // A mirror copy points at the source snapshot it was copied from, so retention
   // can prune both together. Null for an original (non-mirror) snapshot.
   mirrorOfId    String?
@@ -383,5 +384,29 @@ model Setting {
   recoveryFileAt          DateTime?
   recoveryFileDestId      String?
   recoveryFileKeyFp       String?
+  // Automatic restore drills: weekly, each backup-enabled resource's latest
+  // snapshot is restored into an agent-side sandbox to prove it's restorable.
+  // Opt-in (drills use CPU/disk on the agent hosts).
+  drillsEnabled           Boolean   @default(false)
   updatedAt DateTime @updatedAt
+}
+
+// A restore drill: one snapshot restored into a throwaway agent-side sandbox
+// (never Coolify) to prove it's actually restorable. Kept as history.
+model RestoreDrill {
+  id          String    @id @default(cuid())
+  snapshotId  String
+  snapshot    Snapshot  @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  agentJobId  String?   @unique
+  // running | passed | failed (a check failed) | error (the drill itself didn't run)
+  status      String    @default("running")
+  trigger     String    @default("manual") // manual | scheduled | api
+  // Per-artifact outcome: [{ artifact, kind, engine?, ok, detail }]
+  checks      Json?
+  durationMs  Int?
+  error       String?
+  createdAt   DateTime  @default(now())
+  finishedAt  DateTime?
+
+  @@index([snapshotId, createdAt])
 }

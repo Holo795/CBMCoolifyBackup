@@ -22,6 +22,7 @@ import {
   verifyTarOpens,
   containerExists,
   execShell,
+  inspectContainer,
 } from "./docker.js";
 import { captureProvenance } from "./provenance.js";
 import { encryptFile, sha256File } from "./crypto.js";
@@ -30,6 +31,13 @@ import { resticEnsureRepo, resticBackupDir, withResticCtx } from "./restic.js";
 import { resolveResource, findDbContainers, readDbCredentials, resourceContainers } from "./resolve.js";
 
 export type Emit = (level: "debug" | "info" | "warn" | "error", message: string, progress?: number) => void;
+
+/** The image a container runs, recorded on dump artifacts so a restore drill can
+ * load the dump into the exact same engine version. Best-effort: never fails a backup. */
+async function imageMeta(container: string): Promise<Record<string, string>> {
+  const image = (await inspectContainer(container).catch(() => null))?.Config?.Image;
+  return image ? { image } : {};
+}
 
 /** Returned instead of a manifest when the resource has nothing on the host to
  * back up (no container, volume or data) - a clear "ignored" outcome. */
@@ -141,14 +149,16 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
         const path = join(stage, name);
         emit("info", `Exporting ${engine} (${container}) via RDB - no freeze`, progress);
         await dumpRedis(container, creds?.password, path);
-        return await finalizeArtifact("db-dump", name, path, { engine, container, ...meta }, job, stage, emit);
+        const rdbMeta = { engine, container, ...meta, ...(await imageMeta(container)) };
+        return await finalizeArtifact("db-dump", name, path, rdbMeta, job, stage, emit);
       }
       const creds = await readDbCredentials(container, engine);
       const name = `dump-${engine}-${container}.sql`.replace(/[^a-zA-Z0-9._-]+/g, "_");
       const path = join(stage, name);
       emit("info", `Dumping ${engine} (${container}) - no downtime`, progress);
       await dumpDatabase(engine, container, creds ?? {}, path);
-      return await finalizeArtifact("db-dump", name, path, { engine, container, ...meta }, job, stage, emit);
+      const sqlMeta = { engine, container, ...meta, ...(await imageMeta(container)) };
+      return await finalizeArtifact("db-dump", name, path, sqlMeta, job, stage, emit);
     } catch (e) {
       emit("warn", `Logical export of ${container} (${engine}) failed: ${(e as Error).message}`);
       return null;
@@ -207,7 +217,8 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
       const dumpName = dumpFileName(engine, resource.db?.database);
       const dumpPath = join(stage, dumpName);
       await dumpDatabase(resource.type, primary, resource.db ?? {}, dumpPath);
-      artifacts.push(await finalizeArtifact("db-dump", dumpName, dumpPath, { engine }, job, stage, emit));
+      const dumpMeta = { engine, ...(await imageMeta(primary)) };
+      artifacts.push(await finalizeArtifact("db-dump", dumpName, dumpPath, dumpMeta, job, stage, emit));
       captureMethod = "dump";
     } else {
       emit("warn", `${resource.type} has no running container - nothing to dump`);

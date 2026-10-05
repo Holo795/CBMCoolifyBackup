@@ -214,6 +214,33 @@ export async function verifyTarOpens(inFile: string): Promise<void> {
   await dockerFromFile(["run", "--rm", "-i", "alpine:3.20", "tar", "-tf", "-"], inFile);
 }
 
+/**
+ * Read a whole tarball through a throwaway, network-less container and return
+ * how many entries it lists. Throws (non-zero exit) if any part is unreadable,
+ * so a successful count proves the archive restores end to end.
+ */
+export async function tarEntryCount(inFile: string): Promise<number> {
+  const child = spawn(
+    DOCKER,
+    // pipefail (supported by busybox ash) so a tar read error fails the pipeline.
+    ["run", "--rm", "-i", "--network", "none", "alpine:3.20", "sh", "-c", "set -o pipefail; tar -tf - | wc -l"],
+    { stdio: ["pipe", "pipe", "pipe"] },
+  );
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (d) => (stdout += d.toString()));
+  child.stderr.on("data", (d) => (stderr += d.toString()));
+  const exit = once(child, "close") as Promise<[number]>;
+  await pipeline(createReadStream(inFile), child.stdin).catch(() => undefined);
+  const [code] = await exit;
+  if (code !== 0) {
+    throw new Error(`archive is not fully readable: ${stderr.trim().slice(0, 500) || `exit ${code}`}`);
+  }
+  const n = Number.parseInt(stdout.trim(), 10);
+  if (!Number.isFinite(n)) throw new Error(`could not count archive entries (got "${stdout.trim()}")`);
+  return n;
+}
+
 /** Run a shell command inside a container (used for pre/post-backup hooks). */
 export async function execShell(container: string, command: string): Promise<RunResult> {
   return docker(["exec", container, "sh", "-c", command]);

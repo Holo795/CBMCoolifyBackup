@@ -11,7 +11,7 @@ export function LiveLog({
   timeZone,
 }: {
   id: string;
-  kind?: "snapshot" | "restore";
+  kind?: "snapshot" | "restore" | "drill";
   initialStatus: string;
   /** IANA timezone for rendering event times (falls back to the browser's). */
   timeZone?: string;

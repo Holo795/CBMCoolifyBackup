@@ -19,6 +19,7 @@ const CAP_BY_TYPE: Record<string, number> = {
   backup: 6 * 3600_000,
   restore: 6 * 3600_000,
   mirror: 6 * 3600_000,
+  "restore-drill": 6 * 3600_000,
   "verify-destination": 2 * 3600_000,
   prune: 60 * 60_000,
 };
@@ -94,6 +95,12 @@ export async function reaper(now = new Date(), opts: ReaperOptions = {}): Promis
       await prisma.restoreJob.updateMany({
         where: { id: j.restoreId, status: "running" },
         data: { status: "failed", error: reason, finishedAt: now },
+      });
+    }
+    if (j.type === "restore-drill") {
+      await prisma.restoreDrill.updateMany({
+        where: { agentJobId: j.id, status: "running" },
+        data: { status: "error", error: reason, finishedAt: now },
       });
     }
   }

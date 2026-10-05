@@ -9,11 +9,29 @@ import { RestoreActions } from "@/components/restore-actions";
 import { Gate } from "@/components/role-gate";
 import { getT } from "@/lib/i18n";
 import { formatBytes, timeAgo } from "@/lib/cn";
-import { Archive, RefreshCw, X } from "lucide-react";
+import { drillTone } from "@/lib/status";
+import { Archive, RefreshCw, X, ShieldCheck } from "lucide-react";
 
 type SnapshotRow = Prisma.SnapshotGetPayload<{
-  include: { resource: true; destination: true; _count: { select: { artifacts: true } } };
+  include: {
+    resource: true;
+    destination: true;
+    _count: { select: { artifacts: true } };
+    drills: { select: { status: true } };
+  };
 }>;
+
+/** The latest finished test-restore of a snapshot, as a small badge. */
+function DrillBadge({ s, label }: { s: SnapshotRow; label: (status: string) => string }) {
+  const d = s.drills[0];
+  if (!d || d.status === "running") return null;
+  return (
+    <Badge tone={drillTone(d.status)} title={label(d.status)}>
+      <ShieldCheck className="h-3 w-3" />
+      <span className="sr-only">{label(d.status)}</span>
+    </Badge>
+  );
+}
 
 /** Presentation only: the Snapshots list markup. Data is fetched in ./page.tsx. */
 export async function SnapshotsView({
@@ -89,7 +107,10 @@ export async function SnapshotsView({
                       {s.mode} · {s.captureMode}
                     </td>
                     <td className="px-4 py-2.5">
-                      <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>
+                      <span className="inline-flex items-center gap-1">
+                        <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>
+                        <DrillBadge s={s} label={(st) => t(`snapshots.drillBadge.${st}`)} />
+                      </span>
                     </td>
                     <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{s._count.artifacts}</td>
                     <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{formatBytes(s.sizeBytes)}</td>
@@ -118,7 +139,10 @@ export async function SnapshotsView({
                         </Link>
                         <div className="truncate text-xs text-muted-foreground">{s.destination.name}</div>
                       </div>
-                      <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>
+                      <span className="inline-flex shrink-0 items-center gap-1">
+                        <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>
+                        <DrillBadge s={s} label={(st) => t(`snapshots.drillBadge.${st}`)} />
+                      </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span>{s.mode} · {s.captureMode}</span>

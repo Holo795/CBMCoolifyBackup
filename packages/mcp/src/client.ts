@@ -101,4 +101,7 @@ export class CbmClient {
   verifyDestination(id: string, deep: boolean) {
     return this.post(`/api/v1/destinations/${encodeURIComponent(id)}/verify`, { deep });
   }
+  drillSnapshot(id: string) {
+    return this.post(`/api/v1/snapshots/${encodeURIComponent(id)}/drill`);
+  }
 }

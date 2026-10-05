@@ -21,6 +21,11 @@ const KNOWN = new Set([
   "dead",
 ]);
 
+/** Badge tone for a restore drill: passed / failed / error / running. */
+export function drillTone(status: string): "success" | "danger" | "warning" | "accent" {
+  return status === "passed" ? "success" : status === "failed" ? "danger" : status === "error" ? "warning" : "accent";
+}
+
 /** Localize a Coolify resource status; unknown tokens are kept verbatim. */
 export function resourceStatusLabel(t: T, raw: string | null | undefined): string {
   if (!raw) return raw ?? "";

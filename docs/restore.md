@@ -67,8 +67,29 @@ in-place and → new are supported.
 
 ---
 
-## ⚠️ Always test your restores
+## Test restores (restore drills)
 
-CBM checks that archives open and that backups are still present at the destination, but it does
-**not** yet test-restore them automatically. Periodically do a real **→ new** restore and confirm
-the resource comes up — it's the only proof that matters.
+A backup you've never restored is a hope, not a backup. A **test restore** proves a snapshot is
+actually restorable — without touching Coolify or the original resource:
+
+1. An agent fetches the snapshot back to plaintext (exactly the path a real restore uses —
+   restic or tar, decrypting encrypted artifacts).
+2. Each artifact is restored into a **throwaway sandbox on that agent**:
+   - **PostgreSQL / MySQL / MariaDB / MongoDB dumps** are loaded into a fresh container of the
+     same engine — the exact image recorded at backup time when available — running with
+     **no network at all** and random credentials. CBM then checks that every table declared in the
+     dump exists after the load (`restored 12/12 tables`); MongoDB reports its collections.
+   - **Redis RDB exports** are loaded by a throwaway `redis-server` (key count reported). KeyDB and
+     Dragonfly exports get an RDB header check.
+   - **Volume and bind-mount archives** are read back end to end.
+3. Everything is deleted afterwards; sandboxes left behind by a crashed agent are cleaned up by the
+   next drill.
+
+Run one from a snapshot's page (**Test restore**, operator+), via the API
+(`POST /api/v1/snapshots/:id/drill`) or the MCP tool `cbm_test_restore`. Turn on **Settings →
+Restore drills** to test each backup-enabled resource's latest snapshot every week (Saturday 05:00);
+each snapshot is drilled once, and a drill that couldn't run (agent offline) is retried. A failed
+drill sends an alert, and the snapshots list shows a shield badge once a snapshot is verified.
+
+What a drill does **not** prove: that Coolify can redeploy the application around the data. For
+that, an occasional real **→ new** restore is still the ultimate check.

@@ -3,6 +3,7 @@ import {
   type RestoreJob,
   type PruneJob,
   type MirrorJob,
+  type RestoreDrillJob,
   type ResolvedDestination,
   type EncryptionSpec,
   type SnapshotManifest,
@@ -996,4 +997,63 @@ export async function enqueueMirror(sourceSnapshotId: string): Promise<{ queued:
   };
   await prisma.agentJob.update({ where: { id: agentJob.id }, data: { payload: job as unknown as object } });
   return { queued: true };
+}
+
+/**
+ * Queue a restore drill: an agent restores the snapshot into a throwaway
+ * sandbox of its own (never Coolify, never the original resource) and reports
+ * per-artifact checks. A "local" destination's files live on the producing
+ * agent's host, so the drill must run there; otherwise the producer is
+ * preferred (it likely has the engine images cached) with any online agent as
+ * a fallback.
+ */
+export async function enqueueDrill(
+  snapshotId: string,
+  trigger: "manual" | "scheduled" | "api" = "manual",
+): Promise<{ drillId: string; jobId: string }> {
+  const snapshot = await prisma.snapshot.findUniqueOrThrow({
+    where: { id: snapshotId },
+    include: { destination: true },
+  });
+  if (snapshot.status !== "succeeded") throw new Error("Only a successful snapshot can be test-restored");
+  if (!snapshot.manifest) throw new Error("Snapshot has no manifest; cannot test-restore");
+
+  const producer = await agentById(snapshot.agentId);
+  const producerOnline = producer?.status === "online" ? producer : null;
+  const agent = snapshot.destination.type === "local" ? producerOnline : (producerOnline ?? (await anyOnlineAgent()));
+  if (!agent) {
+    throw new Error(
+      snapshot.destination.type === "local"
+        ? "The agent that holds this local snapshot is offline - it must run the test restore."
+        : "No online agent to run the test restore.",
+    );
+  }
+
+  const manifest = snapshot.manifest as unknown as SnapshotManifest;
+  const enc = resolveEncryption(snapshot.destination);
+  const cfg = manifest.capturedConfig;
+  const rawImage = cfg?.kind === "database" ? (cfg.raw as Record<string, unknown> | undefined)?.image : undefined;
+
+  // snapshotId links the job to its resource for labels (activity bar, API);
+  // the result route dispatches on type, so it's never treated as the backup.
+  const agentJob = await prisma.agentJob.create({
+    data: { agentId: agent.id, type: "restore-drill", status: "queued", payload: {}, snapshotId: snapshot.id },
+  });
+  const drill = await prisma.restoreDrill.create({
+    data: { snapshotId: snapshot.id, agentJobId: agentJob.id, trigger },
+  });
+
+  const job: RestoreDrillJob = {
+    id: agentJob.id,
+    type: "restore-drill",
+    source: resolveDestination(snapshot.destination),
+    storage: resolveStorage(snapshot.destination),
+    dir: snapshot.destinationDir,
+    resticSnapshotId: snapshot.resticSnapshotId ?? undefined,
+    decryptionKey: enc.enabled ? enc.key : undefined,
+    dbImage: typeof rawImage === "string" ? rawImage : undefined,
+    manifest,
+  };
+  await prisma.agentJob.update({ where: { id: agentJob.id }, data: { payload: job as unknown as object } });
+  return { drillId: drill.id, jobId: agentJob.id };
 }

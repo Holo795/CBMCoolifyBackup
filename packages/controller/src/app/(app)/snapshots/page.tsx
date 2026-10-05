@@ -9,7 +9,13 @@ export default async function SnapshotsPage() {
     prisma.snapshot.findMany({
       orderBy: { startedAt: "desc" },
       take: 100,
-      include: { resource: true, destination: true, _count: { select: { artifacts: true } } },
+      include: {
+        resource: true,
+        destination: true,
+        _count: { select: { artifacts: true } },
+        // Latest test-restore, for the "restore verified" badge.
+        drills: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } },
+      },
     }),
     prisma.agent.findMany({
       where: liveAgentWhere(),

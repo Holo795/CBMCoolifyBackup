@@ -311,7 +311,49 @@ export const MirrorJob = z.object({
 });
 export type MirrorJob = z.infer<typeof MirrorJob>;
 
-export const Job = z.discriminatedUnion("type", [BackupJob, RestoreJob, PruneJob, VerifyDestinationJob, MirrorJob]);
+/**
+ * Restore drill: prove a snapshot is actually restorable WITHOUT touching
+ * Coolify. The agent stages the artifacts back to plaintext, then restores them
+ * into a throwaway sandbox (databases: a network-less container of the same
+ * engine; volumes: a full archive read) and removes everything afterwards.
+ */
+export const RestoreDrillJob = z.object({
+  id: z.string(),
+  type: z.literal("restore-drill"),
+  source: ResolvedDestination,
+  storage: StorageSpec.default({ engine: "tar" }),
+  /** tar: the snapshot directory. */
+  dir: z.string().optional(),
+  /** restic: the snapshot id to restore. */
+  resticSnapshotId: z.string().optional(),
+  /** Base64 AES key (tar) to decrypt encrypted artifacts. */
+  decryptionKey: z.string().optional(),
+  /** Image of the resource's own database (captured config), used when a dump
+   * artifact doesn't record its image. */
+  dbImage: z.string().optional(),
+  manifest: SnapshotManifest,
+});
+export type RestoreDrillJob = z.infer<typeof RestoreDrillJob>;
+
+/** One verified artifact in a restore drill. */
+export const DrillCheck = z.object({
+  artifact: z.string(),
+  kind: z.string(),
+  engine: z.string().optional(),
+  ok: z.boolean(),
+  /** Human-readable outcome, e.g. "restored 12/12 tables" or the failure. */
+  detail: z.string(),
+});
+export type DrillCheck = z.infer<typeof DrillCheck>;
+
+export const Job = z.discriminatedUnion("type", [
+  BackupJob,
+  RestoreJob,
+  PruneJob,
+  VerifyDestinationJob,
+  MirrorJob,
+  RestoreDrillJob,
+]);
 export type Job = z.infer<typeof Job>;
 
 /* ------------------------------------------------------------------ *
@@ -380,6 +422,14 @@ export const JobResult = z.object({
       /** Deep check: a repo-level integrity failure (restic `check`), which isn't
        * attributable to a single snapshot. */
       integrityError: z.string().optional(),
+    })
+    .optional(),
+  /** For a restore-drill job: the per-artifact outcome. */
+  drill: z
+    .object({
+      ok: z.boolean(),
+      checks: z.array(DrillCheck).default([]),
+      durationMs: z.number().optional(),
     })
     .optional(),
 });

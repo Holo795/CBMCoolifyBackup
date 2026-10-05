@@ -5,7 +5,7 @@ import { CbmClient, CbmError } from "./client.js";
 // Mirror the controller's /api/v1 validation so agents pick valid values up
 // front instead of getting a 400 back.
 const SNAPSHOT_STATUS = z.enum(["queued", "pending", "running", "succeeded", "failed", "missing", "corrupt", "skipped", "cancelled"]);
-const JOB_TYPE = z.enum(["backup", "restore", "prune", "mirror", "verify-destination"]);
+const JOB_TYPE = z.enum(["backup", "restore", "prune", "mirror", "verify-destination", "restore-drill"]);
 const JOB_STATUS = z.enum(["queued", "running", "succeeded", "failed", "skipped", "cancelled"]);
 
 /** Pretty-print a successful result as a text block. */
@@ -86,7 +86,8 @@ export function registerTools(server: McpServer, client: CbmClient): void {
     "cbm_get_snapshot",
     {
       title: "Get snapshot",
-      description: "One snapshot with its artifacts (filename, kind, size, checksum, encrypted).",
+      description:
+        "One snapshot with its artifacts (filename, kind, size, checksum, encrypted) and its latest test-restore result (lastDrill).",
       inputSchema: { id: z.string().describe("Snapshot id") },
     },
     async ({ id }) => guard(() => client.getSnapshot(id))(),
@@ -165,5 +166,16 @@ export function registerTools(server: McpServer, client: CbmClient): void {
       },
     },
     async ({ destinationId, deep }) => guard(() => client.verifyDestination(destinationId, deep ?? false))(),
+  );
+
+  server.registerTool(
+    "cbm_test_restore",
+    {
+      title: "Test-restore a snapshot",
+      description:
+        "Prove a successful snapshot actually restores: an agent restores it into a throwaway sandbox (never Coolify, never the original resource) and records per-artifact checks. Poll cbm_get_snapshot for `lastDrill`. Needs an operator-or-above token.",
+      inputSchema: { snapshotId: z.string().describe("Snapshot id to test-restore") },
+    },
+    async ({ snapshotId }) => guard(() => client.drillSnapshot(snapshotId))(),
   );
 }

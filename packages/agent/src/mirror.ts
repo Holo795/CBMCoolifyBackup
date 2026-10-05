@@ -3,8 +3,9 @@ import { MANIFEST_FILE } from "@cbm/shared";
 import { mkdtemp, rm, mkdir, writeFile, copyFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { makeTransfer } from "./transfer.js";
-import { withResticCtx, resticEnsureRepo, resticBackupDir, resticRestoreById } from "./restic.js";
-import { encryptFile, decryptFile } from "./crypto.js";
+import { withResticCtx, resticEnsureRepo, resticBackupDir } from "./restic.js";
+import { encryptFile } from "./crypto.js";
+import { stagePlaintext } from "./stage.js";
 import type { Emit } from "./backup.js";
 
 /**
@@ -24,7 +25,17 @@ export async function runMirror(
   const stage = await mkdtemp(join(workDir, "mirror-"));
   try {
     emit("info", "Fetching the snapshot from the source destination", 15);
-    const plainDir = await stagePlaintext(job, stage);
+    const plainDir = await stagePlaintext(
+      {
+        source: job.source,
+        storage: job.sourceStorage,
+        manifest: job.manifest,
+        dir: job.dir,
+        resticSnapshotId: job.resticSnapshotId,
+        decryptionKey: job.sourceEncryptionKey,
+      },
+      stage,
+    );
 
     // Rebuild the manifest + files under the TARGET's crypto.
     const targetKey = job.targetStorage.engine === "restic" ? undefined : job.targetEncryptionKey;
@@ -79,47 +90,3 @@ export async function runMirror(
   }
 }
 
-/** Pull every artifact of the source snapshot back to PLAINTEXT, named by its
- * base filename, into a local directory; returns that directory. */
-async function stagePlaintext(job: MirrorJob, stage: string): Promise<string> {
-  const out = join(stage, "plain");
-  await mkdir(out, { recursive: true });
-
-  if (job.sourceStorage.engine === "restic") {
-    if (!job.resticSnapshotId) throw new Error("mirror source (restic) needs the snapshot id");
-    if (!job.sourceStorage.resticPassword) throw new Error("mirror source (restic) needs the repository password");
-    // restic restores plaintext files (base names) into a recreated tree.
-    const restored = await withResticCtx(job.source, job.sourceStorage.resticPassword, (ctx) =>
-      resticRestoreById(ctx, job.resticSnapshotId!, join(stage, "restic")),
-    );
-    for (const a of job.manifest.artifacts ?? []) {
-      const base = a.filename.replace(/\.enc$/, "");
-      await copyFile(join(restored, base), join(out, base)).catch(async () => {
-        // Some restic layouts keep the original (possibly .enc) name; fall back.
-        await copyFile(join(restored, a.filename), join(out, base));
-      });
-    }
-    return out;
-  }
-
-  if (!job.dir) throw new Error("mirror source (tar) needs the snapshot directory");
-  const transfer = await makeTransfer(job.source);
-  try {
-    const dl = join(stage, "dl");
-    await mkdir(dl, { recursive: true });
-    for (const a of job.manifest.artifacts ?? []) {
-      const base = a.filename.replace(/\.enc$/, "");
-      const local = join(dl, a.filename);
-      await transfer.get(`${job.dir}/${a.filename}`, local);
-      if (a.encrypted) {
-        if (!job.sourceEncryptionKey) throw new Error("encrypted source artifact but no source key provided");
-        await decryptFile(local, join(out, base), job.sourceEncryptionKey);
-      } else {
-        await copyFile(local, join(out, base));
-      }
-    }
-    return out;
-  } finally {
-    await transfer.close().catch(() => undefined);
-  }
-}

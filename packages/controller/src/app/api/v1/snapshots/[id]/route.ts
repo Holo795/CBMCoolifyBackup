@@ -5,7 +5,8 @@ import { serializeSnapshot } from "@/lib/api-serialize";
 
 export const dynamic = "force-dynamic";
 
-/** One snapshot, with its artifact list (filename, kind, size, checksum). */
+/** One snapshot, with its artifact list (filename, kind, size, checksum) and
+ * the outcome of its latest test-restore. */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireApi(req);
   if (!auth.ok) return auth.response;
@@ -33,9 +34,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       destination: { select: { name: true } },
       _count: { select: { artifacts: true } },
       artifacts: { select: { kind: true, filename: true, sizeBytes: true, sha256: true, encrypted: true } },
+      drills: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { id: true, status: true, trigger: true, checks: true, error: true, createdAt: true, finishedAt: true },
+      },
     },
   });
   if (!s) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const d = s.drills[0];
 
   return NextResponse.json({
     ...serializeSnapshot(s),
@@ -47,5 +54,17 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       sha256: a.sha256,
       encrypted: a.encrypted,
     })),
+    // Latest test-restore (passed | failed | error | running), or null.
+    lastDrill: d
+      ? {
+          id: d.id,
+          status: d.status,
+          trigger: d.trigger,
+          checks: d.checks ?? [],
+          error: d.error,
+          createdAt: d.createdAt.toISOString(),
+          finishedAt: d.finishedAt?.toISOString() ?? null,
+        }
+      : null,
   });
 }

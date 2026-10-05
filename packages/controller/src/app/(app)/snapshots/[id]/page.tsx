@@ -14,11 +14,18 @@ export default async function SnapshotDetail({ params }: { params: Promise<{ id:
   });
   if (!snapshot) notFound();
 
-  const restores = await prisma.restoreJob.findMany({
-    where: { snapshotId: id },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-  });
+  const [restores, drills] = await Promise.all([
+    prisma.restoreJob.findMany({
+      where: { snapshotId: id },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
+    prisma.restoreDrill.findMany({
+      where: { snapshotId: id },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
+  ]);
 
   // Restore (and re-pin) need a live agent to execute on the host.
   const liveAgent = await prisma.agent.findFirst({
@@ -34,5 +41,14 @@ export default async function SnapshotDetail({ params }: { params: Promise<{ id:
     select: { id: true, name: true },
   });
 
-  return <SnapshotDetailView snapshot={snapshot} restores={restores} tz={tz} agentDown={agentDown} instances={instances} />;
+  return (
+    <SnapshotDetailView
+      snapshot={snapshot}
+      restores={restores}
+      drills={drills}
+      tz={tz}
+      agentDown={agentDown}
+      instances={instances}
+    />
+  );
 }
