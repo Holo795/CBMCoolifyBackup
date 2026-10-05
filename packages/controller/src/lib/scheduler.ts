@@ -20,6 +20,20 @@ async function reconcileAllDestinations(): Promise<void> {
   }
 }
 
+/** Weekly deep integrity check for destinations that opted in: re-read the
+ * stored content (restic `check` / tar re-checksum) to catch silent corruption. */
+async function integrityCheckAllDestinations(): Promise<void> {
+  const dests = await prisma.destination.findMany({
+    where: { integrityCheckEnabled: true },
+    select: { id: true, name: true },
+  });
+  for (const d of dests) {
+    await enqueueVerifyDestination(d.id, { deep: true }).catch((e) =>
+      console.error(`[scheduler] integrity check ${d.name} failed:`, (e as Error).message),
+    );
+  }
+}
+
 /** Re-discover every instance so statuses refresh and removed resources are
  * pruned/marked without a manual Sync. */
 async function syncAllInstances(): Promise<void> {
@@ -202,6 +216,13 @@ export function startScheduler(): void {
         if (n.getHours() === 3 && n.getMinutes() === 30) await reconcileAllDestinations();
       } catch (e) {
         console.error("[scheduler] reconcile error", e);
+      }
+      try {
+        // Weekly deep integrity check (Sunday 04:00) for opted-in destinations.
+        const n = new Date();
+        if (n.getDay() === 0 && n.getHours() === 4 && n.getMinutes() === 0) await integrityCheckAllDestinations();
+      } catch (e) {
+        console.error("[scheduler] integrity check error", e);
       }
       try {
         // Detect scheduled backups that never ran (hourly).

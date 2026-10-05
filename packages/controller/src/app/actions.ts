@@ -745,6 +745,39 @@ export async function verifyDestinationNow(destinationId: string) {
   }
 }
 
+/** Deep integrity check now: re-read stored content (restic check / tar
+ * re-checksum) to catch silent corruption, not just missing files. */
+export async function checkIntegrityNow(destinationId: string) {
+  await requireRole("operator");
+  try {
+    const { queued, reason } = await enqueueVerifyDestination(destinationId, { deep: true });
+    if (queued === 0) {
+      return {
+        error:
+          reason === "no-agent"
+            ? "No agent online to run the check - start the agent on the host that holds these backups."
+            : "Nothing to check - this destination has no backups yet.",
+      };
+    }
+    revalidatePath("/destinations");
+    return { ok: true, detail: `Integrity check queued (${queued} job${queued === 1 ? "" : "s"}) - this re-reads the data and may take a while` };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
+/** Toggle the weekly deep integrity check for a destination. */
+export async function setIntegrityCheck(destinationId: string, enabled: boolean): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    await requireRole("admin");
+    await prisma.destination.update({ where: { id: destinationId }, data: { integrityCheckEnabled: enabled } });
+    revalidatePath("/destinations");
+    return { ok: true };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
 /** Create/update a per-resource override schedule. */
 export async function setResourceSchedule(resourceId: string, fd: FormData) {
   await requireRole("admin");

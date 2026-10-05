@@ -790,17 +790,27 @@ export function groupSnapshotsForPrune(
  */
 export async function enqueueVerifyDestination(
   destinationId: string,
+  opts?: { deep?: boolean; readDataSubset?: string },
 ): Promise<{ queued: number; reason?: "empty" | "no-agent" }> {
   const dest = await prisma.destination.findUnique({ where: { id: destinationId } });
   if (!dest) return { queued: 0, reason: "empty" };
 
   const isRestic = dest.engine === "restic";
+  const deep = !!opts?.deep;
+  // restic: re-read a sample of pack data (catches on-disk corruption, not just
+  // structure). tar: hand over the AES key so encrypted artifacts can be verified
+  // by decrypting them (the GCM tag is the integrity proof).
+  const readDataSubset = deep && isRestic ? (opts?.readDataSubset ?? "5%") : undefined;
+  const decryptionKey =
+    deep && !isRestic && dest.encryptionEnabled && dest.encryptionKeyEnc
+      ? decryptSecret(dest.encryptionKeyEnc)
+      : undefined;
   // Re-check both healthy and already-missing snapshots (so a backup whose files
   // reappear can flip back to succeeded). restic needs the snapshot id.
   const snaps = await prisma.snapshot.findMany({
     where: {
       destinationId,
-      status: { in: ["succeeded", "missing"] },
+      status: { in: ["succeeded", "missing", "corrupt"] },
       ...(isRestic ? { resticSnapshotId: { not: null } } : {}),
     },
     select: { destinationDir: true, agentId: true, resticSnapshotId: true },
@@ -848,10 +858,14 @@ export async function enqueueVerifyDestination(
       resticSnapshotIds: isRestic
         ? groupSnaps.map((s) => s.resticSnapshotId).filter((x): x is string => !!x)
         : undefined,
+      deep,
+      readDataSubset,
+      decryptionKey,
       // Extra (ignored by the agent's parse) so the result route knows which
       // destination + engine these results belong to.
       destinationId,
       engine: dest.engine,
+      isDeep: deep,
     };
     await prisma.agentJob.update({ where: { id: agentJob.id }, data: { payload: job as unknown as object } });
     queued++;

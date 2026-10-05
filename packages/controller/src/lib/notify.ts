@@ -71,6 +71,33 @@ export async function notifyOverdue(
   );
 }
 
+/** Notify that a deep integrity check found corrupt backups (tar: content no
+ * longer matches its sha256 / fails to decrypt). Takes the newly-corrupt ids. */
+export async function notifyCorruptBackups(snapshotIds: string[]): Promise<void> {
+  if (snapshotIds.length === 0) return;
+  const snaps = await prisma.snapshot
+    .findMany({
+      where: { id: { in: snapshotIds } },
+      include: { resource: { include: { instance: true } }, destination: true },
+    })
+    .catch(() => []);
+  if (snaps.length === 0) return;
+  const base = (env.authUrl || "").replace(/\/$/, "");
+  const lines = snaps.slice(0, 20).map((s) => `• ${s.resource.name} (${s.resource.instance.name}) → ${s.destination.name}`);
+  const more = snaps.length > 20 ? `\n…and ${snaps.length - 20} more` : "";
+  const link = base ? `\n${base}/snapshots` : "";
+  await sendAlert(
+    `🧪 Backup(s) FAILED integrity - the stored data is corrupt and may not restore:\n${lines.join("\n")}${more}${link}`,
+  );
+}
+
+/** Notify that a destination's repository-level integrity check failed (restic). */
+export async function notifyIntegrityFailure(destinationName: string, detail: string): Promise<void> {
+  const base = (env.authUrl || "").replace(/\/$/, "");
+  const link = base ? `\n${base}/destinations` : "";
+  await sendAlert(`🧪 Integrity check FAILED for destination **${destinationName}**:\n${detail.slice(0, 500)}${link}`);
+}
+
 /** Notify that the controller's metadata self-backup failed or is overdue
  * (disaster recovery: without it, a dead machine takes the "brain" with it). */
 export async function notifySelfBackupProblem(reason: string): Promise<void> {

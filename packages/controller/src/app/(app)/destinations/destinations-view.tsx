@@ -3,12 +3,13 @@ import type { Prisma } from "@/generated/prisma/client";
 import { PageHeader } from "@/components/page-header";
 import { DestinationForm } from "@/components/destination-form";
 import { Card, CardContent, CardHeader, CardTitle, Badge, EmptyState } from "@/components/ui";
-import { testDestinationAction, deleteDestination, verifyDestinationNow } from "@/app/actions";
+import { testDestinationAction, deleteDestination, verifyDestinationNow, checkIntegrityNow } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
+import { IntegrityToggle } from "@/components/integrity-toggle";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { Gate } from "@/components/role-gate";
 import { formatBytes } from "@/lib/cn";
-import { HardDrive, Lock, PlugZap, ChevronRight, ShieldCheck, AlertTriangle } from "lucide-react";
+import { HardDrive, Lock, PlugZap, ChevronRight, ShieldCheck, AlertTriangle, FileCheck2 } from "lucide-react";
 
 type DestinationRow = Prisma.DestinationGetPayload<{
   include: { _count: { select: { snapshots: true; policies: true } } };
@@ -50,6 +51,16 @@ export function DestinationsView({ items, globalBytes }: { items: DestinationIte
                           <AlertTriangle className="h-3 w-3" /> {missing} missing
                         </Badge>
                       )}
+                      {d.lastIntegrityStatus === "ok" && (
+                        <Badge tone="success">
+                          <FileCheck2 className="h-3 w-3" /> integrity ok
+                        </Badge>
+                      )}
+                      {d.lastIntegrityStatus != null && d.lastIntegrityStatus !== "ok" && (
+                        <Badge tone="danger">
+                          <AlertTriangle className="h-3 w-3" /> integrity failed
+                        </Badge>
+                      )}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
                       <span className="font-medium text-foreground">{formatBytes(bytes)}</span> · {d._count.snapshots}{" "}
@@ -68,8 +79,19 @@ export function DestinationsView({ items, globalBytes }: { items: DestinationIte
                       >
                         <ShieldCheck className="h-3.5 w-3.5" /> Verify
                       </ActionButton>
+                      <ActionButton
+                        action={checkIntegrityNow.bind(null, d.id)}
+                        variant="outline"
+                        size="sm"
+                        successMsg="Checking…"
+                        disabled={d._count.snapshots === 0}
+                        title={d._count.snapshots === 0 ? "No backups to check yet" : "Re-read the stored data to catch silent corruption (slower than Verify)"}
+                      >
+                        <FileCheck2 className="h-3.5 w-3.5" /> Check integrity
+                      </ActionButton>
                     </Gate>
                     <Gate min="admin">
+                      <IntegrityToggle id={d.id} enabled={d.integrityCheckEnabled} />
                       <ActionButton action={testDestinationAction.bind(null, d.id)} variant="outline" size="sm" successMsg="Reachable ✓">
                         <PlugZap className="h-3.5 w-3.5" /> Test
                       </ActionButton>

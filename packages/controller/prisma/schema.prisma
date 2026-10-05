@@ -183,6 +183,12 @@ model Destination {
   encryptionEnabled Boolean     @default(false)
   encryptionKeyEnc String?      // encrypted base64 AES key (tar engine)
   resticPasswordEnc String?     // encrypted restic repo password (restic engine)
+  // Deep integrity check (opt-in, weekly): restic `check` / tar re-checksum, to
+  // catch silent corruption before a restore needs it. Reconciliation (presence)
+  // always runs; this re-reads the stored content and is more expensive.
+  integrityCheckEnabled Boolean @default(false)
+  lastIntegrityAt      DateTime?
+  lastIntegrityStatus  String?   // "ok" | an error detail
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   policies        BackupPolicy[]

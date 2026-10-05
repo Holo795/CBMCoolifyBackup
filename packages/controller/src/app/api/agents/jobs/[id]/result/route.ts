@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { JobResult } from "@cbm/shared";
 import { prisma } from "@/lib/prisma";
 import { authenticateAgentFromRequest } from "@/lib/agent-auth";
-import { notifyBackupFailed, notifyMissingBackups } from "@/lib/notify";
+import { notifyBackupFailed, notifyMissingBackups, notifyCorruptBackups, notifyIntegrityFailure } from "@/lib/notify";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const agent = await authenticateAgentFromRequest(req);
@@ -84,23 +84,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   if (job.type === "verify-destination" && result.verify) {
-    const payload = job.payload as { destinationId?: string; engine?: string } | null;
+    const payload = job.payload as { destinationId?: string; engine?: string; isDeep?: boolean } | null;
     const destinationId = payload?.destinationId;
     const isRestic = payload?.engine === "restic";
+    const isDeep = !!payload?.isDeep;
     const now = new Date();
     const present = result.verify.present;
     const missing = result.verify.missing;
+    const corrupt = result.verify.corrupt ?? [];
+    const integrityError = result.verify.integrityError;
     // present/missing carry restic snapshot ids (restic engine) or snapshot
     // directories (tar engine) - match snapshots on the matching column.
     const match = (vals: string[]) =>
       isRestic ? { resticSnapshotId: { in: vals } } : { destinationDir: { in: vals } };
     if (destinationId) {
       if (present.length) {
-        // Confirmed present: refresh the check time, and un-flag any that had
-        // been marked missing but reappeared.
+        // Confirmed present (and, on a deep check, intact): refresh the check
+        // time and un-flag any that had been missing/corrupt but recovered.
         await prisma.snapshot.updateMany({ where: { destinationId, ...match(present) }, data: { lastCheckedAt: now } });
         await prisma.snapshot.updateMany({
-          where: { destinationId, ...match(present), status: "missing" },
+          where: { destinationId, ...match(present), status: { in: ["missing", "corrupt"] } },
           data: { status: "succeeded" },
         });
       }
@@ -115,6 +118,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           data: { status: "missing", lastCheckedAt: now },
         });
         if (newly.length) await notifyMissingBackups(newly.map((s) => s.id)).catch(() => undefined);
+      }
+      // Deep check: content corruption (tar, per-snapshot).
+      if (corrupt.length) {
+        const newly = await prisma.snapshot.findMany({
+          where: { destinationId, ...match(corrupt), status: { not: "corrupt" } },
+          select: { id: true },
+        });
+        await prisma.snapshot.updateMany({
+          where: { destinationId, ...match(corrupt) },
+          data: { status: "corrupt", lastCheckedAt: now },
+        });
+        if (newly.length) await notifyCorruptBackups(newly.map((s) => s.id)).catch(() => undefined);
+      }
+      // Deep check: record the destination's integrity status + alert on failure
+      // (restic's check is repo-level, not attributable to one snapshot).
+      if (isDeep) {
+        const ok = !integrityError && corrupt.length === 0;
+        const updated = await prisma.destination.update({
+          where: { id: destinationId },
+          data: { lastIntegrityAt: now, lastIntegrityStatus: ok ? "ok" : (integrityError ?? `${corrupt.length} corrupt`).slice(0, 500) },
+          select: { name: true },
+        });
+        if (integrityError) await notifyIntegrityFailure(updated.name, integrityError).catch(() => undefined);
       }
     }
   }
