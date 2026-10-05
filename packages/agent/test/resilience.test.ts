@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { JobResult } from "@cbm/shared";
 import { deliverResult, flushPendingResults } from "../src/outbox.js";
 import { initHeldContainers, holdContainer, releaseContainer, heldContainers } from "../src/held.js";
-import { docker, pauseContainer, stopContainer, recoverHeldContainers } from "../src/docker.js";
+import { docker, pauseContainer, stopContainer, recoverHeldContainers, restoreRdbIntoVolume } from "../src/docker.js";
 
 const result = (id = "job1"): JobResult => ({ jobId: id, status: "succeeded" }) as JobResult;
 const httpError = (status: number) => Object.assign(new Error(`result failed: ${status}`), { status });
@@ -114,6 +114,31 @@ test("a container left paused or stopped by a killed agent is resumed at the nex
     assert.equal(heldContainers().length, 0);
   } finally {
     await docker(["rm", "-f", a, b]);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a Redis snapshot restored into a volume is loaded even with AOF on", { skip: !DOCKER, timeout: 300_000 }, async () => {
+  const name = `cbm-rdb-${Date.now()}`;
+  const vol = `${name}-data`;
+  const dir = await mkdtemp(join(tmpdir(), "cbm-rdb-"));
+  const cli = (cmd: string) => docker(["exec", name, "sh", "-c", `redis-cli ${cmd}`]);
+  try {
+    // Coolify's way of running Redis: AOF on.
+    assert.equal((await docker(["run", "-d", "--name", name, "-v", `${vol}:/data`, "redis:7.4-alpine", "redis-server", "--appendonly", "yes"])).code, 0);
+    await new Promise((r) => setTimeout(r, 2000));
+    for (let i = 0; i < 20; i++) await cli(`SET k${i} v${i}`);
+    assert.equal((await docker(["exec", name, "sh", "-c", "redis-cli --rdb /tmp/s.rdb"])).code, 0);
+    assert.equal((await docker(["cp", `${name}:/tmp/s.rdb`, join(dir, "s.rdb")])).code, 0);
+    await cli("FLUSHALL");
+    await docker(["stop", name]);
+    await restoreRdbIntoVolume(vol, join(dir, "s.rdb"));
+    await docker(["start", name]);
+    await new Promise((r) => setTimeout(r, 2000));
+    assert.equal((await cli("DBSIZE")).stdout.trim(), "20");
+  } finally {
+    await docker(["rm", "-f", name]);
+    await docker(["volume", "rm", "-f", vol]);
     await rm(dir, { recursive: true, force: true });
   }
 });

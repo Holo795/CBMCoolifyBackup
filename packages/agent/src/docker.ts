@@ -236,6 +236,24 @@ export async function writeFileIntoVolume(volume: string, destName: string, inFi
   );
 }
 
+// Coolify runs Redis with --appendonly yes, and with AOF on a server ignores
+// dump.rdb at startup: the snapshot must also be its AOF. Redis/Valkey >= 7 take
+// a multi-part AOF whose base is an RDB; older ones an appendonly.aof starting
+// with the RDB (the RDB preamble). Without AOF, dump.rdb is what's read.
+const RDB_PLACE_SCRIPT =
+  "set -e; cat > /data/dump.rdb; rm -rf /data/appendonlydir /data/appendonly.aof; " +
+  "cp /data/dump.rdb /data/appendonly.aof; mkdir /data/appendonlydir; " +
+  "cp /data/dump.rdb /data/appendonlydir/appendonly.aof.1.base.rdb; : > /data/appendonlydir/appendonly.aof.1.incr.aof; " +
+  "printf 'file appendonly.aof.1.base.rdb seq 1 type b\\nfile appendonly.aof.1.incr.aof seq 1 type i\\n' " +
+  "> /data/appendonlydir/appendonly.aof.manifest";
+
+/** Put a Redis-family RDB snapshot in a data volume so the server loads it at
+ * its next start, whatever its persistence mode. */
+export async function restoreRdbIntoVolume(volume: string, inFile: string): Promise<void> {
+  await docker(["volume", "create", volume]);
+  await dockerFromFile(["run", "--rm", "-i", "-v", `${volume}:/data`, "alpine:3.24", "sh", "-c", RDB_PLACE_SCRIPT], inFile);
+}
+
 /** Restore a tarball into a host directory (a bind-mount source). */
 export async function restoreToPath(hostPath: string, inFile: string): Promise<void> {
   await dockerFromFile(

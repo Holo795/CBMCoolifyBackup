@@ -5,7 +5,7 @@ import { restoreDatabase } from "./dump.js";
 import {
   restoreVolume,
   restoreToPath,
-  writeFileIntoVolume,
+  restoreRdbIntoVolume,
   stopContainer,
   startContainer,
   containerExists,
@@ -127,7 +127,7 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
           continue;
         }
         emit("info", `Restoring ${d.meta.engine} snapshot → ${dest}`, 72);
-        await writeFileIntoVolume(dest, "dump.rdb", localFiles[d.filename]);
+        await restoreRdbIntoVolume(dest, localFiles[d.filename]);
       }
     } else if (volumes.length > 0 || redisDumps.length > 0) {
       // in place: stop the resource, overwrite its volumes / drop the RDB, restart.
@@ -170,7 +170,7 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
             continue;
           }
           emit("info", `Restoring ${d.meta.engine} snapshot into ${d.meta.volume}`, 72);
-          await writeFileIntoVolume(d.meta.volume, "dump.rdb", localFiles[d.filename]);
+          await restoreRdbIntoVolume(d.meta.volume, localFiles[d.filename]);
         }
       } finally {
         for (const c of stopped.reverse()) {
