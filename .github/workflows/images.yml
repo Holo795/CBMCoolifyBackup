@@ -21,7 +21,11 @@ on:
         default: ""
 
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
   images:
+    needs: checks
     runs-on: ubuntu-latest
     permissions:
       contents: read

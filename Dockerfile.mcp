@@ -1,16 +1,21 @@
 # MCP server image — exposes CBM's API to AI agents over Streamable HTTP.
-# Point it at the controller with CBM_URL and give it a token (CBM_TOKEN) or
-# let each agent forward its own Authorization: Bearer.
-FROM node:22-alpine AS build
+# Point it at the controller with CBM_URL; each agent forwards its own
+# Authorization: Bearer, or set CBM_TOKEN + CBM_MCP_AUTH_TOKEN (see docs/mcp.md).
+FROM node:24-alpine AS build
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/agent/package.json packages/agent/
+COPY packages/controller/package.json packages/controller/
 COPY packages/mcp/package.json packages/mcp/
-RUN npm install --omit=dev=false
+RUN npm ci -w @cbm/mcp --ignore-scripts --no-audit --no-fund
 COPY packages/mcp packages/mcp
-RUN npm run build --workspace @cbm/mcp
+RUN npm run build --workspace @cbm/mcp \
+  && npm ci -w @cbm/mcp --omit=dev --ignore-scripts --no-audit --no-fund
 
-FROM node:22-alpine AS runtime
+FROM node:24-alpine AS runtime
 WORKDIR /app
+ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/mcp/dist ./packages/mcp/dist
 COPY --from=build /app/packages/mcp/package.json ./packages/mcp/
@@ -19,4 +24,7 @@ ENV CBM_MCP_TRANSPORT=http
 ENV CBM_MCP_HOST=0.0.0.0
 ENV CBM_MCP_PORT=8790
 EXPOSE 8790
+USER node
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+  CMD wget -qO- http://127.0.0.1:8790/health >/dev/null || exit 1
 CMD ["node", "packages/mcp/dist/index.js"]

@@ -16,6 +16,7 @@ This is an npm-workspaces monorepo:
   volumes, transfers to destinations. Talks to the Docker CLI.
 - `packages/controller` (`@cbm/controller`) — the Next.js web app: panel, API, scheduler,
   and the metadata database (Prisma).
+- `packages/mcp` (`@cbm/mcp`) — the MCP server exposing CBM's API to AI agents.
 
 ## Development setup
 
@@ -56,6 +57,9 @@ Each of these is a generic, repo-wide command — there's nothing extra to run p
 - If you change the Prisma schema, add a **migration** under
   `packages/controller/prisma/migrations/` (the deploy step runs `prisma migrate deploy`).
 - If you change the agent/controller contract, update `@cbm/shared` and rebuild it.
+- If you add or bump a dependency, refresh `package-lock.json` **from Linux** (CI and the
+  images run `npm ci`, and npm on macOS/Windows drops Linux-only optional packages):
+  `docker run --rm -v "$PWD":/w -w /w node:24-alpine npm install --package-lock-only --ignore-scripts`.
 - Update the README if you change user-facing behavior or add/remove a limitation.
 
 ## Documentation

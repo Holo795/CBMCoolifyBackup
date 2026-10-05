@@ -8,6 +8,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # The image workflow runs these checks first and only publishes when they pass.
+  workflow_call:
 
 jobs:
   checks:
@@ -22,14 +24,14 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
-      # `npm install` (not `npm ci`) to match the Dockerfiles and tolerate the
-      # platform-specific optional native deps some lint tooling pulls in.
+      # The lockfile is refreshed from Linux so it carries the Linux-only optional
+      # deps; `npm ci` then installs exactly what it pins (as the Dockerfiles do).
       # postinstall generates the Prisma client (needed for the controller type-check).
       - name: Install
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Lint (all packages)
         run: npm run lint
@@ -40,3 +42,6 @@ jobs:
 
       - name: Unit tests (shared + agent + controller)
         run: npm test
+
+      - name: Build (all packages)
+        run: npm run build

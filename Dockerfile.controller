@@ -1,11 +1,12 @@
 # Controller image — Next.js standalone build.
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/
-COPY packages/controller/package.json packages/controller/
 COPY packages/agent/package.json packages/agent/
-RUN npm install --ignore-scripts
+COPY packages/controller/package.json packages/controller/
+COPY packages/mcp/package.json packages/mcp/
+RUN npm ci -w @cbm/shared -w @cbm/controller --ignore-scripts --no-audit --no-fund
 COPY packages/shared packages/shared
 COPY packages/controller packages/controller
 # A dummy URL lets `prisma generate` load prisma.config.ts at build time.
@@ -13,8 +14,12 @@ COPY packages/controller packages/controller
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 RUN npm run build --workspace @cbm/shared \
   && npm run build --workspace @cbm/controller
+# Runtime dependencies only (the prisma CLI is one: it applies migrations at
+# start). Install scripts run here so Prisma's schema engine ships in the image
+# instead of being downloaded on every start.
+RUN npm ci -w @cbm/shared -w @cbm/controller --omit=dev --no-audit --no-fund
 
-FROM node:22-alpine AS runtime
+FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
@@ -24,11 +29,18 @@ RUN apk add --no-cache postgresql17-client
 # Standalone server bundle (includes traced node_modules).
 COPY --from=build /app/packages/controller/.next/standalone ./
 COPY --from=build /app/packages/controller/.next/static ./packages/controller/.next/static
-# Prisma assets + full node_modules so `prisma migrate deploy` works at startup.
+# Prisma assets + runtime node_modules so `prisma migrate deploy` works at startup.
 COPY --from=build /app/packages/controller/prisma ./packages/controller/prisma
 COPY --from=build /app/packages/controller/prisma.config.ts ./packages/controller/prisma.config.ts
 COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/packages/shared/dist ./packages/shared/dist
+COPY --from=build /app/packages/shared/package.json ./packages/shared/
+# The app only writes to /tmp and Next's cache: run unprivileged.
+RUN chown -R node:node /app/packages/controller/.next
+USER node
 EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s \
+  CMD wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1
 # Pad any legacy migration names (one-time, idempotent), apply migrations, then
 # start the standalone server. A failed migration stops the container instead of
 # starting the app on a stale schema.
