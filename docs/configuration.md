@@ -19,6 +19,33 @@ openssl rand -hex 32                                                      # BETT
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"  # MASTER_KEY
 ```
 
+### Startup checks (production)
+
+Since 2.1, a production controller (`NODE_ENV=production`, as in the image) **refuses to start**
+rather than run insecurely:
+
+- **`BETTER_AUTH_SECRET` missing or left at the public default** — anyone could forge a session
+  cookie.
+- **`MASTER_KEY` set but not a base64-encoded 32-byte key** — it used to be ignored silently in
+  favour of the key derived from `BETTER_AUTH_SECRET`; fixing it later would then have made every
+  stored secret undecryptable. Leaving `MASTER_KEY` **empty** is still allowed (the derived key is
+  used).
+
+**Upgrading an install that ran with the default secret and no `MASTER_KEY`.** Its stored secrets
+(Coolify tokens, destination credentials, keys) were encrypted with the key derived from the
+default secret. Set `MASTER_KEY` to that key first, so they keep decrypting, then set a real
+`BETTER_AUTH_SECRET` (everyone signs in again):
+
+```bash
+MASTER_KEY=Sim+zqQAguUSPC+1o13hyzhjra/Ul+BPul7ZsVI6ghs=   # derived from the public default
+```
+
+That key is derived from a public string, so it protects nothing. Once the controller is up, plan
+a move to a fresh key by re-entering your secrets.
+
+A failed database migration also stops the container now, instead of starting the app on an
+out-of-date schema.
+
 ### Optional OAuth login
 
 Set the pair(s) you want; the provider button appears on the login page when configured.

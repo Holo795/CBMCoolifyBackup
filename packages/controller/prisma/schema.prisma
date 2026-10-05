@@ -288,6 +288,10 @@ model Snapshot {
 
   @@index([runId])
   @@index([mirrorOfId])
+  // Hot paths: a resource's history, a destination's snapshots, running ones.
+  @@index([resourceId, startedAt])
+  @@index([destinationId, status])
+  @@index([status])
 }
 
 model Artifact {
@@ -299,6 +303,8 @@ model Artifact {
   sizeBytes  BigInt   @default(0)
   sha256     String?
   encrypted  Boolean  @default(false)
+
+  @@index([snapshotId])
 }
 
 model RestoreJob {
@@ -320,6 +326,8 @@ model RestoreJob {
   finishedAt DateTime?
 
   @@index([targetInstanceId])
+
+  @@index([snapshotId])
 }
 
 // Agent-facing job queue (pulled by agents). pg-boss schedules policy runs
@@ -338,6 +346,12 @@ model AgentJob {
   createdAt  DateTime   @default(now())
   claimedAt  DateTime?
   finishedAt DateTime?
+
+  // The agent poll (every few seconds), the activity bar and the reaper.
+  @@index([agentId, status, createdAt])
+  @@index([status, createdAt])
+  @@index([snapshotId])
+  @@index([restoreId])
 }
 
 model JobEvent {
@@ -348,6 +362,8 @@ model JobEvent {
   message   String
   progress  Int?
   ts        DateTime @default(now())
+
+  @@index([jobId, ts])
 }
 
 // ---------------------------------------------------------------------------

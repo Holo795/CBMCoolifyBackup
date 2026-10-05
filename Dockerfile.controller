@@ -30,5 +30,6 @@ COPY --from=build /app/packages/controller/prisma.config.ts ./packages/controlle
 COPY --from=build /app/node_modules ./node_modules
 EXPOSE 3000
 # Pad any legacy migration names (one-time, idempotent), apply migrations, then
-# start the standalone server.
-CMD ["sh", "-c", "cd /app/packages/controller && (npx prisma db execute --file ./prisma/pad-migrations.sql || echo 'pad skipped') && (npx prisma migrate deploy || echo 'migrate skipped') && cd /app && node packages/controller/server.js"]
+# start the standalone server. A failed migration stops the container instead of
+# starting the app on a stale schema.
+CMD ["sh", "-c", "cd /app/packages/controller && (npx prisma db execute --file ./prisma/pad-migrations.sql || echo 'pad skipped') && npx prisma migrate deploy && cd /app && exec node packages/controller/server.js"]

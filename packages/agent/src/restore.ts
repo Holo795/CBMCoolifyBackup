@@ -10,6 +10,7 @@ import {
   startContainer,
   containerExists,
 } from "./docker.js";
+import { unsafeRestorePath } from "./paths.js";
 import { REDIS_ENGINES, type Engine } from "./engines.js";
 import { decryptFile } from "./crypto.js";
 import { makeTransfer } from "./transfer.js";
@@ -25,6 +26,8 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
   const transfer = job.storage.engine === "restic" ? null : await makeTransfer(job.source);
 
   emit("info", `Restoring ${manifest.resource.name} [${manifest.resource.type}] from ${manifest.destinationDir}`, 2);
+  // Host folders refused at restore time (see paths.ts); the rest still restores.
+  const refusedFolders: string[] = [];
 
   try {
     // Materialise every artifact into a local directory (keyed by filename).
@@ -140,6 +143,13 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
         }
         for (const v of volumes) {
           if (v.meta.bindSource) {
+            // The folder is wiped then refilled: never a system or top-level path.
+            const unsafe = unsafeRestorePath(v.meta.bindSource);
+            if (unsafe) {
+              emit("error", `Host folder ${v.meta.bindSource} NOT restored: it ${unsafe}`);
+              refusedFolders.push(v.meta.bindSource);
+              continue;
+            }
             // Docker auto-creates a missing host path for the bind mount (fresh
             // machine after DR) — root-owned, so permissions may need review.
             emit("info", `Restoring host folder ${v.meta.bindSource} (created if missing)`, 70);
@@ -209,6 +219,11 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
       );
     }
 
+    if (refusedFolders.length > 0) {
+      throw new Error(
+        `Restored everything except ${refusedFolders.length} unsafe host folder(s): ${refusedFolders.join(", ")}`,
+      );
+    }
     emit("info", "Restore complete", 100);
   } finally {
     if (transfer) await transfer.close();
