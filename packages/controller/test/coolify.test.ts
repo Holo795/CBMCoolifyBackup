@@ -25,3 +25,10 @@ test("a cloned application's volumes are created without the original's uuid and
   ];
   assert.deepEqual(matchVolumes(original, created), { "s51ojoq-site": "nd8sedi-site", uploads: "nd8sedi-uploads" });
 });
+
+test("public repositories: bare owner/repo means GitHub, full URLs and SSH forms pass through", async () => {
+  const { publicRepoUrl } = await import("../src/lib/coolify");
+  assert.equal(publicRepoUrl("coollabsio/coolify-examples"), "https://github.com/coollabsio/coolify-examples");
+  assert.equal(publicRepoUrl("https://git.example.com/a/b.git"), "https://git.example.com/a/b.git");
+  assert.equal(publicRepoUrl("git@github.com:a/b.git"), "git@github.com:a/b.git");
+});

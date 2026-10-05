@@ -103,6 +103,16 @@ function dbCredsBody(type: CloneEngine, src: DbConfig): Record<string, unknown> 
   }
 }
 
+/** A clone URL Coolify accepts as is: http(s)/git URL or SSH form (user@host:path). */
+export function isFullRepoUrl(repo: string): boolean {
+  return /^(https?|git|ssh):\/\//i.test(repo) || /^[^@\s/]+@[^:\s]+:/.test(repo);
+}
+
+/** A repository for the /public endpoint: bare "owner/repo" means GitHub. */
+export function publicRepoUrl(repo: string): string {
+  return isFullRepoUrl(repo) ? repo : `https://github.com/${repo.replace(/^\/+/, "")}`;
+}
+
 /** Drop undefined/null keys so Coolify create endpoints get a clean body. */
 function compact<T extends Record<string, unknown>>(o: T): T {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null)) as T;
@@ -485,6 +495,12 @@ export class CoolifyClient {
       }
     }
 
+    // Coolify 4.3+ wants a full URL here, but stores public GitHub repos as
+    // "owner/repo" - which is what we read back from the source.
+    if (endpoint.endsWith("/public") && typeof src.git_repository === "string") {
+      body.git_repository = publicRepoUrl(src.git_repository);
+    }
+
     const created = await this.post<{ uuid?: string }>(endpoint, compact(body));
     const uuid = created?.uuid;
     if (!uuid) throw new Error("Coolify did not return a uuid for the cloned application");
@@ -492,7 +508,7 @@ export class CoolifyClient {
     // The /public endpoint normalises the git URL to "owner/repo" (assuming
     // github.com) and drops the real host. PATCH the exact original URL back so
     // self-hosted (gitea/gitlab) or inline-credential repos still clone.
-    if (endpoint.endsWith("/public") && typeof src.git_repository === "string") {
+    if (endpoint.endsWith("/public") && typeof src.git_repository === "string" && isFullRepoUrl(src.git_repository)) {
       await this.patch(`/api/v1/applications/${uuid}`, { git_repository: src.git_repository }).catch(() => undefined);
     }
     return { uuid, type: "application" };
