@@ -13,6 +13,8 @@ import { RestoreActionsView } from "./view";
  *
  * When `instances` (>1) is provided, "→ new" opens a target-instance picker so
  * a backup can be restored onto a DIFFERENT connected Coolify (migration).
+ * `allowNew={false}` hides "→ new" (a Coolify control-plane snapshot can only be
+ * restored in place).
  */
 export function RestoreActions({
   snapshotId,
@@ -20,9 +22,11 @@ export function RestoreActions({
   size = "sm",
   instances,
   currentInstanceId,
+  allowNew = true,
 }: {
   snapshotId: string;
   hasAgent: boolean;
+  allowNew?: boolean;
   size?: "sm" | "md";
   /** Connected instances to offer as "Restore onto" targets (detail page). */
   instances?: { id: string; name: string }[];
@@ -71,6 +75,7 @@ export function RestoreActions({
     <RestoreActionsView
       size={size}
       hasAgent={hasAgent}
+      allowNew={allowNew}
       pending={pending}
       busy={busy}
       error={error}

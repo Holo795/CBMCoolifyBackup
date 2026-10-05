@@ -739,6 +739,10 @@ export async function enqueueRestore(
     include: { destination: true, resource: true },
   });
   if (!snapshot.manifest) throw new UserError("messages.noManifestRestore");
+  // The control-plane pseudo-resource has no Coolify counterpart to clone.
+  if (target === "new_resource" && snapshot.resource.coolifyUuid.startsWith("coolify-self")) {
+    throw new UserError("messages.controlPlaneNoClone");
+  }
   if (target === "in_place") await assertResourceIdle(snapshot.resource.id, snapshot.resource.name);
 
   const migrating =

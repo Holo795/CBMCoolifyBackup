@@ -120,6 +120,7 @@ export const en = {
   localCrossInstance:
     "This snapshot is stored on a 'local' destination (files on the source host), so it can't be restored onto another instance. Use an SSH/S3 destination.",
   noManifestRestore: "Snapshot has no manifest; cannot restore",
+  controlPlaneNoClone: 'A Coolify control-plane backup can only be restored in place, not "→ new".',
   cloneUnsupportedType: 'Restore → new resource is not supported for type "{type}"',
   appCantClone: 'Application "{name}" can\'t be "→ new" cloned (no git repo and no docker image)',
   serviceCantClone: 'Service "{name}" can\'t be cloned automatically (no compose exposed by the API)',
@@ -264,6 +265,8 @@ export const fr: typeof en = {
   localCrossInstance:
     "Ce snapshot est stocké sur une destination « local » (fichiers sur l'hôte source) : il ne peut donc pas être restauré sur une autre instance. Utilisez une destination SSH/S3.",
   noManifestRestore: "Le snapshot n'a pas de manifeste ; restauration impossible",
+  controlPlaneNoClone:
+    "Une sauvegarde du plan de contrôle Coolify ne peut être restaurée que sur place, pas « → new ».",
   cloneUnsupportedType: "La restauration → new n'est pas prise en charge pour le type « {type} »",
   appCantClone:
     "L'application « {name} » ne peut pas être clonée « → new » (ni dépôt git ni image docker)",

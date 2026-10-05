@@ -45,6 +45,8 @@ export async function ResourceDetailView({
   isAdmin: boolean;
 }) {
   const t = await getT();
+  // Coolify's own control plane can only be restored in place, never "→ new".
+  const controlPlane = resource.coolifyUuid.startsWith("coolify-self");
   // Where the inherited schedule comes from (most specific wins, see effectivePolicy).
   const inheritedFrom =
     eff.source === "server"
@@ -225,7 +227,9 @@ export async function ResourceDetailView({
                     <td className="px-4 py-2.5">
                       <div className="flex items-center justify-end gap-1.5">
                         <Gate min="operator">
-                          {s.status === "succeeded" && <RestoreActions snapshotId={s.id} hasAgent={!agentDown} />}
+                          {s.status === "succeeded" && (
+                            <RestoreActions snapshotId={s.id} hasAgent={!agentDown} allowNew={!controlPlane} />
+                          )}
                           <ConfirmDeleteButton
                             action={deleteSnapshot.bind(null, s.id)}
                             confirmWord={t("resources.deleteConfirmWord")}
@@ -259,7 +263,9 @@ export async function ResourceDetailView({
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Gate min="operator">
-                      {s.status === "succeeded" && <RestoreActions snapshotId={s.id} hasAgent={!agentDown} />}
+                      {s.status === "succeeded" && (
+                            <RestoreActions snapshotId={s.id} hasAgent={!agentDown} allowNew={!controlPlane} />
+                          )}
                       <ConfirmDeleteButton
                         action={deleteSnapshot.bind(null, s.id)}
                         confirmWord={t("resources.deleteConfirmWord")}

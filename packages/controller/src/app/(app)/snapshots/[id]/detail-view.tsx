@@ -69,6 +69,7 @@ export async function SnapshotDetailView({
                 size="md"
                 instances={instances}
                 currentInstanceId={snapshot.resource.instanceId}
+                allowNew={!snapshot.resource.coolifyUuid.startsWith("coolify-self")}
               />
             )}
             <ConfirmDeleteButton

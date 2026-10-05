@@ -51,7 +51,13 @@ export async function SnapshotsView({
   // Row actions, reused by the desktop table and the mobile cards.
   const snapshotActions = (s: SnapshotRow, hasAgent: boolean) => (
     <>
-      {s.status === "succeeded" && <RestoreActions snapshotId={s.id} hasAgent={hasAgent} />}
+      {s.status === "succeeded" && (
+        <RestoreActions
+          snapshotId={s.id}
+          hasAgent={hasAgent}
+          allowNew={!s.resource.coolifyUuid.startsWith("coolify-self")}
+        />
+      )}
       {s.status === "failed" &&
         (hasAgent ? (
           <ActionButton action={retrySnapshot.bind(null, s.id)} variant="outline" size="sm" successMsg={t("snapshots.retried")}>
