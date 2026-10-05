@@ -36,6 +36,7 @@ The server is configured entirely from the environment:
 | `CBM_MCP_TRANSPORT` | no | `stdio` | `stdio` or `http` |
 | `CBM_MCP_HOST` | no | `127.0.0.1` | HTTP bind host (`0.0.0.0` in the container) |
 | `CBM_MCP_PORT` | no | `8790` | HTTP port |
+| `CBM_MCP_AUTH_TOKEN` | http + `CBM_TOKEN` off loopback: yes | — | Shared secret every HTTP caller must send as `Authorization: Bearer` when `CBM_TOKEN` is server-wide |
 
 ## 3. stdio — local agents (Claude Desktop, Cursor, Cline…)
 
@@ -80,18 +81,35 @@ Or with Node, from a checkout you've built (`npm run build -w @cbm/mcp`):
 Run the server as a service and let agents connect over the network
 (Streamable HTTP). Endpoint: `POST /mcp`; health probe: `GET /health`.
 
+**Per-agent identity (recommended):** leave `CBM_TOKEN` unset and the server
+uses the `Authorization: Bearer <token>` each request carries, so different
+agents act as their own CBM token (and role):
+
+```sh
+docker run -d --name cbm-mcp -p 8790:8790 \
+  -e CBM_URL=https://cbm.example.com \
+  ghcr.io/holo795/cbm-mcp:latest
+```
+
+**Server-wide token:** with `CBM_TOKEN` set, every caller acts with that token.
+Since 2.1.0 the server refuses to start that way on a non-loopback address
+unless `CBM_MCP_AUTH_TOKEN` is also set; callers then send that shared secret
+as their bearer token:
+
 ```sh
 docker run -d --name cbm-mcp -p 8790:8790 \
   -e CBM_URL=https://cbm.example.com \
   -e CBM_TOKEN=cbm_pat_xxx \
+  -e CBM_MCP_AUTH_TOKEN="$(openssl rand -hex 32)" \
   ghcr.io/holo795/cbm-mcp:latest
 ```
 
-Point an HTTP MCP client at `http://your-host:8790/mcp`.
+Point an HTTP MCP client at `http://your-host:8790/mcp` and put it behind TLS
+and your reverse proxy.
 
-**Per-agent identity:** omit `CBM_TOKEN` and the server instead uses the
-`Authorization: Bearer <token>` each request carries, so different agents act
-as their own CBM token (and role). Put it behind TLS and your reverse proxy.
+Other guards: request bodies over 1 MiB get `413`, and a server bound to
+loopback only answers requests whose `Host` is `localhost`/`127.x`/`::1`
+(`403` otherwise), which blocks DNS-rebinding from a browser.
 
 The HTTP transport is stateless (a fresh session per request), so no sticky
 sessions are needed behind a load balancer.
