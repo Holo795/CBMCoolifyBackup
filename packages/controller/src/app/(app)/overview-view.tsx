@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, Badge, statusTone } from "@/components/ui";
 import { formatBytes, timeAgo } from "@/lib/cn";
 import { getT } from "@/lib/i18n";
+import { StorageTrends, type StorageData } from "@/components/storage-trends";
 
 export type OverviewCounts = {
   instances: number;
@@ -23,7 +24,15 @@ export type OverviewSnapshot = {
 };
 
 /** Presentation only: the Overview dashboard markup. Data is fetched in ./page.tsx. */
-export async function OverviewView({ counts, recent }: { counts: OverviewCounts; recent: OverviewSnapshot[] }) {
+export async function OverviewView({
+  counts,
+  recent,
+  storage,
+}: {
+  counts: OverviewCounts;
+  recent: OverviewSnapshot[];
+  storage: StorageData;
+}) {
   const t = await getT();
   const stats = [
     { label: t("overview.instances"), value: counts.instances, href: "/instances" },
@@ -48,6 +57,9 @@ export async function OverviewView({ counts, recent }: { counts: OverviewCounts;
           </Link>
         ))}
       </div>
+
+      <h2 className="mb-3 mt-8 text-sm font-medium text-muted-foreground">{t("overview.storageTitle")}</h2>
+      <StorageTrends data={storage} />
 
       <h2 className="mb-3 mt-8 text-sm font-medium text-muted-foreground">{t("overview.recent")}</h2>
       <Card>

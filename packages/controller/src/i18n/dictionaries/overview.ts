@@ -14,6 +14,14 @@ export const en = {
   status: "Status",
   size: "Size",
   when: "When",
+  storageTitle: "Storage",
+  storageTotal: "Protected across all destinations",
+  storageWindow: "Backed up in the last {days} days",
+  storageDaily: "Backed up per day",
+  storagePerDestination: "By destination",
+  storageEmpty: "No successful backups yet - this fills in after the first run.",
+  storageBar: "{day}: {size} ({count} backups)",
+  storageNote: "Sizes are the backed-up data before deduplication - a restic repository usually stores less.",
 };
 
 export const fr: typeof en = {
@@ -31,4 +39,12 @@ export const fr: typeof en = {
   status: "Statut",
   size: "Taille",
   when: "Quand",
+  storageTitle: "Stockage",
+  storageTotal: "Protégé sur l'ensemble des destinations",
+  storageWindow: "Sauvegardé ces {days} derniers jours",
+  storageDaily: "Sauvegardé par jour",
+  storagePerDestination: "Par destination",
+  storageEmpty: "Aucune sauvegarde réussie pour l'instant - ce graphique se remplit après la première exécution.",
+  storageBar: "{day} : {size} ({count} sauvegardes)",
+  storageNote: "Les tailles sont celles des données sauvegardées avant déduplication - un dépôt restic stocke généralement moins.",
 };
