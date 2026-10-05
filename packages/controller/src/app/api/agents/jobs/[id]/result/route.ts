@@ -66,6 +66,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         .catch(() => undefined);
       // If the destination mirrors to a second one, copy this backup there too.
       await enqueueMirror(job.snapshotId).catch((e) => console.error("[mirror] enqueue failed:", (e as Error).message));
+    } else if (result.status === "skipped") {
+      // Nothing on the host to back up - a clear "ignored" outcome, not a failure
+      // (no alert).
+      await prisma.snapshot.update({
+        where: { id: job.snapshotId },
+        data: { status: "skipped", finishedAt: new Date(), error: result.error ?? "Ignored: nothing on the host" },
+      });
     } else {
       await prisma.snapshot.update({
         where: { id: job.snapshotId },

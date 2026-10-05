@@ -49,6 +49,9 @@ export const JobStatus = z.enum([
   "succeeded",
   "failed",
   "cancelled",
+  // Nothing to back up on the host (no container, volume or data): a clear
+  // "ignored" outcome, not a failure.
+  "skipped",
 ]);
 export type JobStatus = z.infer<typeof JobStatus>;
 

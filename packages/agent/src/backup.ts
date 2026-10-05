@@ -31,7 +31,11 @@ import { resolveResource, findDbContainers, readDbCredentials, resourceContainer
 
 export type Emit = (level: "debug" | "info" | "warn" | "error", message: string, progress?: number) => void;
 
-export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Promise<SnapshotManifest> {
+/** Returned instead of a manifest when the resource has nothing on the host to
+ * back up (no container, volume or data) - a clear "ignored" outcome. */
+export type BackupSkipped = { skipped: true; reason: string };
+
+export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Promise<SnapshotManifest | BackupSkipped> {
   const stage = join(workDir, job.id);
   await mkdir(stage, { recursive: true });
 
@@ -193,16 +197,21 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
     }
     captureMethod = "dump+live";
   } else if (isDb) {
-    // Standalone database: always a logical dump while running - no downtime,
-    // no restart, application-consistent.
-    if (!primary) throw new Error("Database backup requires a container name");
-    emit("info", `Dumping database via ${resource.type} (no downtime)`, 20);
-    const engine = resource.type;
-    const dumpName = dumpFileName(engine, resource.db?.database);
-    const dumpPath = join(stage, dumpName);
-    await dumpDatabase(resource.type, primary, resource.db ?? {}, dumpPath);
-    artifacts.push(await finalizeArtifact("db-dump", dumpName, dumpPath, { engine }, job, stage, emit));
-    captureMethod = "dump";
+    // Standalone database: a logical dump while running - no downtime, no
+    // restart, application-consistent. If it isn't deployed (no running
+    // container), there's nothing on the host to dump - fall through to the
+    // "nothing to back up" check below rather than failing.
+    if (primary && (await containerExists(primary))) {
+      emit("info", `Dumping database via ${resource.type} (no downtime)`, 20);
+      const engine = resource.type;
+      const dumpName = dumpFileName(engine, resource.db?.database);
+      const dumpPath = join(stage, dumpName);
+      await dumpDatabase(resource.type, primary, resource.db ?? {}, dumpPath);
+      artifacts.push(await finalizeArtifact("db-dump", dumpName, dumpPath, { engine }, job, stage, emit));
+      captureMethod = "dump";
+    } else {
+      emit("warn", `${resource.type} has no running container - nothing to dump`);
+    }
   } else if (isRedisStandalone) {
     // Standalone Redis/KeyDB/Dragonfly: prefer a logical RDB export (no freeze,
     // portable). Fall back to a frozen volume copy if the CLI isn't available.
@@ -234,6 +243,14 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
     }
     const volMethod = await copyVolumesAndBinds();
     captureMethod = dumped > 0 ? `dump+${volMethod}` : volMethod;
+  }
+
+  // Nothing was captured (no dump, volume or bind mount): the resource has
+  // nothing on the host to back up. Report a clear "ignored" status instead of
+  // storing an empty, misleading snapshot or failing.
+  if (artifacts.length === 0) {
+    emit("warn", "Nothing to back up on the host (no container, volume or data) - ignored");
+    return { skipped: true, reason: "Ignored: nothing on the host (no container, volume or data)" };
   }
 
   // Config artifact (resource descriptor + provenance) - sensitive, encrypt if enabled.
