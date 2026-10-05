@@ -9,6 +9,7 @@ import { RotateCcw } from "lucide-react";
 export function RestoreActionsView({
   size,
   hasAgent,
+  allowNew,
   pending,
   busy,
   error,
@@ -17,6 +18,7 @@ export function RestoreActionsView({
 }: {
   size: "sm" | "md";
   hasAgent: boolean;
+  allowNew: boolean;
   pending: boolean;
   busy: "in_place" | "new_resource" | null;
   error: string | null;
@@ -39,15 +41,17 @@ export function RestoreActionsView({
         <RotateCcw className="h-3.5 w-3.5" />
         {busy === "in_place" ? t("snapshots.restoring") : t("snapshots.restore")}
       </Button>
-      <Button
-        size={size}
-        variant="ghost"
-        disabled={!hasAgent || pending}
-        title={hasAgent ? t("snapshots.cloneTitle") : disabledTitle}
-        onClick={() => onRun("new_resource")}
-      >
-        {busy === "new_resource" ? t("snapshots.cloning") : t("snapshots.toNew")}
-      </Button>
+      {allowNew && (
+        <Button
+          size={size}
+          variant="ghost"
+          disabled={!hasAgent || pending}
+          title={hasAgent ? t("snapshots.cloneTitle") : disabledTitle}
+          onClick={() => onRun("new_resource")}
+        >
+          {busy === "new_resource" ? t("snapshots.cloning") : t("snapshots.toNew")}
+        </Button>
+      )}
       {error && <span className="text-xs text-[var(--color-danger)]">{error}</span>}
 
       {picker?.open && (

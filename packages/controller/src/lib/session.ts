@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "./auth";
 import { ROLE_RANK, roleRank } from "./roles";
+import { UserError } from "./user-error";
 
 // Re-export the pure role helpers so server code can keep importing from here.
 export { ROLE_RANK, ROLES, roleRank, can, isRole, type Role } from "./roles";
@@ -24,7 +25,7 @@ export async function requireUser() {
 export async function requireRole(min: "operator" | "admin") {
   const user = await requireUser();
   if (roleRank(user.role) < ROLE_RANK[min]) {
-    throw new Error("You don't have permission to do this.");
+    throw new UserError("messages.noPermission");
   }
   return user;
 }

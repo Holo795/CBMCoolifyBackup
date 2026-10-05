@@ -141,8 +141,8 @@ export const fr: typeof en = {
     deleting: "suppression",
   },
 
-  repin: "Réépingler le code",
-  repinConfirm: "Réépingler le déploiement sur le commit de ce snapshot et redéployer ?",
+  repin: "Ré-épingler le code",
+  repinConfirm: "Ré-épingler le déploiement sur le commit de ce snapshot et redéployer ?",
   detailsTitle: "Détails",
   artifactsTitle: "Artefacts",
   backupLogTitle: "Journal de sauvegarde",

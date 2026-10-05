@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { HardDrive, Server, Cpu, Clock, Bell, User, Mail, LifeBuoy } from "lucide-react";
 import { navFor } from "@/components/nav";
 import { useT } from "@/components/i18n-provider";
+import type { T } from "@/lib/i18n-shared";
 import { CommandPaletteView, type Entry } from "./view";
 
 type Index = {
@@ -29,11 +30,12 @@ const NAV_KEYWORDS: Record<string, string[]> = {
 // Group order in the results.
 const GROUP_ORDER = ["Pages", "Settings", "Resources", "Destinations", "Instances", "Agents"];
 
-// Non-nav static entries (page links that aren't in the sidebar NAV).
-const EXTRA_STATIC: Entry[] = [
+// Non-nav static entries (page links that aren't in the sidebar NAV). Labels are
+// translated; the English keywords stay as extra search synonyms.
+const extraStatic = (t: T): Entry[] => [
   {
     id: "nav:/profile",
-    label: "Profile",
+    label: t("common.profile"),
     href: "/profile",
     group: "Pages",
     keywords: ["profile", "account", "name", "password", "email", "credentials"],
@@ -41,8 +43,8 @@ const EXTRA_STATIC: Entry[] = [
   },
   {
     id: "settings:timezone",
-    label: "Timezone",
-    sub: "Settings",
+    label: t("settings.timezoneTitle"),
+    sub: t("components.palette.groups.Settings"),
     href: "/settings#timezone",
     group: "Settings",
     keywords: ["timezone", "time", "tz", "clock"],
@@ -50,8 +52,8 @@ const EXTRA_STATIC: Entry[] = [
   },
   {
     id: "settings:alerts",
-    label: "Failure alerts (webhook)",
-    sub: "Settings",
+    label: t("components.palette.alerts"),
+    sub: t("components.palette.groups.Settings"),
     href: "/settings#alerts",
     group: "Settings",
     keywords: ["alert", "webhook", "discord", "slack", "notification"],
@@ -59,8 +61,8 @@ const EXTRA_STATIC: Entry[] = [
   },
   {
     id: "settings:email",
-    label: "Email (SMTP)",
-    sub: "Settings",
+    label: t("settings.emailTitle"),
+    sub: t("components.palette.groups.Settings"),
     href: "/settings#email",
     group: "Settings",
     keywords: ["smtp", "email", "mail", "mailer", "password reset", "verification", "reset"],
@@ -68,8 +70,8 @@ const EXTRA_STATIC: Entry[] = [
   },
   {
     id: "settings:disaster-recovery",
-    label: "Disaster recovery",
-    sub: "Settings",
+    label: t("settings.drTitle"),
+    sub: t("components.palette.groups.Settings"),
     href: "/settings#disaster-recovery",
     group: "Settings",
     keywords: ["disaster", "recovery", "dr", "self-backup", "self backup", "metadata backup", "recovery file", "restore cbm", "backup cbm"],
@@ -134,7 +136,7 @@ export function CommandPalette({ role }: { role: string }) {
         dyn.push({ id: `i:${i.id}`, label: i.name, href: `/instances`, group: "Instances", icon: Server });
       for (const a of index.agents) dyn.push({ id: `a:${a.id}`, label: a.hostname, href: `/agents`, group: "Agents", icon: Cpu });
     }
-    return [...navEntries, ...EXTRA_STATIC, ...dyn];
+    return [...navEntries, ...extraStatic(t), ...dyn];
   }, [index, role, t]);
 
   const filtered = useMemo(() => {

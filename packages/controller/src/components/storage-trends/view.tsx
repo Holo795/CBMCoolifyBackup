@@ -52,7 +52,7 @@ export async function StorageTrendsView({
                   return (
                     <div
                       key={d.day}
-                      title={t("overview.storageBar", { day: fmtDay(d.day), size: formatBytes(d.bytes), count: d.count })}
+                      title={t(d.count > 1 ? "overview.storageBar" : "overview.storageBarOne", { day: fmtDay(d.day), size: formatBytes(d.bytes), count: d.count })}
                       className="flex-1 rounded-sm bg-accent/70 transition-colors hover:bg-accent"
                       style={{ height: d.bytes > 0 ? `max(${pct}%, 3px)` : "1px", opacity: d.bytes > 0 ? 1 : 0.35 }}
                     />

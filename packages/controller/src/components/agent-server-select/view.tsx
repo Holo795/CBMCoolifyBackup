@@ -1,6 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui";
+import { useT } from "@/components/i18n-provider";
 
 type ServerOption = { uuid: string; name: string };
 
@@ -22,6 +23,7 @@ export function AgentServerSelectView({
   pending: boolean;
   onChange: (v: string) => void;
 }) {
+  const t = useT();
   // Nothing to choose between: just show what was detected (or a dash).
   if (options.length <= 1 && !serverManual) {
     return (
@@ -29,7 +31,7 @@ export function AgentServerSelectView({
         {serverName ?? (serverUuid ? serverUuid.slice(0, 8) : "-")}
         {serverName || serverUuid ? (
           <Badge tone="neutral" className="ml-2">
-            auto
+            {t("components.auto")}
           </Badge>
         ) : null}
       </span>
@@ -44,7 +46,7 @@ export function AgentServerSelectView({
         disabled={pending}
         onChange={(e) => onChange(e.target.value)}
       >
-        <option value="">Auto-detect</option>
+        <option value="">{t("components.autoDetect")}</option>
         {options.map((o) => (
           <option key={o.uuid} value={o.uuid}>
             {o.name}

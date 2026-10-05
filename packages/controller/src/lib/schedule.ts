@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import type { BackupPolicy, Destination } from "@/generated/prisma/client";
+import type { T } from "./i18n-shared";
 
 /** Frequency presets -> cron (evaluated in the timezone set in Settings). */
 export const FREQUENCIES: Record<string, string> = {
@@ -22,18 +23,27 @@ export function cronToFrequency(cron: string): string {
   return "custom";
 }
 
-/** Human description of a cron expression for the UI. */
-export function describeCron(cron: string, timeZone?: string): string {
-  const z = timeZone ? ` ${timeZone}` : "";
-  for (const [name, expr] of Object.entries(FREQUENCIES)) {
-    if (expr === cron) {
-      if (name === "weekly") return `weekly (Mon 02:00${z})`;
-      if (name === "monthly") return `monthly (1st, 02:00${z})`;
-      if (name === "daily") return `daily at 02:00${z}`;
-      if (name === "hourly") return "hourly";
-    }
-  }
-  return cron;
+/** Human description of a cron expression for the UI, in `t`'s language. A
+ * custom cron is shown as-is. */
+export function describeCron(cron: string, t: T, timeZone?: string): string {
+  const zone = timeZone ? ` ${timeZone}` : "";
+  const preset = cronToFrequency(cron);
+  return preset === "custom" ? cron : t(`schedule.cron.${preset}`, { zone });
+}
+
+/** A schedule's / snapshot's mode ("backup" | "sync") for the UI. */
+export function modeLabel(mode: string, t: T): string {
+  return mode === "backup" || mode === "sync" ? t(`schedule.mode.${mode}`) : mode;
+}
+
+const CAPTURES = new Set(["dump", "frozen", "live", "none"]);
+
+/** A snapshot's capture mode for the UI ("dump+frozen" → each part translated). */
+export function captureLabel(capture: string, t: T): string {
+  return capture
+    .split("+")
+    .map((c) => (CAPTURES.has(c) ? t(`schedule.capture.${c}`) : c))
+    .join("+");
 }
 
 export type PolicyWithDest = BackupPolicy & { destination: Destination };

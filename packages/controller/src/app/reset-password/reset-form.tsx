@@ -3,9 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
+import { authErrorText } from "@/lib/auth-errors";
+import { useT } from "@/components/i18n-provider";
 import { ResetPasswordFormView } from "./reset-form.view";
 
 export function ResetPasswordForm({ token }: { token: string }) {
+  const t = useT();
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -16,12 +19,12 @@ export function ResetPasswordForm({ token }: { token: string }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (password.length < 8) return setError("Password must be at least 8 characters");
-    if (password !== confirm) return setError("Passwords don't match");
+    if (password.length < 8) return setError(t("auth.passwordTooShort"));
+    if (password !== confirm) return setError(t("auth.passwordMismatch"));
     setLoading(true);
     try {
       const res = await authClient.resetPassword({ newPassword: password, token });
-      if (res.error) setError(res.error.message ?? "Could not reset your password");
+      if (res.error) setError(authErrorText(res.error, t, "auth.resetFailed"));
       else {
         setDone(true);
         setTimeout(() => router.push("/login"), 1500);

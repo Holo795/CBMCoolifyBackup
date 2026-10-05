@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Button } from "@/components/ui";
 import { useT } from "@/components/i18n-provider";
 import { Trash2, AlertTriangle } from "lucide-react";
@@ -41,26 +41,51 @@ export function ConfirmDeleteView({
   error?: string | null;
 }) {
   const t = useT();
+  const titleId = useId();
   return (
     <>
-      <Button size={size} variant={variant} aria-label={title} onClick={onOpenClick}>
-        <Trash2 className="h-3.5 w-3.5" />
+      {/* A visible label is the accessible name; an icon-only trigger is named
+          "Delete" and keeps the question as its tooltip. */}
+      <Button
+        size={size}
+        variant={variant}
+        aria-label={label ? undefined : t("common.delete")}
+        title={title}
+        aria-haspopup="dialog"
+        onClick={onOpenClick}
+      >
+        <Trash2 className="h-3.5 w-3.5" aria-hidden />
         {label ? <span className="ml-1">{label}</span> : null}
       </Button>
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
             className="w-full max-w-md rounded-xl border border-[var(--color-danger)]/40 bg-card p-5 shadow-xl"
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.stopPropagation();
+                onClose();
+              }
+            }}
           >
             <div className="mb-3 flex items-center gap-2 text-[var(--color-danger)]">
-              <AlertTriangle className="h-5 w-5 shrink-0" />
-              <h3 className="font-medium">{title}</h3>
+              <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden />
+              <h3 id={titleId} className="font-medium">
+                {title}
+              </h3>
             </div>
             <div className="mb-4 text-sm text-muted-foreground">{body}</div>
-            <label className="mb-1.5 block text-xs text-muted-foreground">{t("components.typeBefore")} <span className="font-mono text-foreground">{confirmWord}</span> {t("components.typeAfter")}</label>
+            <label htmlFor={`${titleId}-confirm`} className="mb-1.5 block text-xs text-muted-foreground">
+              {t("components.typeBefore")} <span className="font-mono text-foreground">{confirmWord}</span> {t("components.typeAfter")}
+            </label>
+            {/* Focus moves into the dialog on open. */}
             <input
+              id={`${titleId}-confirm`}
               autoFocus
               value={text}
               onChange={(e) => onTextChange(e.target.value)}

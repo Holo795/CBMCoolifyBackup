@@ -14,6 +14,7 @@ export function proxy(req: NextRequest) {
 export const config = {
   // Protect everything except auth, login, static assets, the agent API and the
   // programmatic /api/v1 surface (both authenticate with a bearer token, not a
-  // session cookie), and the public /install.sh agent installer script.
-  matcher: ["/((?!api/auth|api/agents|api/v1|api/health|login|reset-password|invite|install.sh|_next/static|_next/image|favicon.ico).*)"],
+  // session cookie), the public /install.sh agent installer script and the app
+  // icons (requested by the browser before anyone signs in).
+  matcher: ["/((?!api/auth|api/agents|api/v1|api/health|login|reset-password|invite|install.sh|_next/static|_next/image|favicon.ico|icon.svg).*)"],
 };

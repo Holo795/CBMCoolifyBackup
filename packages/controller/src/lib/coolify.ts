@@ -2,6 +2,7 @@
  * Minimal Coolify API v4 client. Used by the controller to discover resources.
  * Endpoints used: /api/v1/{applications,databases,services,projects,resources}.
  */
+import { UserError } from "./user-error";
 
 export interface CoolifyResource {
   uuid: string;
@@ -445,7 +446,7 @@ export class CoolifyClient {
     }
 
     if (!src.git_repository) {
-      throw new Error(`Application "${src.name}" can't be "→ new" cloned (no git repo and no docker image)`);
+      throw new UserError("messages.appCantClone", { name: String(src.name) });
     }
     // The create endpoints validate the body against the build pack: build-pack-
     // specific fields (dockerfile_location, etc.) are rejected ("This field is
@@ -624,7 +625,7 @@ export class CoolifyClient {
     // The /services endpoint requires docker_compose_raw to be base64-encoded.
     if (compose) body = { ...base, docker_compose_raw: Buffer.from(String(compose), "utf8").toString("base64") };
     else if (src.service_type) body = { ...base, type: src.service_type };
-    else throw new Error(`Service "${src.name}" can't be cloned automatically (no compose exposed by the API)`);
+    else throw new UserError("messages.serviceCantClone", { name: String(src.name) });
 
     const created = await this.post<{ uuid?: string }>(`/api/v1/services`, compact(body));
     if (!created?.uuid) throw new Error("Coolify did not return a uuid for the cloned service");

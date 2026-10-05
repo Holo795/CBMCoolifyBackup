@@ -4,7 +4,9 @@ export const en = {
   description: "Backup posture across your Coolify fleet",
   instances: "Coolify instances",
   resources: "Resources",
-  backupEnabled: "Backup-enabled",
+  // Picked by count (…One for 0 or 1, …Other above), like the other counters.
+  backupEnabledOne: "Backup-enabled",
+  backupEnabledOther: "Backup-enabled",
   snapshots: "Snapshots",
   agentsOnline: "Agents online",
   recent: "Recent snapshots",
@@ -20,6 +22,7 @@ export const en = {
   storageDaily: "Backed up per day",
   storagePerDestination: "By destination",
   storageEmpty: "No successful backups yet - this fills in after the first run.",
+  storageBarOne: "{day}: {size} ({count} backup)",
   storageBar: "{day}: {size} ({count} backups)",
   storageNote: "Sizes are the backed-up data before deduplication - a restic repository usually stores less.",
 };
@@ -29,7 +32,8 @@ export const fr: typeof en = {
   description: "État des sauvegardes de votre flotte Coolify",
   instances: "Instances Coolify",
   resources: "Ressources",
-  backupEnabled: "Sauvegarde activée",
+  backupEnabledOne: "Sauvegarde activée",
+  backupEnabledOther: "Sauvegardes activées",
   snapshots: "Snapshots",
   agentsOnline: "Agents en ligne",
   recent: "Snapshots récents",
@@ -45,6 +49,7 @@ export const fr: typeof en = {
   storageDaily: "Sauvegardé par jour",
   storagePerDestination: "Par destination",
   storageEmpty: "Aucune sauvegarde réussie pour l'instant - ce graphique se remplit après la première exécution.",
+  storageBarOne: "{day} : {size} ({count} sauvegarde)",
   storageBar: "{day} : {size} ({count} sauvegardes)",
   storageNote: "Les tailles sont celles des données sauvegardées avant déduplication - un dépôt restic stocke généralement moins.",
 };

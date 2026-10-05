@@ -1,6 +1,7 @@
 "use client";
 
 import { type RefObject } from "react";
+import { useT } from "@/components/i18n-provider";
 
 export type LogEvent = { ts: string; level: string; message: string; progress: number | null };
 
@@ -18,6 +19,10 @@ export function LiveLogView({
   timeZone?: string;
   boxRef: RefObject<HTMLDivElement | null>;
 }) {
+  const t = useT();
+  // Job statuses share the snapshot labels; an unknown one shows as sent.
+  const statusKey = `snapshots.status.${status}`;
+  const statusText = t(statusKey) === statusKey ? status : t(statusKey);
   return (
     <div>
       <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
@@ -27,16 +32,16 @@ export function LiveLogView({
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
             </span>
-            live
+            {t("components.liveLog.live")}
           </span>
         ) : (
-          <span>finished - {status}</span>
+          <span>{t("components.liveLog.finished", { status: statusText })}</span>
         )}
-        <span>· {events.length} events</span>
+        <span>· {t("components.liveLog.events", { count: events.length })}</span>
       </div>
       <div ref={boxRef} className="max-h-80 overflow-auto whitespace-nowrap rounded-md bg-muted/40 p-3 font-mono text-xs">
         {events.length === 0 ? (
-          <span className="text-muted-foreground">Waiting for the agent…</span>
+          <span className="text-muted-foreground">{t("components.liveLog.waiting")}</span>
         ) : (
           events.map((e, i) => (
             // Append-only log: an event's position never changes.

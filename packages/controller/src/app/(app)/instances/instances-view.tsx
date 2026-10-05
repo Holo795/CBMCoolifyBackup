@@ -19,7 +19,7 @@ import { RevealInstall } from "@/components/reveal-install";
 import { ServerMapForm } from "@/components/server-map-form";
 import { Gate } from "@/components/role-gate";
 import { timeAgo } from "@/lib/cn";
-import { describeCron, cronToFrequency } from "@/lib/schedule";
+import { describeCron, cronToFrequency, modeLabel } from "@/lib/schedule";
 import { isAgentOnline as agentOnline } from "@/lib/agent-status";
 import type { groupServersByInstance } from "@/lib/servers";
 import { Server, RefreshCw, Trash2, CalendarClock, ShieldCheck, Pencil } from "lucide-react";
@@ -70,8 +70,8 @@ export async function InstancesView({
           {policy ? (
             <span>
               {t("instances.schedule.backupsPrefix")}{" "}
-              <span className="font-medium text-foreground">{describeCron(policy.cron, tz)}</span> →{" "}
-              {policy.destination.name} · {policy.mode} ·{" "}
+              <span className="font-medium text-foreground">{describeCron(policy.cron, t, tz)}</span> →{" "}
+              {policy.destination.name} · {modeLabel(policy.mode, t)} ·{" "}
               {t("instances.schedule.keep", {
                 daily: policy.retentionDaily,
                 weekly: policy.retentionWeekly,
