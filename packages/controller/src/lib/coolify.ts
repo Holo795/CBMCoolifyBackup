@@ -22,6 +22,8 @@ export interface CoolifyServer {
   uuid: string;
   name: string;
   ip?: string;
+  /** The server Coolify itself runs on (its control plane and database). */
+  isCoolifyHost?: boolean;
 }
 
 export type DbEngine = "postgresql" | "mysql" | "mariadb" | "mongodb";
@@ -751,10 +753,17 @@ export class CoolifyClient {
   /** Discover all resources, normalized. */
   /** List the Coolify servers managed by this instance. */
   async listServers(): Promise<CoolifyServer[]> {
-    const raw = await this.get<Array<{ uuid?: string; name?: string; ip?: string }>>("/api/v1/servers").catch(() => []);
+    const raw = await this.get<Array<{ uuid?: string; name?: string; ip?: string; is_coolify_host?: boolean }>>(
+      "/api/v1/servers",
+    ).catch(() => []);
     return (raw ?? [])
       .filter((s) => s?.uuid)
-      .map((s) => ({ uuid: s.uuid as string, name: (s.name ?? s.uuid) as string, ip: s.ip as string | undefined }));
+      .map((s) => ({
+        uuid: s.uuid as string,
+        name: (s.name ?? s.uuid) as string,
+        ip: s.ip as string | undefined,
+        isCoolifyHost: s.is_coolify_host === true,
+      }));
   }
 
   async listResources(): Promise<CoolifyResource[]> {

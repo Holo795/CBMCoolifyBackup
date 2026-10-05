@@ -32,3 +32,11 @@ test("public repositories: bare owner/repo means GitHub, full URLs and SSH forms
   assert.equal(publicRepoUrl("https://git.example.com/a/b.git"), "https://git.example.com/a/b.git");
   assert.equal(publicRepoUrl("git@github.com:a/b.git"), "git@github.com:a/b.git");
 });
+
+test("the control plane's server: flagged by Coolify, else the host.docker.internal one", async () => {
+  const { coolifyHostServer } = await import("../src/lib/control-plane");
+  const a = { uuid: "a", name: "remote", ip: "10.0.0.2" };
+  assert.equal(coolifyHostServer([a, { uuid: "b", name: "main", isCoolifyHost: true }])?.uuid, "b");
+  assert.equal(coolifyHostServer([a, { uuid: "c", name: "localhost", ip: "host.docker.internal" }])?.uuid, "c");
+  assert.equal(coolifyHostServer([a]), undefined);
+});

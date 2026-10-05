@@ -5,6 +5,7 @@ import { headers, cookies } from "next/headers";
 import { LOCALE_COOKIE, isLocale } from "@/lib/i18n-shared";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { ensureControlPlaneResource } from "@/lib/control-plane";
 import { env } from "@/lib/env";
 import { auth } from "@/lib/auth";
 import { requireUser, requireRole } from "@/lib/session";
@@ -330,20 +331,7 @@ export async function revealInstallCommand(
 /** Back up the Coolify control plane itself (its Postgres + /data/coolify). */
 export async function backupCoolifyInstance(instanceId: string) {
   await requireRole("operator");
-  const inst = await prisma.coolifyInstance.findUniqueOrThrow({ where: { id: instanceId } });
-  const resource = await prisma.resource.upsert({
-    where: { instanceId_coolifyUuid: { instanceId, coolifyUuid: `coolify-self-${instanceId}` } },
-    create: {
-      instanceId,
-      coolifyUuid: `coolify-self-${instanceId}`,
-      name: `${inst.name} (control plane)`,
-      type: "postgresql",
-      projectName: "Coolify",
-      status: "running:healthy",
-      backupEnabled: true,
-    },
-    update: {},
-  });
+  const resource = await ensureControlPlaneResource(instanceId);
   try {
     await enqueueBackup(resource.id);
   } catch (e) {
