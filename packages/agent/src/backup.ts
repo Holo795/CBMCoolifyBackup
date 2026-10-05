@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   type Artifact,
   type BackupJob,
+  type DiscoveredContainer,
   type Provenance,
   type SnapshotManifest,
   DUMPABLE_DB_TYPES,
@@ -23,7 +24,9 @@ import {
   containerExists,
   execShell,
   inspectContainer,
+  type RunResult,
 } from "./docker.js";
+import { matchHookTargets, DEFAULT_HOOK_TIMEOUT_SEC } from "./hooks.js";
 import { captureProvenance } from "./provenance.js";
 import { encryptFile, sha256File } from "./crypto.js";
 import { makeTransfer } from "./transfer.js";
@@ -165,27 +168,46 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
     }
   };
 
-  // Resolve a hook's target container: the named one if it exists, else the
-  // resource's primary container.
+  // Hook targets: "" → the primary container; otherwise a compose service name
+  // (stable across redeploys) or an exact container name of THIS resource. The
+  // service labels are read once. A target that matches nothing is skipped -
+  // never redirected to another container.
   const hooks = job.hooks ?? [];
-  const hookContainer = async (name: string): Promise<string | undefined> =>
-    name && (await containerExists(name)) ? name : primary;
+  const hookInventory: DiscoveredContainer[] = hooks.length
+    ? await Promise.all(
+        containers.map(async (name) => {
+          const service = (await inspectContainer(name).catch(() => null))?.Config?.Labels?.["com.docker.compose.service"];
+          return service ? { name, service } : { name };
+        }),
+      )
+    : [];
+  const runHook = async (when: "pre" | "post", target: string, cmd: string, timeoutSec?: number, progress?: number) => {
+    const targets = matchHookTargets(target, hookInventory, primary);
+    if (targets.length === 0) {
+      emit("warn", `No container of this resource matches the ${when}-backup hook target "${target || "primary"}"; skipped`);
+      return;
+    }
+    const limit = timeoutSec ?? DEFAULT_HOOK_TIMEOUT_SEC;
+    for (const c of targets) {
+      emit("info", `Running ${when}-backup hook in ${c}`, progress);
+      const r = await execShell(c, cmd, limit).catch(
+        (e): RunResult => ({ code: -1, stdout: "", stderr: (e as Error).message }),
+      );
+      if (r.code === 0) continue;
+      const why = r.timedOut || r.code === 124 ? `timed out after ${limit}s` : `exit ${r.code}`;
+      const msg = `${when}-backup hook failed in ${c} (${why}): ${r.stderr.trim().slice(0, 300)}`;
+      if (when === "pre") throw new Error(msg);
+      emit("warn", msg);
+    }
+  };
 
   try {
-  // Pre-backup hooks: run inside their container(s); a failure aborts the backup
-  // (the operator wanted the app quiesced first). They run INSIDE the try so the
-  // post hooks (finally below) still run to undo them - e.g. bring an app back
-  // out of maintenance even when a pre hook or the backup failed.
+  // Pre-backup hooks: run inside their container(s); a failure or timeout aborts
+  // the backup (the operator wanted the app quiesced first). They run INSIDE the
+  // try so the post hooks (finally below) still run to undo them - e.g. bring an
+  // app back out of maintenance even when a pre hook or the backup failed.
   for (const h of hooks) {
-    if (!h.pre) continue;
-    const c = await hookContainer(h.container);
-    if (!c) {
-      emit("warn", `No container for pre-backup hook (${h.container || "primary"}); skipped`);
-      continue;
-    }
-    emit("info", `Running pre-backup hook in ${c}`, 5);
-    const r = await execShell(c, h.pre);
-    if (r.code !== 0) throw new Error(`pre-backup hook failed in ${c} (exit ${r.code}): ${r.stderr.slice(0, 300)}`);
+    if (h.pre) await runHook("pre", h.container, h.pre, h.timeoutSec, 5);
   }
 
   if (isCoolifySelf) {
@@ -334,14 +356,11 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
   return manifest;
   } finally {
     // Post-backup hooks always run (e.g. bring an app back out of maintenance),
-    // best-effort, then clean the staging dir.
-    for (const h of hooks) {
+    // best-effort and in REVERSE order (undo the last pre hook first), then clean
+    // the staging dir.
+    for (const h of [...hooks].reverse()) {
       if (!h.post) continue;
-      const c = await hookContainer(h.container);
-      if (!c) continue;
-      emit("info", `Running post-backup hook in ${c}`);
-      const r = await execShell(c, h.post).catch((e) => ({ code: -1, stdout: "", stderr: (e as Error).message }));
-      if (r.code !== 0) emit("warn", `post-backup hook failed in ${c} (exit ${r.code}): ${r.stderr.slice(0, 300)}`);
+      await runHook("post", h.container, h.post, h.timeoutSec).catch((e) => emit("warn", (e as Error).message));
     }
     await rm(stage, { recursive: true, force: true }).catch(() => undefined);
   }

@@ -206,11 +206,21 @@ export const BackupJob = z.object({
   destination: ResolvedDestination,
   encryption: EncryptionSpec,
   storage: StorageSpec.default({ engine: "tar" }),
-  /** Optional pre/post commands, one entry per container (`container` "" or an
-   * unknown name → the resource's primary container). Pre runs before capture
-   * (a failure aborts), post always runs after. */
+  /** Optional pre/post commands per target. `container` "" → the resource's
+   * primary container; otherwise a docker compose service name (stable across
+   * redeploys) or an exact container name. A target that matches no container is
+   * skipped, never redirected elsewhere. Pre runs before capture (a failure or
+   * timeout aborts), post always runs after, in reverse order. */
   hooks: z
-    .array(z.object({ container: z.string().default(""), pre: z.string().optional(), post: z.string().optional() }))
+    .array(
+      z.object({
+        container: z.string().default(""),
+        pre: z.string().optional(),
+        post: z.string().optional(),
+        /** Per-command time limit in seconds (default 300). */
+        timeoutSec: z.number().int().min(1).max(3600).optional(),
+      }),
+    )
     .optional(),
   /** Relative directory to write into (controller decides naming). */
   destinationDir: z.string(),
@@ -378,6 +388,14 @@ export const AgentRegisterResponse = z.object({
 });
 export type AgentRegisterResponse = z.infer<typeof AgentRegisterResponse>;
 
+/** A container the agent sees for a resource, with its docker compose service
+ * name when it has one (that name survives redeploys; the container name may not). */
+export const DiscoveredContainer = z.object({
+  name: z.string(),
+  service: z.string().optional(),
+});
+export type DiscoveredContainer = z.infer<typeof DiscoveredContainer>;
+
 export const HeartbeatRequest = z.object({
   dockerVersion: z.string().optional(),
   containers: z.number().int().nonnegative().optional(),
@@ -385,6 +403,9 @@ export const HeartbeatRequest = z.object({
    * volume/container names). The controller matches them to known resources to
    * auto-detect which server this agent backs up. */
   resourceUuids: z.array(z.string()).optional(),
+  /** Containers per Coolify resource uuid on this host, so per-container hooks
+   * can be configured before the first backup and stay current after redeploys. */
+  resourceContainers: z.record(z.string(), z.array(DiscoveredContainer)).optional(),
 });
 export type HeartbeatRequest = z.infer<typeof HeartbeatRequest>;
 

@@ -177,6 +177,10 @@ model Resource {
   // { container: string; pre?: string; post?: string } — container "" = primary.
   // A failing pre command aborts the backup; post commands always run.
   hooks        Json?
+  // Containers the agent currently sees for this resource: [{ name, service? }]
+  // (service = docker compose service, stable across redeploys). Refreshed by
+  // agent heartbeats; drives the per-container hook targets in the UI.
+  containers   Json?
   retentionOverride Int?
   // Last time we alerted that this resource's scheduled backup is overdue
   // (debounce so we don't re-alert every sweep for the same missed run).

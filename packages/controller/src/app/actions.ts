@@ -849,18 +849,32 @@ export async function updateResourceSettings(resourceId: string, fd: FormData): 
 }
 
 /** Save a resource's per-container pre/post-backup hooks (empty entries dropped). */
+/**
+ * Save per-container pre/post-backup hooks. Admin-only: a hook runs an arbitrary
+ * command inside a production container, which is configuration, not operation.
+ * `container` is "" (primary container), a compose service name or a container name.
+ */
 export async function updateResourceHooks(
   resourceId: string,
-  hooks: { container: string; pre?: string; post?: string }[],
-) {
-  await requireRole("operator");
-  const clean = (hooks ?? [])
-    .map((h) => ({
-      container: (h.container ?? "").trim(),
-      pre: (h.pre ?? "").trim() || undefined,
-      post: (h.post ?? "").trim() || undefined,
-    }))
-    .filter((h) => h.pre || h.post);
+  hooks: { container: string; pre?: string; post?: string; timeoutSec?: number | string }[],
+): Promise<{ ok?: boolean; error?: string }> {
+  await requireRole("admin");
+  const clean: { container: string; pre?: string; post?: string; timeoutSec?: number }[] = [];
+  for (const h of hooks ?? []) {
+    const pre = (h.pre ?? "").trim() || undefined;
+    const post = (h.post ?? "").trim() || undefined;
+    if (!pre && !post) continue;
+    if ((pre?.length ?? 0) > 4000 || (post?.length ?? 0) > 4000) return { error: "A hook command is too long (max 4000 characters)" };
+    const raw = typeof h.timeoutSec === "string" ? h.timeoutSec.trim() : h.timeoutSec;
+    let timeoutSec: number | undefined;
+    if (raw !== undefined && raw !== "") {
+      timeoutSec = Number(raw);
+      if (!Number.isInteger(timeoutSec) || timeoutSec < 1 || timeoutSec > 3600) {
+        return { error: "A hook time limit must be a whole number of seconds between 1 and 3600" };
+      }
+    }
+    clean.push({ container: (h.container ?? "").trim().slice(0, 200), pre, post, ...(timeoutSec ? { timeoutSec } : {}) });
+  }
   await prisma.resource.update({
     where: { id: resourceId },
     data: { hooks: clean.length ? clean : Prisma.DbNull },

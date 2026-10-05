@@ -31,10 +31,24 @@ agent confirms every artifact actually landed at the destination.
 
 ## Hooks (per container)
 
-Per resource you can set **pre/post-backup commands** that run inside a container — one entry
-per container, so a multi-container service can quiesce each part independently. A failing
-**pre** command **aborts** the backup; the **post** command always runs afterwards (even on
-failure), so it can undo the pre step.
+Per resource you can set **pre/post-backup commands** that run inside its containers, so a
+multi-container service can quiesce each part independently (admins only: a hook runs an
+arbitrary command in a production container).
+
+- **Targets.** The agent reports each resource's containers, so the rows are there before the
+  first backup. A row targets the docker compose **service** (e.g. `worker`) when the container
+  has one: that name survives redeploys, whereas Coolify renames app containers on every deploy.
+  A service with several replicas runs the hook in each of them. A single-container resource
+  has one *primary container* row.
+- **A target that no longer matches anything is skipped** (with a warning in the backup log),
+  never redirected to another container.
+- **Order and failure.** Pre commands run in order; a failing or timed-out **pre** command
+  **aborts** the backup. **Post** commands always run afterwards (even on failure), in
+  **reverse order**, so they undo the pre steps.
+- **Time limit.** Each command has a limit (default 300 s, up to 3600). The image's `timeout`
+  stops the command inside the container; with busybox (Alpine) a compound command's children
+  may outlive it, and an image without `timeout` keeps running it — the backup itself never waits
+  past the limit.
 
 Example: `php artisan down` (pre) / `php artisan up` (post), or flushing a cache before the copy.
 

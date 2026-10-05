@@ -42,6 +42,22 @@ export const en = {
   backupOptionsInfo:
     "Backups never restart this resource. Databases are exported live; for files, the agent briefly freezes (pauses) only the containers that write to them for a few seconds, then resumes them - with no restart at all. Settings are saved automatically.",
   backupHooks: "Backup hooks",
+  hooks: {
+    primary: "primary container",
+    notFound: "not seen right now",
+    pre: "Pre-backup",
+    post: "Post-backup",
+    timeout: "Limit (s)",
+    helpSingle: "Runs inside the resource's primary container.",
+    helpMulti:
+      "Each row targets a compose service (stable across redeploys) or a container, and runs in every container behind it.",
+    helpRules:
+      "A failing or timed-out pre-command aborts the backup; post-commands always run afterwards, in reverse order. Default limit: 300 s. Leave blank to disable.",
+    noneDiscovered: "No containers seen yet - they appear once an agent on this resource's server reports them.",
+    save: "Save hooks",
+    saving: "Saving…",
+    saved: "Saved",
+  },
   schedule: "Schedule",
   scheduleOverrideDesc: "Custom override for this resource.",
   scheduleInherits: "Inherits",
@@ -124,6 +140,23 @@ export const fr: typeof en = {
   backupOptionsInfo:
     "Les sauvegardes ne redémarrent jamais cette ressource. Les bases de données sont exportées à chaud ; pour les fichiers, l'agent gèle brièvement (met en pause) uniquement les conteneurs qui y écrivent pendant quelques secondes, puis les relance - sans aucun redémarrage. Les réglages sont enregistrés automatiquement.",
   backupHooks: "Hooks de sauvegarde",
+  hooks: {
+    primary: "conteneur principal",
+    notFound: "introuvable pour l'instant",
+    pre: "Avant sauvegarde",
+    post: "Après sauvegarde",
+    timeout: "Limite (s)",
+    helpSingle: "S'exécute dans le conteneur principal de la ressource.",
+    helpMulti:
+      "Chaque ligne cible un service compose (stable d'un redéploiement à l'autre) ou un conteneur, et s'exécute dans chaque conteneur correspondant.",
+    helpRules:
+      "Une commande « avant » qui échoue ou dépasse sa limite annule la sauvegarde ; les commandes « après » s'exécutent toujours ensuite, dans l'ordre inverse. Limite par défaut : 300 s. Laisser vide pour désactiver.",
+    noneDiscovered:
+      "Aucun conteneur détecté pour l'instant - ils apparaissent dès qu'un agent du serveur de cette ressource les signale.",
+    save: "Enregistrer les hooks",
+    saving: "Enregistrement…",
+    saved: "Enregistré",
+  },
   schedule: "Planification",
   scheduleOverrideDesc: "Surcharge spécifique à cette ressource.",
   scheduleInherits: "Hérite de",

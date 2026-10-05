@@ -86,7 +86,8 @@ export async function ResourceDetailView({
         </Card>
         </Gate>
 
-        <Gate min="operator">
+        {/* Hooks run arbitrary commands inside containers: configuration, admin-only. */}
+        <Gate min="admin">
         <Card>
           <CardHeader>
             <CardTitle>{t("resources.backupHooks")}</CardTitle>
@@ -94,8 +95,16 @@ export async function ResourceDetailView({
           <CardContent>
             <HooksForm
               resourceId={resource.id}
-              containers={resource.containerNames}
-              hooks={Array.isArray(resource.hooks) ? (resource.hooks as { container: string; pre?: string; post?: string }[]) : []}
+              containers={
+                Array.isArray(resource.containers)
+                  ? (resource.containers as { name: string; service?: string }[])
+                  : resource.containerNames.map((name) => ({ name }))
+              }
+              hooks={
+                Array.isArray(resource.hooks)
+                  ? (resource.hooks as { container: string; pre?: string; post?: string; timeoutSec?: number }[])
+                  : []
+              }
             />
           </CardContent>
         </Card>

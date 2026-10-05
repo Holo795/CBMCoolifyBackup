@@ -2,61 +2,68 @@
 
 import { useState, useTransition } from "react";
 import { updateResourceHooks } from "@/app/actions";
-import { HooksFormView } from "./view";
+import { useT } from "@/components/i18n-provider";
+import { HooksFormView, type HookRow } from "./view";
 
-type Hook = { container: string; pre?: string; post?: string };
+type Hook = { container: string; pre?: string; post?: string; timeoutSec?: number };
+type Discovered = { name: string; service?: string };
 
 /**
- * Per-container pre/post-backup hooks. For a multi-container resource (a
- * docker-compose service, or any resource with several containers) each
- * container gets its own row; otherwise a single "primary container" row.
+ * Per-container pre/post-backup hooks. Rows come from the containers the agent
+ * currently sees for the resource (refreshed by heartbeats, so they exist before
+ * the first backup). A row targets the docker compose SERVICE when the container
+ * has one — that name survives redeploys, the container name may not — else the
+ * container name. A single-container resource gets one "primary container" row.
+ * Existing hooks always keep their row so nothing is lost. Markup in ./view.tsx.
  */
-export function HooksForm({
-  resourceId,
-  containers,
-  hooks,
-}: {
-  resourceId: string;
-  containers: string[];
-  hooks: Hook[];
-}) {
+export function HooksForm({ resourceId, containers, hooks }: { resourceId: string; containers: Discovered[]; hooks: Hook[] }) {
+  const t = useT();
+  // Distinct stable targets → the container names behind each.
+  const byTarget = new Map<string, string[]>();
+  for (const c of containers) {
+    const key = c.service || c.name;
+    byTarget.set(key, [...(byTarget.get(key) ?? []), c.name]);
+  }
+  const multi = byTarget.size > 1;
+  const targets = multi ? [...byTarget.keys()] : [""];
   const existing = new Map(hooks.map((h) => [h.container, h]));
-  // One row per known container, plus any container referenced by an existing
-  // hook (so renamed-away hooks aren't lost). Fall back to a single primary row.
-  const slots = Array.from(new Set([...containers, ...hooks.map((h) => h.container)]));
-  const initial = (slots.length ? slots : [""]).map((c) => ({
-    container: c,
-    pre: existing.get(c)?.pre ?? "",
-    post: existing.get(c)?.post ?? "",
-  }));
+  const slots = Array.from(new Set([...targets, ...hooks.map((h) => h.container)]));
 
-  const [rows, setRows] = useState(initial);
+  const [rows, setRows] = useState<HookRow[]>(() =>
+    slots.map((target) => ({
+      target,
+      containers: byTarget.get(target) ?? [],
+      known: target === "" || byTarget.has(target),
+      pre: existing.get(target)?.pre ?? "",
+      post: existing.get(target)?.post ?? "",
+      timeoutSec: existing.get(target)?.timeoutSec ? String(existing.get(target)!.timeoutSec) : "",
+    })),
+  );
   const [pending, start] = useTransition();
-  const [saved, setSaved] = useState(false);
-  const multi = slots.length > 1;
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const onUpdate = (i: number, field: "pre" | "post", val: string) =>
+  const onUpdate = (i: number, field: "pre" | "post" | "timeoutSec", val: string) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, [field]: val } : r)));
 
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setSaved(false);
+    setMsg(null);
     start(async () => {
-      await updateResourceHooks(
+      const r = await updateResourceHooks(
         resourceId,
-        rows.map((r) => ({ container: r.container, pre: r.pre, post: r.post })),
+        rows.map((x) => ({ container: x.target, pre: x.pre, post: x.post, timeoutSec: x.timeoutSec })),
       );
-      setSaved(true);
+      setMsg(r?.error ? { ok: false, text: r.error } : { ok: true, text: t("resources.hooks.saved") });
     });
   };
 
   return (
     <HooksFormView
       rows={rows}
-      multi={multi}
-      containersEmpty={containers.length === 0}
+      multi={rows.length > 1}
+      noneDiscovered={containers.length === 0}
       pending={pending}
-      saved={saved}
+      msg={msg}
       onUpdate={onUpdate}
       onSubmit={onSubmit}
     />

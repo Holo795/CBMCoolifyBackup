@@ -241,9 +241,25 @@ export async function tarEntryCount(inFile: string): Promise<number> {
   return n;
 }
 
-/** Run a shell command inside a container (used for pre/post-backup hooks). */
-export async function execShell(container: string, command: string): Promise<RunResult> {
-  return docker(["exec", container, "sh", "-c", command]);
+/**
+ * Run a shell command inside a container (used for pre/post-backup hooks).
+ * With `timeoutSec`, the container's own `timeout` stops the command when the
+ * image has one; the client-side limit is a backstop (it ends the wait, but the
+ * command may keep running in an image without `timeout`). The command and the
+ * limit are passed as positional parameters, never spliced into the script.
+ */
+export async function execShell(container: string, command: string, timeoutSec?: number): Promise<RunResult> {
+  if (!timeoutSec) return docker(["exec", container, "sh", "-c", command]);
+  const script = 'if command -v timeout >/dev/null 2>&1; then exec timeout -s TERM "$1" sh -c "$2"; else exec sh -c "$2"; fi';
+  return runCapture(DOCKER, ["exec", container, "sh", "-c", script, "cbm-hook", String(timeoutSec), command], {
+    timeoutMs: (timeoutSec + 15) * 1000,
+  });
+}
+
+/** Every container on the host as `docker ps` rows for hooks.groupContainersByResource. */
+export async function listContainersForDiscovery(format: string): Promise<string> {
+  const r = await docker(["ps", "-a", "--format", format]);
+  return r.code === 0 ? r.stdout : "";
 }
 
 export async function dockerVersion(): Promise<string> {

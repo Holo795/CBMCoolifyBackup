@@ -48,6 +48,10 @@ function parseResourceHooks(raw: unknown): BackupJob["hooks"] {
       container: typeof h.container === "string" ? h.container : "",
       pre: typeof h.pre === "string" ? h.pre : undefined,
       post: typeof h.post === "string" ? h.post : undefined,
+      timeoutSec:
+        typeof h.timeoutSec === "number" && Number.isInteger(h.timeoutSec) && h.timeoutSec >= 1 && h.timeoutSec <= 3600
+          ? h.timeoutSec
+          : undefined,
     }))
     .filter((h) => h.pre || h.post);
   return out.length ? out : undefined;

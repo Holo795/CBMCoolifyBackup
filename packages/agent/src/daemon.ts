@@ -1,5 +1,12 @@
 import { loadConfig, type AgentConfig } from "./config.js";
-import { setDockerBin, dockerVersion, countContainers, detectCoolifyResourceUuids } from "./docker.js";
+import {
+  setDockerBin,
+  dockerVersion,
+  countContainers,
+  detectCoolifyResourceUuids,
+  listContainersForDiscovery,
+} from "./docker.js";
+import { groupContainersByResource, PS_FORMAT } from "./hooks.js";
 import { logger } from "./logger.js";
 import * as client from "./client.js";
 import { runJobForController } from "./runner.js";
@@ -85,6 +92,8 @@ async function heartbeatLoop(cfg: AgentConfig): Promise<void> {
         dockerVersion: await dockerVersion(),
         containers: await countContainers(),
         resourceUuids: await detectCoolifyResourceUuids().catch(() => []),
+        // Containers per resource (one `docker ps`), for per-container hook targets.
+        resourceContainers: groupContainersByResource(await listContainersForDiscovery(PS_FORMAT).catch(() => "")),
       });
     } catch {
       /* ignore */

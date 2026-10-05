@@ -34,6 +34,29 @@ export async function POST(req: Request) {
     if (best) detected = { serverUuid: best.uuid, serverName: best.name };
   }
 
+  // Containers per resource (per-container hook targets). Runtime facts: written
+  // only when they change, and without bumping updatedAt - so an app redeploy
+  // (which renames its container) doesn't count as a metadata change for the
+  // change-driven self-backup.
+  if (data.resourceContainers && agent.instanceId) {
+    const uuids = Object.keys(data.resourceContainers);
+    if (uuids.length > 0) {
+      const rows = await prisma.resource.findMany({
+        where: { instanceId: agent.instanceId, coolifyUuid: { in: uuids } },
+        select: { id: true, coolifyUuid: true, containers: true },
+      });
+      const canon = (list: unknown) =>
+        Array.isArray(list)
+          ? (list as { name?: string; service?: string }[]).map((c) => `${c.name}|${c.service ?? ""}`).sort().join(",")
+          : "";
+      for (const r of rows) {
+        const next = data.resourceContainers[r.coolifyUuid] ?? [];
+        if (next.length === 0 || canon(r.containers) === canon(next)) continue;
+        await prisma.$executeRaw`UPDATE "Resource" SET "containers" = ${JSON.stringify(next)}::jsonb WHERE "id" = ${r.id}`;
+      }
+    }
+  }
+
   await prisma.agent.update({
     where: { id: agent.id },
     data: {
