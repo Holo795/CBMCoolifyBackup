@@ -20,6 +20,7 @@ import { effectivePolicy } from "./schedule";
 import { CoolifyClient, GENERATED_SECRET, type AppVolume, type DbEngine, type CloneEngine, type DbConfig, type CoolifyRaw } from "./coolify";
 import { syncInstance } from "./discovery";
 import { remapEnv, type RemapChange } from "./remap";
+import { UserError } from "./user-error";
 import type { Destination, Prisma } from "@/generated/prisma/client";
 import { version as CBM_VERSION } from "../../package.json";
 
@@ -61,7 +62,7 @@ function parseResourceHooks(raw: unknown): BackupJob["hooks"] {
 /** Storage engine + secrets for a destination (tar files vs a restic repo). */
 export function resolveStorage(dest: Destination): StorageSpec {
   if (dest.engine === "restic") {
-    if (!dest.resticPasswordEnc) throw new Error(`Destination "${dest.name}" uses restic but has no repository password`);
+    if (!dest.resticPasswordEnc) throw new UserError("messages.resticNoPassword", { name: dest.name });
     return { engine: "restic", resticPassword: decryptSecret(dest.resticPasswordEnc) };
   }
   return { engine: "tar" };
@@ -148,8 +149,8 @@ async function assertResourceIdle(resourceId: string, resourceName: string): Pro
       select: { id: true },
     }),
   ]);
-  if (backup) throw new Error(`A backup of ${resourceName} is already in progress - wait for it to finish.`);
-  if (restore) throw new Error(`An in-place restore of ${resourceName} is in progress - wait for it to finish.`);
+  if (backup) throw new UserError("messages.backupInProgress", { name: resourceName });
+  if (restore) throw new UserError("messages.restoreInProgress", { name: resourceName });
 }
 
 /** Create a Snapshot + queued AgentJob for a backup. */
@@ -168,14 +169,14 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
   }
 
   const dest = policy?.destination ?? (await prisma.destination.findFirst());
-  if (!dest) throw new Error("No destination configured");
+  if (!dest) throw new UserError("messages.noDestination");
 
   const agent = await pickAgent(resource.instanceId, resource.serverUuid);
   if (!agent) {
-    throw new Error(
-      `No online agent on server "${resource.serverName ?? resource.serverUuid}" to back up ${resource.name}. ` +
-        `Install the agent on that server.`,
-    );
+    throw new UserError("messages.noAgentForBackup", {
+      server: resource.serverName ?? resource.serverUuid ?? "",
+      name: resource.name,
+    });
   }
 
   const mode = (policy?.mode ?? "backup") as "backup" | "sync";
@@ -405,7 +406,7 @@ async function cloneForRestore(
     });
     changes = await applyEnv(client, srcClient ?? client, manifest, "services", newUuid, "services", resource.coolifyUuid, mapping);
   } else {
-    throw new Error(`Restore → new resource is not supported for type "${resource.type}"`);
+    throw new UserError("messages.cloneUnsupportedType", { type: resource.type });
   }
 
   // Surface the new resource in the controller UI.
@@ -737,7 +738,7 @@ export async function enqueueRestore(
     where: { id: snapshotId },
     include: { destination: true, resource: true },
   });
-  if (!snapshot.manifest) throw new Error("Snapshot has no manifest; cannot restore");
+  if (!snapshot.manifest) throw new UserError("messages.noManifestRestore");
   if (target === "in_place") await assertResourceIdle(snapshot.resource.id, snapshot.resource.name);
 
   const migrating =
@@ -745,10 +746,7 @@ export async function enqueueRestore(
   // A "local" destination's files live on the producing agent's host — an agent
   // on the target instance can't reach them.
   if (migrating && snapshot.destination.type === "local") {
-    throw new Error(
-      "This snapshot is stored on a 'local' destination (files on the source host), " +
-        "so it can't be restored onto another instance. Use an SSH/S3 destination.",
-    );
+    throw new UserError("messages.localCrossInstance");
   }
 
   // Prefer the agent that produced this snapshot (its files live on that host
@@ -762,12 +760,12 @@ export async function enqueueRestore(
       ? producer
       : await pickAgent(snapshot.resource.instanceId, snapshot.resource.serverUuid);
   if (!agent) {
-    throw new Error(
-      migrating
-        ? `No online agent on the target instance to restore ${snapshot.resource.name} onto - install one there first.`
-        : `No online agent on server "${snapshot.resource.serverName ?? snapshot.resource.serverUuid}" ` +
-          `to restore ${snapshot.resource.name}.`,
-    );
+    throw migrating
+      ? new UserError("messages.noAgentOnTarget", { name: snapshot.resource.name })
+      : new UserError("messages.noAgentForRestore", {
+          server: snapshot.resource.serverName ?? snapshot.resource.serverUuid ?? "",
+          name: snapshot.resource.name,
+        });
   }
 
   const enc = resolveEncryption(snapshot.destination);
@@ -1090,17 +1088,15 @@ export async function enqueueDrill(
     where: { id: snapshotId },
     include: { destination: true },
   });
-  if (snapshot.status !== "succeeded") throw new Error("Only a successful snapshot can be test-restored");
-  if (!snapshot.manifest) throw new Error("Snapshot has no manifest; cannot test-restore");
+  if (snapshot.status !== "succeeded") throw new UserError("messages.drillNeedsSuccess");
+  if (!snapshot.manifest) throw new UserError("messages.noManifestDrill");
 
   const producer = await agentById(snapshot.agentId);
   const producerOnline = producer?.status === "online" ? producer : null;
   const agent = snapshot.destination.type === "local" ? producerOnline : (producerOnline ?? (await anyOnlineAgent()));
   if (!agent) {
-    throw new Error(
-      snapshot.destination.type === "local"
-        ? "The agent that holds this local snapshot is offline - it must run the test restore."
-        : "No online agent to run the test restore.",
+    throw new UserError(
+      snapshot.destination.type === "local" ? "messages.drillLocalAgentOffline" : "messages.drillNoAgent",
     );
   }
 

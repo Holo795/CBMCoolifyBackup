@@ -3,6 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { headers, cookies } from "next/headers";
 import { LOCALE_COOKIE, isLocale } from "@/lib/i18n-shared";
+import { getT } from "@/lib/i18n";
+import { errorText } from "@/lib/user-error";
+import { authErrorText, type AuthErrorLike } from "@/lib/auth-errors";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
@@ -22,6 +25,11 @@ function s(fd: FormData, key: string): string {
   return (fd.get(key) ?? "").toString().trim();
 }
 
+/** A Better Auth APIError carries { code, message } in its body. */
+function authError(e: unknown): AuthErrorLike {
+  return (e as { body?: AuthErrorLike }).body ?? { message: (e as Error).message };
+}
+
 /** Set the UI language (cookie). Public: usable from the sign-in page too. */
 export async function setLocale(locale: string): Promise<{ ok: boolean }> {
   if (!isLocale(locale)) return { ok: false };
@@ -34,8 +42,9 @@ export async function setLocale(locale: string): Promise<{ ok: boolean }> {
 /** Set the app-wide IANA timezone used for schedules + timestamp display. */
 export async function updateTimezone(fd: FormData) {
   await requireRole("admin");
+  const t = await getT();
   const tz = s(fd, "timezone");
-  if (!tz || !isValidTimezone(tz)) return { error: "Invalid timezone" };
+  if (!tz || !isValidTimezone(tz)) return { error: t("messages.invalidTimezone") };
   await setTimezone(tz);
   // Schedules + every page that shows times depend on this.
   revalidatePath("/", "layout");
@@ -46,7 +55,7 @@ export async function updateTimezone(fd: FormData) {
 export async function updateAlertWebhook(fd: FormData) {
   await requireRole("admin");
   const url = s(fd, "alertWebhookUrl");
-  if (url && !/^https?:\/\//i.test(url)) return { error: "Enter a valid http(s) URL, or leave blank to disable" };
+  if (url && !/^https?:\/\//i.test(url)) return { error: (await getT())("messages.webhookUrlInvalid") };
   await prisma.setting.upsert({
     where: { id: "global" },
     create: { id: "global", alertWebhookUrl: url || null },
@@ -59,10 +68,11 @@ export async function updateAlertWebhook(fd: FormData) {
 /** Send a test message to a webhook URL (without saving it). */
 export async function testAlertWebhook(url: string) {
   await requireRole("admin");
-  if (!url || !/^https?:\/\//i.test(url)) return { error: "Enter a valid http(s) URL first" };
+  const t = await getT();
+  if (!url || !/^https?:\/\//i.test(url)) return { error: t("messages.webhookUrlFirst") };
   const { sendTestAlert } = await import("@/lib/notify");
   const ok = await sendTestAlert(url);
-  return ok ? { ok: true, detail: "Test notification sent" } : { error: "The webhook did not accept the message" };
+  return ok ? { ok: true, detail: t("messages.testNotificationSent") } : { error: t("messages.webhookRejected") };
 }
 
 /* ----------------------------- profile ----------------------------- */
@@ -70,19 +80,20 @@ export async function testAlertWebhook(url: string) {
 /** Change the signed-in user's own password (revokes other sessions). */
 export async function changePassword(fd: FormData) {
   await requireUser();
+  const t = await getT();
   const currentPassword = s(fd, "currentPassword");
   const newPassword = s(fd, "newPassword");
   const confirm = s(fd, "confirmPassword");
-  if (!currentPassword || !newPassword) return { error: "Enter your current and new password" };
-  if (newPassword.length < 8) return { error: "New password must be at least 8 characters" };
-  if (newPassword !== confirm) return { error: "New password and confirmation don't match" };
+  if (!currentPassword || !newPassword) return { error: t("messages.passwordFieldsRequired") };
+  if (newPassword.length < 8) return { error: t("messages.newPasswordTooShort") };
+  if (newPassword !== confirm) return { error: t("messages.newPasswordMismatch") };
   try {
     await auth.api.changePassword({
       body: { currentPassword, newPassword, revokeOtherSessions: true },
       headers: await headers(),
     });
   } catch (e) {
-    return { error: (e as Error).message || "Could not change password" };
+    return { error: authErrorText(authError(e), t, "messages.changePasswordFailed") };
   }
   return { ok: true };
 }
@@ -91,8 +102,9 @@ export async function changePassword(fd: FormData) {
  *  effect immediately; with it on, Better Auth emails a confirmation link. */
 export async function changeEmail(fd: FormData) {
   const user = await requireUser();
+  const t = await getT();
   const newEmail = s(fd, "newEmail").toLowerCase();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail)) return { error: "Enter a valid email address" };
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail)) return { error: t("messages.invalidEmail") };
   if (newEmail === user.email.toLowerCase()) return { ok: true };
 
   const setting = await prisma.setting.findUnique({ where: { id: "global" } }).catch(() => null);
@@ -102,9 +114,9 @@ export async function changeEmail(fd: FormData) {
     try {
       await auth.api.changeEmail({ body: { newEmail }, headers: await headers() });
     } catch (e) {
-      return { error: (e as Error).message || "Could not change email" };
+      return { error: authErrorText(authError(e), t, "messages.changeEmailFailed") };
     }
-    return { ok: true, detail: "Check your current inbox to confirm the change." };
+    return { ok: true, detail: t("messages.checkInbox") };
   }
 
   // Verification off: apply directly (Better Auth's changeEmail would otherwise
@@ -112,7 +124,7 @@ export async function changeEmail(fd: FormData) {
   try {
     await prisma.user.update({ where: { id: user.id }, data: { email: newEmail, emailVerified: false } });
   } catch {
-    return { error: "That email address is already in use" };
+    return { error: t("messages.emailInUse") };
   }
   // The topbar shows the email, so refresh every page.
   revalidatePath("/", "layout");
@@ -122,14 +134,15 @@ export async function changeEmail(fd: FormData) {
 /** Update the signed-in user's first/last name (and the derived display name). */
 export async function updateProfileName(fd: FormData) {
   await requireUser();
+  const t = await getT();
   const firstName = s(fd, "firstName");
   const lastName = s(fd, "lastName");
-  if (!firstName && !lastName) return { error: "Enter your first and/or last name" };
+  if (!firstName && !lastName) return { error: t("messages.nameRequired") };
   const name = `${firstName} ${lastName}`.trim();
   try {
     await auth.api.updateUser({ body: { name, firstName, lastName }, headers: await headers() });
   } catch (e) {
-    return { error: (e as Error).message || "Could not update your name" };
+    return { error: authErrorText(authError(e), t, "messages.updateNameFailed") };
   }
   // The topbar shows the name, so refresh every page.
   revalidatePath("/", "layout");
@@ -149,7 +162,7 @@ export async function updateSmtp(fd: FormData) {
   const password = s(fd, "smtpPassword"); // blank = keep existing
   const from = s(fd, "smtpFrom");
   const fromName = s(fd, "smtpFromName");
-  if (from && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(from)) return { error: "From must be a valid email address" };
+  if (from && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(from)) return { error: (await getT())("messages.fromInvalid") };
   await prisma.setting.upsert({
     where: { id: "global" },
     create: {
@@ -182,31 +195,33 @@ export async function updateSmtp(fd: FormData) {
 /** Verify the saved SMTP config and send a test email; flips the "verified" flag. */
 export async function testSmtp() {
   await requireRole("admin");
+  const t = await getT();
   const { effectiveSmtp, verifySmtp, sendMail } = await import("@/lib/email");
   const cfg = await effectiveSmtp();
-  if (!cfg) return { error: "Set at least the SMTP host and a From address, save, then test." };
+  if (!cfg) return { error: t("messages.smtpNotConfigured") };
   const v = await verifySmtp(cfg);
-  if (!v.ok) return { error: `SMTP connection failed: ${v.error}` };
+  if (!v.ok) return { error: t("messages.smtpConnectFailed", { error: v.error ?? "" }) };
   try {
     await sendMail({ to: cfg.from, subject: "CBM SMTP test", text: "✅ Your CBM SMTP settings are working." });
   } catch (e) {
-    return { error: `Connected, but sending failed: ${(e as Error).message}` };
+    return { error: t("messages.smtpSendFailed", { error: (e as Error).message }) };
   }
   await prisma.setting.update({ where: { id: "global" }, data: { smtpLastVerifiedOk: true } });
   revalidatePath("/settings");
   revalidatePath("/login");
-  return { ok: true, detail: `Test email sent to ${cfg.from}` };
+  return { ok: true, detail: t("messages.testEmailSent", { to: cfg.from }) };
 }
 
 /** Toggle soft account-email verification. Enabling requires a working SMTP. */
 export async function setEmailVerification(enabled: boolean) {
   await requireRole("admin");
   if (enabled) {
+    const t = await getT();
     const { effectiveSmtp, verifySmtp } = await import("@/lib/email");
     const cfg = await effectiveSmtp();
-    if (!cfg) return { error: "Configure and test SMTP first - verification needs a working mailer." };
+    if (!cfg) return { error: t("messages.smtpRequiredForVerification") };
     const v = await verifySmtp(cfg);
-    if (!v.ok) return { error: `SMTP isn't working: ${v.error}` };
+    if (!v.ok) return { error: t("messages.smtpNotWorking", { error: v.error ?? "" }) };
     await prisma.setting.update({
       where: { id: "global" },
       data: { requireEmailVerification: true, smtpLastVerifiedOk: true },
@@ -224,13 +239,14 @@ export async function setEmailVerification(enabled: boolean) {
  * A "local" destination dies with the machine, so it's refused. */
 export async function updateSelfBackup(fd: FormData) {
   await requireRole("admin");
+  const t = await getT();
   const enabled = fd.get("enabled") === "on";
   const destinationId = s(fd, "destinationId");
   if (enabled) {
-    if (!destinationId) return { error: "Pick a destination first" };
+    if (!destinationId) return { error: t("messages.pickDestinationFirst") };
     const dest = await prisma.destination.findUnique({ where: { id: destinationId } });
-    if (!dest) return { error: "Destination not found" };
-    if (dest.type === "local") return { error: "A 'local' destination dies with the machine - pick SSH or S3" };
+    if (!dest) return { error: t("messages.destinationNotFound") };
+    if (dest.type === "local") return { error: t("messages.localDiesWithMachine") };
   }
   await prisma.setting.upsert({
     where: { id: "global" },
@@ -238,7 +254,7 @@ export async function updateSelfBackup(fd: FormData) {
     update: { selfBackupEnabled: enabled, selfBackupDestinationId: destinationId || null },
   });
   revalidatePath("/settings");
-  return { ok: true, detail: enabled ? "Self-backup enabled - first run within a minute" : "Self-backup disabled" };
+  return { ok: true, detail: t(enabled ? "messages.selfBackupEnabled" : "messages.selfBackupDisabled") };
 }
 
 /** Run the metadata self-backup immediately (also verifies the setup works). */
@@ -247,7 +263,8 @@ export async function runSelfBackupNow() {
   const { runSelfBackup } = await import("@/lib/self-backup");
   const r = await runSelfBackup();
   revalidatePath("/settings");
-  return r.ok ? { ok: true, detail: "Metadata backed up" } : { error: r.error };
+  const t = await getT();
+  return r.ok ? { ok: true, detail: t("messages.metadataBackedUp") } : { error: errorText(r.error, t) };
 }
 
 /** Drill: prove the recovery path (download + decrypt the latest self-backup)
@@ -256,7 +273,8 @@ export async function verifyRecoveryPath() {
   await requireRole("admin");
   const { verifyLatestSelfBackup } = await import("@/lib/self-backup");
   const r = await verifyLatestSelfBackup();
-  return r.ok ? { ok: true, detail: r.detail } : { error: r.error };
+  const t = await getT();
+  return r.ok ? { ok: true, detail: r.detail && errorText(r.detail, t) } : { error: errorText(r.error, t) };
 }
 
 /* ----------------------------- instances ----------------------------- */
@@ -266,10 +284,11 @@ export async function connectInstance(fd: FormData) {
   const name = s(fd, "name");
   const baseUrl = s(fd, "baseUrl").replace(/\/$/, "");
   const token = s(fd, "apiToken");
-  if (!name || !baseUrl || !token) return { error: "All fields are required" };
+  const t = await getT();
+  if (!name || !baseUrl || !token) return { error: t("messages.allFieldsRequired") };
 
   const ping = await new CoolifyClient(baseUrl, token).ping();
-  if (!ping.ok) return { error: `Cannot reach Coolify: ${ping.error}` };
+  if (!ping.ok) return { error: t("messages.cannotReachCoolify", { error: ping.error ?? "" }) };
 
   const instance = await prisma.coolifyInstance.create({
     data: { name, baseUrl, apiTokenEnc: encryptSecret(token) },
@@ -279,7 +298,7 @@ export async function connectInstance(fd: FormData) {
   try {
     await syncInstance(instance.id);
   } catch (e) {
-    warning = `Connected, but sync failed: ${(e as Error).message}`;
+    warning = t("messages.connectedSyncFailed", { error: (e as Error).message });
   }
 
   revalidatePath("/instances");
@@ -344,14 +363,15 @@ export async function backupCoolifyInstance(instanceId: string) {
     },
     update: {},
   });
+  const t = await getT();
   try {
     await enqueueBackup(resource.id);
   } catch (e) {
-    return { error: (e as Error).message };
+    return { error: errorText(e, t) };
   }
   revalidatePath("/instances");
   revalidatePath("/snapshots");
-  return { ok: true, detail: "Coolify backup queued" };
+  return { ok: true, detail: t("messages.coolifyBackupQueued") };
 }
 
 export async function syncInstanceAction(instanceId: string): Promise<void> {
@@ -381,12 +401,13 @@ export async function repointInstance(instanceId: string, fd: FormData) {
   await requireRole("admin");
   const baseUrl = s(fd, "baseUrl").replace(/\/$/, "");
   const token = s(fd, "apiToken");
-  if (!baseUrl) return { error: "Base URL is required" };
+  const t = await getT();
+  if (!baseUrl) return { error: t("messages.baseUrlRequired") };
   const inst = await prisma.coolifyInstance.findUnique({ where: { id: instanceId } });
-  if (!inst) return { error: "Instance not found" };
+  if (!inst) return { error: t("messages.instanceNotFound") };
 
   const ping = await new CoolifyClient(baseUrl, token || decryptSecret(inst.apiTokenEnc)).ping();
-  if (!ping.ok) return { error: `Cannot reach Coolify at ${baseUrl}: ${ping.error}` };
+  if (!ping.ok) return { error: t("messages.cannotReachCoolifyAt", { url: baseUrl, error: ping.error ?? "" }) };
 
   await prisma.coolifyInstance.update({
     where: { id: instanceId },
@@ -396,12 +417,12 @@ export async function repointInstance(instanceId: string, fd: FormData) {
   try {
     await syncInstance(instanceId);
   } catch (e) {
-    warning = `Re-pointed, but sync failed: ${(e as Error).message}`;
+    warning = t("messages.repointedSyncFailed", { error: (e as Error).message });
   }
   revalidatePath("/instances");
   revalidatePath("/resources");
   revalidatePath("/agents");
-  return warning ? { ok: true, warning } : { ok: true, detail: `Instance now points at ${baseUrl}` };
+  return warning ? { ok: true, warning } : { ok: true, detail: t("messages.repointed", { url: baseUrl }) };
 }
 
 /**
@@ -451,7 +472,7 @@ export async function deleteAgent(agentId: string) {
 export async function updateAgentServer(agentId: string, serverUuid: string | null) {
   await requireRole("admin");
   const agent = await prisma.agent.findUnique({ where: { id: agentId } });
-  if (!agent) return { error: "Agent not found" };
+  if (!agent) return { error: (await getT())("messages.agentNotFound") };
   if (!serverUuid) {
     // Back to automatic detection.
     await prisma.agent.update({
@@ -482,7 +503,7 @@ export async function createDestination(fd: FormData) {
   await requireRole("admin");
   const name = s(fd, "name");
   const type = s(fd, "type");
-  if (!name || !type) return { error: "Name and type required" };
+  if (!name || !type) return { error: (await getT())("messages.nameAndTypeRequired") };
   // Storage engine: "restic" gives incremental/deduplicated/encrypted storage
   // (works over local, S3 and SSH/SFTP - including a jump host).
   const engine = s(fd, "engine") === "restic" ? "restic" : "tar";
@@ -525,7 +546,7 @@ export async function createDestination(fd: FormData) {
       forcePathStyle: fd.get("forcePathStyle") === "on",
     };
   } else {
-    return { error: "Unknown destination type" };
+    return { error: (await getT())("messages.unknownDestinationType") };
   }
 
   // restic encrypts its repository natively, so the optional AES layer is only
@@ -553,7 +574,10 @@ export async function deleteDestination(id: string): Promise<{ ok?: boolean; err
   const policies = await prisma.backupPolicy.findMany({ where: { destinationId: id }, select: { name: true } });
   if (policies.length > 0) {
     return {
-      error: `Still used by ${policies.length} schedule(s): ${policies.map((p) => p.name).join(", ")}. Point them at another destination first.`,
+      error: (await getT())("messages.destinationInUse", {
+        count: policies.length,
+        names: policies.map((p) => p.name).join(", "),
+      }),
     };
   }
   const dest = await prisma.destination.findUnique({ where: { id } });
@@ -594,7 +618,10 @@ export async function testDestinationAction(id: string) {
   const dest = await prisma.destination.findUniqueOrThrow({ where: { id } });
   const { testDestination } = await import("@/lib/destination-test");
   const result = await testDestination(resolveDestination(dest));
-  return result;
+  const t = await getT();
+  const text = (m: string | { key: string; vars?: Record<string, string | number> } | undefined) =>
+    m === undefined ? undefined : typeof m === "string" ? m : t(m.key, m.vars);
+  return { ok: result.ok, detail: text(result.detail), error: text(result.error) };
 }
 
 /* ----------------------------- jobs: cancel / retry ----------------------------- */
@@ -629,7 +656,7 @@ export async function deleteSnapshot(snapshotId: string): Promise<{ ok?: boolean
   await requireRole("operator");
   const snap = await prisma.snapshot.findUnique({ where: { id: snapshotId }, select: { resourceId: true, status: true } });
   if (!snap) return { ok: true };
-  if (snap.status === "running") return { error: "This backup is still running - cancel it first." };
+  if (snap.status === "running") return { error: (await getT())("messages.snapshotStillRunning") };
   await removeSnapshots([snapshotId]);
   revalidatePath("/snapshots");
   revalidatePath("/destinations");
@@ -646,12 +673,13 @@ export async function repinDeployment(snapshotId: string): Promise<{ ok?: boolea
   });
   const manifest = snap.manifest as { provenance?: { gitCommitSha?: string } } | null;
   const sha = manifest?.provenance?.gitCommitSha;
-  if (!sha || sha === "HEAD") return { error: "This snapshot has no concrete commit to re-pin to" };
+  const t = await getT();
+  if (!sha || sha === "HEAD") return { error: t("messages.noCommitToRepin") };
   const inst = snap.resource.instance;
   const client = new CoolifyClient(inst.baseUrl, decryptSecret(inst.apiTokenEnc));
   try {
     await client.repinCommit(snap.resource.coolifyUuid, sha);
-    return { ok: true, detail: `Re-pinned to ${sha.slice(0, 8)} and redeploying` };
+    return { ok: true, detail: t("messages.repinned", { sha: sha.slice(0, 8) }) };
   } catch (e) {
     return { error: (e as Error).message };
   }
@@ -666,7 +694,7 @@ export async function retrySnapshot(snapshotId: string): Promise<{ error?: strin
   } catch (e) {
     // Shown next to the button (busy resource, no live agent…) instead of a
     // silent "retried".
-    return { error: (e as Error).message };
+    return { error: errorText(e, await getT()) };
   }
   revalidatePath("/snapshots");
   return {};
@@ -685,18 +713,21 @@ function scheduleData(fd: FormData) {
   };
 }
 
-/** Why a schedule can't be saved, or null. An invalid cron used to be stored
- * and then never fire (or, with a step of 0, freeze the scheduler). */
-function scheduleError(data: ReturnType<typeof scheduleData>): string | null {
-  if (!data.destinationId) return "Pick a destination";
-  if (!isValidCron(data.cron)) return `Invalid cron expression "${data.cron}" (5 fields: minute hour day month weekday)`;
-  if (data.mode !== "backup" && data.mode !== "sync") return "Unknown backup mode";
+/** Why a schedule can't be saved (translated), or null. An invalid cron used to
+ * be stored and then never fire (or, with a step of 0, freeze the scheduler). */
+async function scheduleError(data: ReturnType<typeof scheduleData>): Promise<string | null> {
+  const t = await getT();
+  if (!data.destinationId) return t("messages.pickDestination");
+  if (!isValidCron(data.cron)) return t("messages.invalidCron", { cron: data.cron });
+  if (data.mode !== "backup" && data.mode !== "sync") return t("messages.unknownMode");
   for (const [k, v] of [
     ["daily", data.retentionDaily],
     ["weekly", data.retentionWeekly],
     ["monthly", data.retentionMonthly],
   ] as const) {
-    if (!Number.isInteger(v) || v < 0 || v > 1000) return `Retention (${k}) must be a whole number between 0 and 1000`;
+    if (!Number.isInteger(v) || v < 0 || v > 1000) {
+      return t("messages.invalidRetention", { period: t(`messages.retentionPeriod.${k}`) });
+    }
   }
   return null;
 }
@@ -705,7 +736,7 @@ function scheduleError(data: ReturnType<typeof scheduleData>): string | null {
 export async function setInstanceSchedule(instanceId: string, fd: FormData) {
   await requireRole("admin");
   const data = scheduleData(fd);
-  const invalid = scheduleError(data);
+  const invalid = await scheduleError(data);
   if (invalid) return { error: invalid };
   const instance = await prisma.coolifyInstance.findUniqueOrThrow({ where: { id: instanceId } });
   const existing = await prisma.backupPolicy.findFirst({ where: { instanceId, resourceId: null } });
@@ -729,7 +760,7 @@ export async function removeInstanceSchedule(instanceId: string): Promise<void> 
 export async function setServerSchedule(instanceId: string, serverUuid: string, fd: FormData) {
   await requireRole("admin");
   const data = scheduleData(fd);
-  const invalid = scheduleError(data);
+  const invalid = await scheduleError(data);
   if (invalid) return { error: invalid };
   const instance = await prisma.coolifyInstance.findUniqueOrThrow({ where: { id: instanceId } });
   const sample = await prisma.resource.findFirst({
@@ -759,20 +790,16 @@ export async function removeServerSchedule(instanceId: string, serverUuid: strin
 /** Manually reconcile a destination now (detect backups deleted at rest). */
 export async function verifyDestinationNow(destinationId: string) {
   await requireRole("operator");
+  const t = await getT();
   try {
     const { queued, reason } = await enqueueVerifyDestination(destinationId);
     if (queued === 0) {
-      return {
-        error:
-          reason === "no-agent"
-            ? "No agent online to run the check - start the agent on the host that holds these backups."
-            : "Nothing to verify - this destination has no backups yet.",
-      };
+      return { error: t(reason === "no-agent" ? "messages.noAgentForCheck" : "messages.nothingToVerify") };
     }
     revalidatePath("/destinations");
-    return { ok: true, detail: `Verifying destination (${queued} job${queued === 1 ? "" : "s"} queued)` };
+    return { ok: true, detail: t(queued === 1 ? "messages.verifyQueuedOne" : "messages.verifyQueuedMany", { count: queued }) };
   } catch (e) {
-    return { error: (e as Error).message };
+    return { error: errorText(e, t) };
   }
 }
 
@@ -780,20 +807,19 @@ export async function verifyDestinationNow(destinationId: string) {
  * re-checksum) to catch silent corruption, not just missing files. */
 export async function checkIntegrityNow(destinationId: string) {
   await requireRole("operator");
+  const t = await getT();
   try {
     const { queued, reason } = await enqueueVerifyDestination(destinationId, { deep: true });
     if (queued === 0) {
-      return {
-        error:
-          reason === "no-agent"
-            ? "No agent online to run the check - start the agent on the host that holds these backups."
-            : "Nothing to check - this destination has no backups yet.",
-      };
+      return { error: t(reason === "no-agent" ? "messages.noAgentForCheck" : "messages.nothingToCheck") };
     }
     revalidatePath("/destinations");
-    return { ok: true, detail: `Integrity check queued (${queued} job${queued === 1 ? "" : "s"}) - this re-reads the data and may take a while` };
+    return {
+      ok: true,
+      detail: t(queued === 1 ? "messages.integrityQueuedOne" : "messages.integrityQueuedMany", { count: queued }),
+    };
   } catch (e) {
-    return { error: (e as Error).message };
+    return { error: errorText(e, t) };
   }
 }
 
@@ -802,19 +828,20 @@ export async function setDestinationMirror(
   destinationId: string,
   mirrorToId: string | null,
 ): Promise<{ ok?: boolean; error?: string }> {
+  const t = await getT();
   try {
     await requireRole("admin");
-    if (mirrorToId === destinationId) return { error: "A destination can't mirror to itself" };
+    if (mirrorToId === destinationId) return { error: t("messages.mirrorSelf") };
     if (mirrorToId) {
       const target = await prisma.destination.findUnique({ where: { id: mirrorToId }, select: { id: true, mirrorToId: true } });
-      if (!target) return { error: "Mirror target not found" };
-      if (target.mirrorToId === destinationId) return { error: "That would create a mirror loop (A → B → A)" };
+      if (!target) return { error: t("messages.mirrorTargetNotFound") };
+      if (target.mirrorToId === destinationId) return { error: t("messages.mirrorLoop") };
     }
     await prisma.destination.update({ where: { id: destinationId }, data: { mirrorToId } });
     revalidatePath("/destinations");
     return { ok: true };
   } catch (e) {
-    return { error: (e as Error).message };
+    return { error: errorText(e, t) };
   }
 }
 
@@ -826,7 +853,7 @@ export async function setIntegrityCheck(destinationId: string, enabled: boolean)
     revalidatePath("/destinations");
     return { ok: true };
   } catch (e) {
-    return { error: (e as Error).message };
+    return { error: errorText(e, await getT()) };
   }
 }
 
@@ -834,7 +861,7 @@ export async function setIntegrityCheck(destinationId: string, enabled: boolean)
 export async function setResourceSchedule(resourceId: string, fd: FormData) {
   await requireRole("admin");
   const data = scheduleData(fd);
-  const invalid = scheduleError(data);
+  const invalid = await scheduleError(data);
   if (invalid) return { error: invalid };
   const resource = await prisma.resource.findUniqueOrThrow({ where: { id: resourceId } });
   const existing = await prisma.backupPolicy.findFirst({ where: { resourceId } });
@@ -888,13 +915,13 @@ export async function updateResourceHooks(
     const pre = (h.pre ?? "").trim() || undefined;
     const post = (h.post ?? "").trim() || undefined;
     if (!pre && !post) continue;
-    if ((pre?.length ?? 0) > 4000 || (post?.length ?? 0) > 4000) return { error: "A hook command is too long (max 4000 characters)" };
+    if ((pre?.length ?? 0) > 4000 || (post?.length ?? 0) > 4000) return { error: (await getT())("messages.hookTooLong") };
     const raw = typeof h.timeoutSec === "string" ? h.timeoutSec.trim() : h.timeoutSec;
     let timeoutSec: number | undefined;
     if (raw !== undefined && raw !== "") {
       timeoutSec = Number(raw);
       if (!Number.isInteger(timeoutSec) || timeoutSec < 1 || timeoutSec > 3600) {
-        return { error: "A hook time limit must be a whole number of seconds between 1 and 3600" };
+        return { error: (await getT())("messages.hookTimeoutInvalid") };
       }
     }
     clean.push({ container: (h.container ?? "").trim().slice(0, 200), pre, post, ...(timeoutSec ? { timeoutSec } : {}) });
@@ -909,14 +936,15 @@ export async function updateResourceHooks(
 
 export async function backupNow(resourceId: string): Promise<{ ok?: boolean; error?: string; detail?: string }> {
   await requireRole("operator");
+  const t = await getT();
   try {
     await enqueueBackup(resourceId);
   } catch (e) {
-    return { error: (e as Error).message };
+    return { error: errorText(e, t) };
   }
   revalidatePath("/snapshots");
   revalidatePath(`/resources/${resourceId}`);
-  return { ok: true, detail: "Backup queued" };
+  return { ok: true, detail: t("messages.backupQueued") };
 }
 
 export async function restoreSnapshot(
@@ -926,14 +954,15 @@ export async function restoreSnapshot(
   targetInstanceId?: string,
 ): Promise<{ ok?: boolean; error?: string; detail?: string }> {
   await requireRole("operator");
+  const t = await getT();
   try {
     await enqueueRestore(snapshotId, target, targetInstanceId);
   } catch (e) {
-    return { error: (e as Error).message };
+    return { error: errorText(e, t) };
   }
   revalidatePath("/snapshots");
   revalidatePath(`/snapshots/${snapshotId}`);
-  return { ok: true, detail: target === "in_place" ? "Restore queued" : "Restore → new queued" };
+  return { ok: true, detail: t(target === "in_place" ? "messages.restoreQueued" : "messages.restoreNewQueued") };
 }
 
 /* ----------------------------- users & invitations ----------------------------- */
@@ -957,12 +986,13 @@ export async function createInvitation(
   const email = s(fd, "email").toLowerCase();
   const role = s(fd, "role");
   const sendEmail = fd.get("sendEmail") === "on";
-  if (!EMAIL_RE.test(email)) return { error: "Enter a valid email address" };
-  if (!isRole(role)) return { error: "Pick a role" };
+  const t = await getT();
+  if (!EMAIL_RE.test(email)) return { error: t("messages.invalidEmail") };
+  if (!isRole(role)) return { error: t("messages.pickRole") };
 
   // A pre-existing account or a still-pending invite would be confusing.
   const existingUser = await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } });
-  if (existingUser) return { error: "A user with that email already exists" };
+  if (existingUser) return { error: t("messages.userExists") };
 
   const token = "cbm_inv_" + randomToken(24);
   await prisma.invitation.create({
@@ -1004,10 +1034,11 @@ export async function createInvitation(
  * lets the otherwise-closed registration gate accept the subsequent signup.
  */
 export async function claimInvitation(token: string): Promise<{ ok?: boolean; error?: string; email?: string }> {
-  if (!token) return { error: "Missing invite token" };
+  const t = await getT();
+  if (!token) return { error: t("messages.missingInviteToken") };
   const invite = await prisma.invitation.findUnique({ where: { tokenHash: sha256Hex(token) } });
-  if (!invite || invite.acceptedAt) return { error: "This invitation link is invalid or already used." };
-  if (invite.expiresAt.getTime() <= Date.now()) return { error: "This invitation link has expired." };
+  if (!invite || invite.acceptedAt) return { error: t("messages.inviteInvalid") };
+  if (invite.expiresAt.getTime() <= Date.now()) return { error: t("messages.inviteExpired") };
   await prisma.invitation.update({ where: { id: invite.id }, data: { claimedAt: new Date() } });
   return { ok: true, email: invite.email };
 }
@@ -1022,11 +1053,12 @@ export async function revokeInvitation(id: string): Promise<void> {
 /** Change a user's role. Refuses to demote the last remaining admin. */
 export async function setUserRole(userId: string, role: string): Promise<{ ok?: boolean; error?: string }> {
   await requireRole("admin");
-  if (!isRole(role)) return { error: "Unknown role" };
+  const t = await getT();
+  if (!isRole(role)) return { error: t("messages.unknownRole") };
   const target = await prisma.user.findUnique({ where: { id: userId } });
-  if (!target) return { error: "User not found" };
+  if (!target) return { error: t("messages.userNotFound") };
   if (target.role === "admin" && role !== "admin" && (await adminCount()) <= 1) {
-    return { error: "You can't demote the last admin." };
+    return { error: t("messages.lastAdminDemote") };
   }
   await prisma.user.update({ where: { id: userId }, data: { role } });
   revalidatePath("/users");
@@ -1036,11 +1068,12 @@ export async function setUserRole(userId: string, role: string): Promise<{ ok?: 
 /** Remove a user (cascades sessions/accounts). Refuses self and the last admin. */
 export async function removeUser(userId: string): Promise<{ ok?: boolean; error?: string }> {
   const me = await requireRole("admin");
-  if (userId === me.id) return { error: "You can't remove your own account here." };
+  const t = await getT();
+  if (userId === me.id) return { error: t("messages.cantRemoveSelf") };
   const target = await prisma.user.findUnique({ where: { id: userId } });
-  if (!target) return { error: "User not found" };
+  if (!target) return { error: t("messages.userNotFound") };
   if (target.role === "admin" && (await adminCount()) <= 1) {
-    return { error: "You can't remove the last admin." };
+    return { error: t("messages.lastAdminRemove") };
   }
   await prisma.user.delete({ where: { id: userId } });
   revalidatePath("/users");
@@ -1061,8 +1094,9 @@ export async function createApiToken(
   await requireRole("admin");
   const name = s(fd, "name");
   const role = s(fd, "role") || "viewer";
-  if (!name) return { error: "Give the token a name" };
-  if (!isRole(role)) return { error: "Pick a role" };
+  const t = await getT();
+  if (!name) return { error: t("messages.tokenNameRequired") };
+  if (!isRole(role)) return { error: t("messages.pickRole") };
 
   const token = "cbm_pat_" + randomToken(24);
   const hint = `${token.slice(0, 12)}…${token.slice(-4)}`;
@@ -1089,14 +1123,15 @@ export async function revokeApiToken(id: string): Promise<void> {
  */
 export async function drillSnapshotNow(snapshotId: string): Promise<{ ok?: boolean; error?: string; detail?: string }> {
   await requireRole("operator");
+  const t = await getT();
   try {
     await enqueueDrill(snapshotId, "manual");
   } catch (e) {
-    return { error: (e as Error).message };
+    return { error: errorText(e, t) };
   }
   revalidatePath(`/snapshots/${snapshotId}`);
   revalidatePath("/snapshots");
-  return { ok: true, detail: "Test restore queued" };
+  return { ok: true, detail: t("messages.drillQueued") };
 }
 
 /** Turn the weekly automatic restore drills on or off. */
@@ -1111,6 +1146,6 @@ export async function setDrillsEnabled(enabled: boolean): Promise<{ ok?: boolean
     revalidatePath("/settings");
     return { ok: true };
   } catch (e) {
-    return { error: (e as Error).message };
+    return { error: errorText(e, await getT()) };
   }
 }

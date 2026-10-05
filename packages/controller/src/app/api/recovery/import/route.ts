@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth, verifyUserPassword } from "@/lib/auth";
 import { can } from "@/lib/roles";
 import { parseRecoveryFile, importGuards, isEmptyish, importRecoveryFile } from "@/lib/recovery-file";
+import { getT } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 // pg_restore + re-encryption can take a while on a big metadata DB.
@@ -17,32 +18,33 @@ export const maxDuration = 300;
  * ends and the operator signs back in with their OLD credentials.
  */
 export async function POST(req: NextRequest) {
+  const t = await getT();
   const session = await auth.api.getSession({ headers: req.headers });
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!can(session.user, "admin")) return NextResponse.json({ error: "Admins only" }, { status: 403 });
+  if (!session?.user) return NextResponse.json({ error: t("messages.recoveryUnauthorized") }, { status: 401 });
+  if (!can(session.user, "admin")) return NextResponse.json({ error: t("messages.recoveryAdminsOnly") }, { status: 403 });
 
   const form = await req.formData().catch(() => null);
-  if (!form) return NextResponse.json({ error: "Expected multipart form data" }, { status: 400 });
+  if (!form) return NextResponse.json({ error: t("messages.recoveryBadForm") }, { status: 400 });
   const password = String(form.get("password") ?? "");
   const confirm = String(form.get("confirm") ?? "");
   const override = form.get("override") === "true";
   const upload = form.get("file");
 
   if (!(await verifyUserPassword(session.user.id, password))) {
-    return NextResponse.json({ error: "Wrong password" }, { status: 403 });
+    return NextResponse.json({ error: t("messages.recoveryWrongPassword") }, { status: 403 });
   }
   if (confirm !== "IMPORT") {
-    return NextResponse.json({ error: 'Type "IMPORT" to confirm overwriting this install' }, { status: 400 });
+    return NextResponse.json({ error: t("messages.recoveryTypeImport") }, { status: 400 });
   }
-  if (!(upload instanceof File)) return NextResponse.json({ error: "No recovery file uploaded" }, { status: 400 });
+  if (!(upload instanceof File)) return NextResponse.json({ error: t("messages.recoveryNoFile") }, { status: 400 });
 
   try {
     const file = parseRecoveryFile(await upload.text());
     const guard = await importGuards(file);
-    if (guard.error) return NextResponse.json({ error: guard.error }, { status: 400 });
+    if (guard.error) return NextResponse.json({ error: t(guard.error.key, guard.error.vars) }, { status: 400 });
     if (!override && !(await isEmptyish())) {
       return NextResponse.json(
-        { error: "This install already has instances/destinations. Tick the override to replace everything." },
+        { error: t("messages.recoveryNotEmpty") },
         { status: 400 },
       );
     }
@@ -51,13 +53,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       source,
-      detail:
-        source === "latest"
-          ? "Restored the latest self-backup from its destination."
-          : "The self-backup destination was unreachable - restored the dump embedded in the recovery file.",
+      detail: t(source === "latest" ? "messages.recoveryRestoredLatest" : "messages.recoveryRestoredEmbedded"),
     });
   } catch (e) {
     console.error("[recovery/import] failed:", (e as Error).message);
-    return NextResponse.json({ error: "Recovery import failed - check the controller logs." }, { status: 500 });
+    return NextResponse.json({ error: t("messages.recoveryImportFailed") }, { status: 500 });
   }
 }

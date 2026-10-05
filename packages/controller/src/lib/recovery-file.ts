@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { ResolvedDestination, SnapshotManifest } from "@cbm/shared";
 import { prisma } from "./prisma";
 import { env } from "./env";
+import { UserError } from "./user-error";
 import {
   masterKeyB64,
   masterKeyFingerprint,
@@ -143,16 +144,14 @@ export function parseRecoveryFile(raw: string): RecoveryFile {
 }
 
 /** Guards evaluated before a destructive import. */
-export async function importGuards(file: RecoveryFile): Promise<{ error?: string }> {
+export async function importGuards(file: RecoveryFile): Promise<{ error?: UserError }> {
   // Version guard: refuse a dump newer than this build (older rolls forward
   // via `prisma migrate deploy` at next startup).
   if (file.migrationId !== "unknown") {
     const local = await localMigrationIds();
     if (local.size > 0 && !local.has(file.migrationId)) {
       return {
-        error:
-          `This recovery file was exported by a NEWER CBM (migration ${file.migrationId}). ` +
-          `Update this install to at least ${file.cbmVersion}, then import again.`,
+        error: new UserError("messages.recoveryNewerVersion", { migration: file.migrationId, version: file.cbmVersion }),
       };
     }
   }

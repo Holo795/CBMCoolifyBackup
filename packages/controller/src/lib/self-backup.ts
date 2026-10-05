@@ -7,6 +7,7 @@ import { pipeline } from "node:stream/promises";
 import type { ResolvedDestination } from "@cbm/shared";
 import { prisma } from "./prisma";
 import { env } from "./env";
+import { UserError } from "./user-error";
 import { encryptFileWithKey } from "./crypto";
 import { resolveDestination } from "./jobs";
 
@@ -161,15 +162,17 @@ export async function dumpMetadataDb(outFile: string): Promise<void> {
  * overwriting the single artefact in place. Records status on the Setting row.
  * `alertOnFailure` (scheduled runs) webhooks once per failure episode; manual
  * runs surface the error in the UI instead. */
-export async function runSelfBackup(opts?: { alertOnFailure?: boolean }): Promise<{ ok: boolean; error?: string }> {
+export async function runSelfBackup(
+  opts?: { alertOnFailure?: boolean },
+): Promise<{ ok: boolean; error?: string | UserError }> {
   const setting = await prisma.setting.findUnique({ where: { id: "global" } });
   if (!setting?.selfBackupEnabled || !setting.selfBackupDestinationId) {
-    return { ok: false, error: "Self-backup is not configured" };
+    return { ok: false, error: new UserError("messages.selfBackupNotConfigured") };
   }
   const wasOk = setting.selfBackupLastStatus === "ok" || setting.selfBackupLastStatus == null;
   const dest = await prisma.destination.findUnique({ where: { id: setting.selfBackupDestinationId } });
-  if (!dest) return await fail("The configured self-backup destination no longer exists");
-  if (dest.type === "local") return await fail("A 'local' destination dies with the machine - pick SSH or S3");
+  if (!dest) return await fail(new UserError("messages.selfBackupDestGone"));
+  if (dest.type === "local") return await fail(new UserError("messages.localDiesWithMachine"));
 
   const stage = await mkdtemp(join(tmpdir(), "cbm-selfbackup-"));
   try {
@@ -189,7 +192,10 @@ export async function runSelfBackup(opts?: { alertOnFailure?: boolean }): Promis
     await rm(stage, { recursive: true, force: true });
   }
 
-  async function fail(message: string): Promise<{ ok: false; error: string }> {
+  // The status row and the webhook alert keep the English text; the caller
+  // gets the UserError itself so the UI can translate it.
+  async function fail(error: string | UserError): Promise<{ ok: false; error: string | UserError }> {
+    const message = typeof error === "string" ? error : error.message;
     await prisma.setting
       .update({ where: { id: "global" }, data: { selfBackupLastStatus: message.slice(0, 500) } })
       .catch(() => undefined);
@@ -198,7 +204,7 @@ export async function runSelfBackup(opts?: { alertOnFailure?: boolean }): Promis
       const { notifySelfBackupProblem } = await import("./notify");
       await notifySelfBackupProblem(message).catch(() => undefined);
     }
-    return { ok: false, error: message };
+    return { ok: false, error };
   }
 }
 
@@ -208,13 +214,13 @@ export async function runSelfBackup(opts?: { alertOnFailure?: boolean }): Promis
  * key, then check it looks like a real pg_dump (custom format magic "PGDMP").
  * This is what makes "I have a recovery file" trustworthy.
  */
-export async function verifyLatestSelfBackup(): Promise<{ ok: boolean; detail?: string; error?: string }> {
+export async function verifyLatestSelfBackup(): Promise<{ ok: boolean; detail?: UserError; error?: UserError }> {
   const setting = await prisma.setting.findUnique({ where: { id: "global" } });
   if (!setting?.selfBackupEnabled || !setting.selfBackupDestinationId) {
-    return { ok: false, error: "Self-backup is not configured" };
+    return { ok: false, error: new UserError("messages.selfBackupNotConfigured") };
   }
   const dest = await prisma.destination.findUnique({ where: { id: setting.selfBackupDestinationId } });
-  if (!dest) return { ok: false, error: "The configured self-backup destination no longer exists" };
+  if (!dest) return { ok: false, error: new UserError("messages.selfBackupDestGone") };
 
   const { decryptFileWithKey } = await import("./crypto");
   const stage = await mkdtemp(join(tmpdir(), "cbm-verify-"));
@@ -229,15 +235,15 @@ export async function verifyLatestSelfBackup(): Promise<{ ok: boolean; detail?: 
       const buf = Buffer.alloc(5);
       await fh.read(buf, 0, 5, 0);
       if (buf.toString("latin1") !== "PGDMP") {
-        return { ok: false, error: "The decrypted file is not a valid pg_dump - the backup may be corrupt" };
+        return { ok: false, error: new UserError("messages.notAPgDump") };
       }
     } finally {
       await fh.close();
     }
     const { size } = await (await import("node:fs/promises")).stat(plain);
-    return { ok: true, detail: `Fetched and decrypted the latest self-backup (${Math.round(size / 1024)} KB) - recovery path works.` };
+    return { ok: true, detail: new UserError("messages.recoveryPathWorks", { size: Math.round(size / 1024) }) };
   } catch (e) {
-    return { ok: false, error: `Recovery path check failed: ${(e as Error).message}` };
+    return { ok: false, error: new UserError("messages.recoveryCheckFailed", { error: (e as Error).message }) };
   } finally {
     await rm(stage, { recursive: true, force: true });
   }
@@ -263,7 +269,7 @@ export async function maybeSelfBackup(now: Date): Promise<void> {
   running = true;
   try {
     const r = await runSelfBackup({ alertOnFailure: true });
-    if (!r.ok) console.error("[self-backup] failed:", r.error);
+    if (!r.ok) console.error("[self-backup] failed:", r.error instanceof UserError ? r.error.message : r.error);
   } finally {
     running = false;
   }
