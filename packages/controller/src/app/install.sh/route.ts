@@ -37,7 +37,11 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 echo "==> Pulling \$IMAGE"
-docker pull "\$IMAGE"
+# A host without registry access may have the image preloaded: use it then.
+if ! docker pull "\$IMAGE"; then
+  docker image inspect "\$IMAGE" >/dev/null 2>&1 || { echo "error: could not pull \$IMAGE" >&2; exit 1; }
+  echo "==> Pull failed - using the local \$IMAGE"
+fi
 
 if docker ps -a --format '{{.Names}}' | grep -qx cbm-agent; then
   echo "==> An agent is already installed on this host - reconfiguring with the new token."

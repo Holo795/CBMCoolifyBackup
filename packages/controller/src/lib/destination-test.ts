@@ -4,13 +4,12 @@ import type { ResolvedDestination } from "@cbm/shared";
 export async function testDestination(dest: ResolvedDestination): Promise<{ ok: boolean; detail?: string; error?: string }> {
   try {
     if (dest.type === "local") {
-      const { mkdir, writeFile, rm } = await import("node:fs/promises");
-      const { join } = await import("node:path");
-      await mkdir(dest.basePath, { recursive: true });
-      const probe = join(dest.basePath, `.cbm-probe-${Date.now()}`);
-      await writeFile(probe, "ok");
-      await rm(probe, { force: true });
-      return { ok: true, detail: `Writable: ${dest.basePath}` };
+      // The folder lives on each agent's host, not here: probing the
+      // controller's own filesystem proved nothing (and fails as non-root).
+      return {
+        ok: true,
+        detail: `Local folders live on each agent's host (${dest.basePath}) - use Verify to check them from the agents.`,
+      };
     }
 
     if (dest.type === "ssh") {
