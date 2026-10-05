@@ -13,6 +13,7 @@ import {
   type CapturedConfig,
   snapshotDir,
 } from "@cbm/shared";
+import { randomUUID } from "node:crypto";
 import { prisma } from "./prisma";
 import { decryptSecret, encryptSecret } from "./crypto";
 import { effectivePolicy } from "./schedule";
@@ -66,6 +67,29 @@ export function resolveStorage(dest: Destination): StorageSpec {
   return { engine: "tar" };
 }
 
+/** A new agent-job id, generated up front (see createAgentJob). */
+function newJobId(): string {
+  return randomUUID();
+}
+
+/**
+ * Queue an agent job in ONE write, payload included. Creating the row first and
+ * filling the payload afterwards let an agent claim an empty job in between (it
+ * then failed to parse it and the job sat "running" until the reaper).
+ */
+async function createAgentJob(data: {
+  id: string;
+  agentId: string;
+  type: string;
+  payload: unknown;
+  snapshotId?: string;
+  restoreId?: string;
+}): Promise<void> {
+  await prisma.agentJob.create({
+    data: { ...data, status: "queued", payload: data.payload as Prisma.InputJsonValue },
+  });
+}
+
 /**
  * Pick the agent that should run a job for a resource on `serverUuid` of a
  * Coolify instance. An agent only sees its own host's Docker, so in a
@@ -92,13 +116,10 @@ async function pickAgent(instanceId: string | null, serverUuid?: string | null) 
     orderBy: { lastSeenAt: "desc" },
   });
   if (!serverUuid) {
-    // Unknown server: keep legacy behaviour (any online agent of the instance,
-    // then any agent at all).
-    return (
-      online[0] ??
-      (await prisma.agent.findFirst({ where: { instanceId } })) ??
-      (await prisma.agent.findFirst({ orderBy: { lastSeenAt: "desc" } }))
-    );
+    // Unknown server: any ONLINE agent of the instance. Never an offline one (the
+    // job would sit queued and run whenever it came back - possibly days later)
+    // and never another instance's agent (it can't see this resource).
+    return online[0] ?? null;
   }
   // Server known but no agent matched it: only safe to fall back when there's a
   // single online agent (it can only be the one host). Otherwise refuse rather
@@ -113,9 +134,28 @@ async function agentById(agentId: string | null | undefined) {
   return prisma.agent.findUnique({ where: { id: agentId } });
 }
 
+/**
+ * Refuse to start a backup or an in-place restore while another one is in
+ * flight for the same resource: two backups would double-freeze its containers,
+ * and a restore would stop them in the middle of a backup's copy. Restores to a
+ * new resource and drills don't touch the original, so they never conflict.
+ */
+async function assertResourceIdle(resourceId: string, resourceName: string): Promise<void> {
+  const [backup, restore] = await Promise.all([
+    prisma.snapshot.findFirst({ where: { resourceId, status: "running", mirrorOfId: null }, select: { id: true } }),
+    prisma.restoreJob.findFirst({
+      where: { status: "running", target: "in_place", snapshot: { resourceId } },
+      select: { id: true },
+    }),
+  ]);
+  if (backup) throw new Error(`A backup of ${resourceName} is already in progress - wait for it to finish.`);
+  if (restore) throw new Error(`An in-place restore of ${resourceName} is in progress - wait for it to finish.`);
+}
+
 /** Create a Snapshot + queued AgentJob for a backup. */
 export async function enqueueBackup(resourceId: string, policyId?: string, runId?: string) {
   const resource = await prisma.resource.findUniqueOrThrow({ where: { id: resourceId } });
+  await assertResourceIdle(resource.id, resource.name);
   let policy = policyId
     ? await prisma.backupPolicy.findUniqueOrThrow({ where: { id: policyId }, include: { destination: true } })
     : null;
@@ -171,20 +211,11 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
     },
   });
 
-  // Create the AgentJob first so its id can be used as the job correlation id
-  // (agents post events/results to /api/agents/jobs/<agentJob.id>/...).
-  const agentJob = await prisma.agentJob.create({
-    data: {
-      agentId: agent.id,
-      type: "backup",
-      status: "queued",
-      payload: {},
-      snapshotId: snapshot.id,
-    },
-  });
-
+  // The job id is the correlation id agents post events/results to; it is
+  // generated up front so the row is created with its full payload at once.
+  const jobId = newJobId();
   const job: BackupJob = {
-    id: agentJob.id,
+    id: jobId,
     type: "backup",
     mode,
     liveBackup,
@@ -207,9 +238,9 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
     destinationDir: dir,
   };
 
-  await prisma.agentJob.update({ where: { id: agentJob.id }, data: { payload: job as unknown as object } });
+  await createAgentJob({ id: jobId, agentId: agent.id, type: "backup", payload: job, snapshotId: snapshot.id });
 
-  return { snapshotId: snapshot.id, agentId: agent.id, jobId: agentJob.id };
+  return { snapshotId: snapshot.id, agentId: agent.id, jobId };
 }
 
 /**
@@ -664,6 +695,7 @@ export async function enqueueRestore(
     include: { destination: true, resource: true },
   });
   if (!snapshot.manifest) throw new Error("Snapshot has no manifest; cannot restore");
+  if (target === "in_place") await assertResourceIdle(snapshot.resource.id, snapshot.resource.name);
 
   const migrating =
     target === "new_resource" && !!targetInstanceId && targetInstanceId !== snapshot.resource.instanceId;
@@ -730,18 +762,9 @@ export async function enqueueRestore(
     },
   });
 
-  const agentJob = await prisma.agentJob.create({
-    data: {
-      agentId: agent.id,
-      type: "restore",
-      status: "queued",
-      payload: {},
-      restoreId: restore.id,
-    },
-  });
-
+  const jobId = newJobId();
   const job: RestoreJob = {
-    id: agentJob.id,
+    id: jobId,
     type: "restore",
     manifest,
     source: resolveDestination(snapshot.destination),
@@ -756,20 +779,20 @@ export async function enqueueRestore(
     db: dbCredsFromCaptured(manifest.capturedConfig, snapshot.resource.type) ?? (await dbCredsFor(snapshot.resource)),
   };
 
-  await prisma.agentJob.update({ where: { id: agentJob.id }, data: { payload: job as unknown as object } });
+  await createAgentJob({ id: jobId, agentId: agent.id, type: "restore", payload: job, restoreId: restore.id });
 
   // Make the rewiring visible in the restore's live log.
   if (remapped.length) {
     await prisma.jobEvent.createMany({
       data: remapped.map((c) => ({
-        jobId: agentJob.id,
+        jobId,
         level: "info",
         message: `Rewired ${c.key}: ${c.from} -> ${c.to} (points at the restored clone, not the original)`,
       })),
     });
   }
 
-  return { restoreId: restore.id, agentId: agent.id, jobId: agentJob.id };
+  return { restoreId: restore.id, agentId: agent.id, jobId };
 }
 
 /**
@@ -794,19 +817,17 @@ export async function enqueuePrune(opts: {
   const agent = (await agentById(opts.agentId)) ?? (await pickAgent(opts.instanceId));
   if (!agent) return null;
 
-  const agentJob = await prisma.agentJob.create({
-    data: { agentId: agent.id, type: "prune", status: "queued", payload: {} },
-  });
+  const jobId = newJobId();
   const job: PruneJob = {
-    id: agentJob.id,
+    id: jobId,
     type: "prune",
     destination: resolveDestination(opts.destination),
     storage: resolveStorage(opts.destination),
     dirs,
     resticSnapshotIds,
   };
-  await prisma.agentJob.update({ where: { id: agentJob.id }, data: { payload: job as unknown as object } });
-  return { jobId: agentJob.id, agentId: agent.id };
+  await createAgentJob({ id: jobId, agentId: agent.id, type: "prune", payload: job });
+  return { jobId, agentId: agent.id };
 }
 
 /** Any online agent (for jobs against a globally-reachable ssh/s3 destination). */
@@ -920,17 +941,19 @@ export async function enqueueVerifyDestination(
     else if (key === null) {
       console.warn(`[verify] ${groupSnaps.length} local snapshot(s) on destination ${dest.name} have no known agent; skipped`);
       continue;
-    } else agent = await agentById(key);
+    } else {
+      // A local destination's files are only reachable from the agent that wrote them.
+      const producer = await agentById(key);
+      agent = producer?.status === "online" ? producer : null;
+    }
     if (!agent) {
       console.warn(`[verify] no agent available to check destination ${dest.name} (group ${String(key)})`);
       continue;
     }
 
-    const agentJob = await prisma.agentJob.create({
-      data: { agentId: agent.id, type: "verify-destination", status: "queued", payload: {} },
-    });
+    const jobId = newJobId();
     const job = {
-      id: agentJob.id,
+      id: jobId,
       type: "verify-destination" as const,
       destination: resolved,
       storage,
@@ -947,7 +970,7 @@ export async function enqueueVerifyDestination(
       engine: dest.engine,
       isDeep: deep,
     };
-    await prisma.agentJob.update({ where: { id: agentJob.id }, data: { payload: job as unknown as object } });
+    await createAgentJob({ id: jobId, agentId: agent.id, type: "verify-destination", payload: job });
     queued++;
   }
   // Snapshots existed but nothing could be queued → no agent able to reach them.
@@ -980,11 +1003,9 @@ export async function enqueueMirror(sourceSnapshotId: string): Promise<{ queued:
 
   const srcEnc = resolveEncryption(source);
   const tgtEnc = resolveEncryption(target);
-  const agentJob = await prisma.agentJob.create({
-    data: { agentId: agent.id, type: "mirror", status: "queued", payload: {} },
-  });
+  const jobId = newJobId();
   const job: MirrorJob & { sourceSnapshotId: string; targetDestinationId: string } = {
-    id: agentJob.id,
+    id: jobId,
     type: "mirror",
     source: resolveDestination(source),
     target: resolveDestination(target),
@@ -999,7 +1020,7 @@ export async function enqueueMirror(sourceSnapshotId: string): Promise<{ queued:
     sourceSnapshotId: snap.id,
     targetDestinationId: target.id,
   };
-  await prisma.agentJob.update({ where: { id: agentJob.id }, data: { payload: job as unknown as object } });
+  await createAgentJob({ id: jobId, agentId: agent.id, type: "mirror", payload: job });
   return { queued: true };
 }
 
@@ -1038,17 +1059,15 @@ export async function enqueueDrill(
   const cfg = manifest.capturedConfig;
   const rawImage = cfg?.kind === "database" ? (cfg.raw as Record<string, unknown> | undefined)?.image : undefined;
 
-  // snapshotId links the job to its resource for labels (activity bar, API);
-  // the result route dispatches on type, so it's never treated as the backup.
-  const agentJob = await prisma.agentJob.create({
-    data: { agentId: agent.id, type: "restore-drill", status: "queued", payload: {}, snapshotId: snapshot.id },
-  });
+  // The drill row exists before its job becomes claimable, so a fast agent's
+  // result always finds it.
+  const jobId = newJobId();
   const drill = await prisma.restoreDrill.create({
-    data: { snapshotId: snapshot.id, agentJobId: agentJob.id, trigger },
+    data: { snapshotId: snapshot.id, agentJobId: jobId, trigger },
   });
 
   const job: RestoreDrillJob = {
-    id: agentJob.id,
+    id: jobId,
     type: "restore-drill",
     source: resolveDestination(snapshot.destination),
     storage: resolveStorage(snapshot.destination),
@@ -1058,6 +1077,8 @@ export async function enqueueDrill(
     dbImage: typeof rawImage === "string" ? rawImage : undefined,
     manifest,
   };
-  await prisma.agentJob.update({ where: { id: agentJob.id }, data: { payload: job as unknown as object } });
-  return { drillId: drill.id, jobId: agentJob.id };
+  // snapshotId links the job to its resource for labels (activity bar, API);
+  // the result route dispatches on type, so it's never treated as the backup.
+  await createAgentJob({ id: jobId, agentId: agent.id, type: "restore-drill", payload: job, snapshotId: snapshot.id });
+  return { drillId: drill.id, jobId };
 }

@@ -54,7 +54,7 @@ export function stuckReason(
  * per-type hard cap. Progress is NOT judged by elapsed time alone, so a large
  * backup on a live agent is left to finish. Idempotent; safe to run often.
  */
-export async function reaper(now = new Date(), opts: ReaperOptions = {}): Promise<{ offline: number; stuck: number }> {
+export async function reaper(now = new Date(), opts: ReaperOptions = {}): Promise<{ offline: number; stuck: number; expired: number }> {
   const offlineMs = opts.offlineMs ?? AGENT_ONLINE_MS;
   const fallbackCapMs = opts.stuckMs ?? 2 * 3600_000;
 
@@ -81,33 +81,83 @@ export async function reaper(now = new Date(), opts: ReaperOptions = {}): Promis
   for (const j of running) {
     const reason = stuckReason(j, now, offlineMs, fallbackCapMs);
     if (!reason) continue;
-
-    stuck++;
-    await prisma.agentJob.update({
-      where: { id: j.id },
-      // Drop the credentials the payload carried for the agent (see lib/scrub).
-      data: { status: "failed", error: reason, finishedAt: now, payload: { scrubbed: true, type: j.type } },
-    });
-    if (j.snapshotId) {
-      const upd = await prisma.snapshot.updateMany({
-        where: { id: j.snapshotId, status: "running" },
-        data: { status: "failed", error: reason, finishedAt: now },
-      });
-      if (upd.count > 0) await notifyBackupFailed(j.snapshotId).catch(() => undefined);
-    }
-    if (j.restoreId) {
-      await prisma.restoreJob.updateMany({
-        where: { id: j.restoreId, status: "running" },
-        data: { status: "failed", error: reason, finishedAt: now },
-      });
-    }
-    if (j.type === "restore-drill") {
-      await prisma.restoreDrill.updateMany({
-        where: { agentJobId: j.id, status: "running" },
-        data: { status: "error", error: reason, finishedAt: now },
-      });
-    }
+    if (await failJob(j, "running", reason, now)) stuck++;
   }
 
-  return { offline: offline.count, stuck };
+  // Jobs no agent picked up in time. Without this a job queued to an agent that
+  // never came back stayed queued forever - and ran whenever it did, e.g. an
+  // in-place restore days after it was asked for.
+  const queued = await prisma.agentJob.findMany({
+    where: { status: "queued", createdAt: { lt: new Date(now.getTime() - MIN_QUEUE_TTL_MS) } },
+    select: { id: true, type: true, snapshotId: true, restoreId: true, createdAt: true },
+  });
+  let expired = 0;
+  for (const j of queued) {
+    const reason = queueExpiredReason(j, now);
+    if (reason && (await failJob(j, "queued", reason, now))) expired++;
+  }
+
+  return { offline: offline.count, stuck, expired };
+}
+
+/**
+ * How long a job may wait in the queue before it's cancelled. Short for an
+ * in-place restore (running it much later would surprise anyone); a prune may
+ * wait for its agent (the files only exist on that host).
+ */
+const QUEUE_TTL_BY_TYPE: Record<string, number> = {
+  restore: 30 * 60_000,
+  backup: 2 * 3600_000,
+  mirror: 12 * 3600_000,
+  "verify-destination": 12 * 3600_000,
+  "restore-drill": 12 * 3600_000,
+  prune: 7 * 24 * 3600_000,
+};
+const DEFAULT_QUEUE_TTL_MS = 12 * 3600_000;
+const MIN_QUEUE_TTL_MS = Math.min(...Object.values(QUEUE_TTL_BY_TYPE));
+
+/** Pure decision: has a queued job waited past its type's limit? */
+export function queueExpiredReason(job: { type: string; createdAt: Date }, now: Date): string | null {
+  const ttl = QUEUE_TTL_BY_TYPE[job.type] ?? DEFAULT_QUEUE_TTL_MS;
+  if (now.getTime() - job.createdAt.getTime() < ttl) return null;
+  return `no agent picked this job up within ${Math.round(ttl / 60_000)} min - cancelled`;
+}
+
+/**
+ * Fail a job that is still in `from` (the condition makes it race-free against
+ * a concurrent claim or result), and everything that waits on it. Also drops
+ * the credentials its payload carried (see lib/scrub). Returns false when the
+ * job had already moved on.
+ */
+async function failJob(
+  j: { id: string; type: string; snapshotId: string | null; restoreId: string | null },
+  from: "queued" | "running",
+  reason: string,
+  now: Date,
+): Promise<boolean> {
+  const upd = await prisma.agentJob.updateMany({
+    where: { id: j.id, status: from },
+    data: { status: "failed", error: reason, finishedAt: now, payload: { scrubbed: true, type: j.type } },
+  });
+  if (upd.count === 0) return false;
+  if (j.snapshotId) {
+    const snap = await prisma.snapshot.updateMany({
+      where: { id: j.snapshotId, status: "running" },
+      data: { status: "failed", error: reason, finishedAt: now },
+    });
+    if (snap.count > 0) await notifyBackupFailed(j.snapshotId).catch(() => undefined);
+  }
+  if (j.restoreId) {
+    await prisma.restoreJob.updateMany({
+      where: { id: j.restoreId, status: "running" },
+      data: { status: "failed", error: reason, finishedAt: now },
+    });
+  }
+  if (j.type === "restore-drill") {
+    await prisma.restoreDrill.updateMany({
+      where: { agentJobId: j.id, status: "running" },
+      data: { status: "error", error: reason, finishedAt: now },
+    });
+  }
+  return true;
 }
