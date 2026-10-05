@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "tsc -p tsconfig.json && node --test dist/contract.test.js"
+    "test": "tsc -p tsconfig.json && node --test dist/*.test.js"
   },
   "dependencies": {
     "zod": "^4.6.5"

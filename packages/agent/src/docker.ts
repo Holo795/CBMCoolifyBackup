@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { createWriteStream, createReadStream } from "node:fs";
 import { once } from "node:events";
 import { pipeline } from "node:stream/promises";
+import { redactSecrets } from "@cbm/shared";
 import { runCapture, type RunResult } from "./proc.js";
 
 let DOCKER = "docker";
@@ -11,15 +12,29 @@ export function setDockerBin(bin: string) {
 
 export type { RunResult };
 
+/**
+ * Secrets never go in docker's arguments (visible in `ps`, and echoed in error
+ * messages that end up in job logs and alerts). Pass `-e NAME` without a value
+ * in the arguments and the value here: docker copies it from its own environment.
+ */
+export type SecretEnv = Record<string, string>;
+
+const childEnv = (secrets?: SecretEnv) => (secrets ? { ...process.env, ...secrets } : undefined);
+
+/** A short, redacted description of a docker command for error messages. */
+function describe(args: string[]): string {
+  return redactSecrets(args.slice(0, 6).join(" ") + (args.length > 6 ? " …" : ""));
+}
+
 /** Run a docker command, buffering stdout/stderr as strings. */
-export function docker(args: string[]): Promise<RunResult> {
-  return runCapture(DOCKER, args);
+export function docker(args: string[], secrets?: SecretEnv): Promise<RunResult> {
+  return runCapture(DOCKER, args, { env: childEnv(secrets) });
 }
 
 /** Run a docker command and stream stdout into a file (for dumps). */
-export async function dockerToFile(args: string[], outFile: string): Promise<void> {
+export async function dockerToFile(args: string[], outFile: string, secrets?: SecretEnv): Promise<void> {
   const out = createWriteStream(outFile);
-  const child = spawn(DOCKER, args, { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(DOCKER, args, { stdio: ["ignore", "pipe", "pipe"], env: childEnv(secrets) });
   let stderr = "";
   child.stderr.on("data", (d) => (stderr += d.toString()));
   // Capture the exit code independently, then await the write completing.
@@ -29,13 +44,13 @@ export async function dockerToFile(args: string[], outFile: string): Promise<voi
   await pipeline(child.stdout, out);
   const [code] = await exit;
   if (code !== 0) {
-    throw new Error(`docker ${args.join(" ")} exited ${code}: ${stderr.slice(0, 2000)}`);
+    throw new Error(`docker ${describe(args)} exited ${code}: ${redactSecrets(stderr.slice(0, 2000))}`);
   }
 }
 
 /** Run a docker command feeding a file into stdin (for restores). */
-export async function dockerFromFile(args: string[], inFile: string): Promise<void> {
-  const child = spawn(DOCKER, args, { stdio: ["pipe", "pipe", "pipe"] });
+export async function dockerFromFile(args: string[], inFile: string, secrets?: SecretEnv): Promise<void> {
+  const child = spawn(DOCKER, args, { stdio: ["pipe", "pipe", "pipe"], env: childEnv(secrets) });
   let stderr = "";
   child.stderr.on("data", (d) => (stderr += d.toString()));
   child.stdout.on("data", () => {}); // drain so a full pipe can't block the child
@@ -46,7 +61,7 @@ export async function dockerFromFile(args: string[], inFile: string): Promise<vo
   await pipeline(createReadStream(inFile), child.stdin).catch(() => undefined);
   const [code] = await exit;
   if (code !== 0) {
-    throw new Error(`docker ${args.join(" ")} exited ${code}: ${stderr.slice(0, 2000)}`);
+    throw new Error(`docker ${describe(args)} exited ${code}: ${redactSecrets(stderr.slice(0, 2000))}`);
   }
 }
 

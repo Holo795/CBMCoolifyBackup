@@ -1,4 +1,4 @@
-import type { Job, JobResult, JobEvent } from "@cbm/shared";
+import { redactSecrets, type Job, type JobResult, type JobEvent } from "@cbm/shared";
 import type { AgentConfig } from "./config.js";
 import { runBackup, type Emit } from "./backup.js";
 import { runRestore } from "./restore.js";
@@ -18,7 +18,9 @@ export async function executeJob(
   workDir: string,
   onEvent?: (e: JobEvent) => void,
 ): Promise<JobResult> {
-  const emit: Emit = (level, message, progress) => {
+  const emit: Emit = (level, rawMessage, progress) => {
+    // Nothing secret may reach job logs (visible to every role) or alerts.
+    const message = redactSecrets(rawMessage);
     const e: JobEvent = { jobId: job.id, ts: new Date().toISOString(), level, message, progress };
     logger[level](`[${job.id}] ${message}`);
     onEvent?.(e);
@@ -49,7 +51,7 @@ export async function executeJob(
       return { jobId: job.id, status: "succeeded" };
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = redactSecrets(err instanceof Error ? err.message : String(err));
     emit("error", `Job failed: ${message}`);
     return { jobId: job.id, status: "failed", error: message };
   }

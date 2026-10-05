@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { JobEvent } from "@cbm/shared";
+import { JobEvent, redactSecrets } from "@cbm/shared";
 import { prisma } from "@/lib/prisma";
 import { authenticateAgentFromRequest } from "@/lib/agent-auth";
 
@@ -21,7 +21,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     data: {
       jobId: id,
       level: e.level,
-      message: e.message,
+      // Job logs are visible to every role: never store a credential.
+      message: redactSecrets(e.message),
       progress: e.progress !== undefined ? Math.round(e.progress) : null,
       ts: new Date(e.ts),
     },

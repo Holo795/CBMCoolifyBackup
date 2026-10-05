@@ -286,15 +286,17 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
     return { skipped: true, reason: "Ignored: nothing on the host (no container, volume or data)" };
   }
 
-  // Config artifact (resource descriptor + provenance) - sensitive, encrypt if enabled.
-  const config = { resource, provenance };
+  // DB credentials never leave the host: not in the manifest (stored unencrypted)
+  // nor in the config artifact (plaintext on an unencrypted tar destination).
+  // Restores re-resolve them from the live container / the controller.
+  const { db: _omitDb, ...sanitizedResource } = resource;
+
+  // Config artifact (resource descriptor + provenance), encrypted if enabled.
+  const config = { resource: sanitizedResource, provenance };
   const configPath = join(stage, CONFIG_FILE);
   await writeFile(configPath, JSON.stringify(config, null, 2));
   artifacts.push(await finalizeArtifact("config", CONFIG_FILE, configPath, {}, job, stage, emit));
 
-  // Strip DB credentials from the manifest - it is stored unencrypted on the
-  // destination. Credentials are re-resolved from the live container at restore.
-  const { db: _omitDb, ...sanitizedResource } = resource;
   const manifest: SnapshotManifest = {
     version: 1,
     resource: sanitizedResource,

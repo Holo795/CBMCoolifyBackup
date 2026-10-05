@@ -1,11 +1,11 @@
-import type { RestoreDrillJob, DrillCheck, Artifact, ResourceType, DbCredentials } from "@cbm/shared";
+import { redactSecrets, type RestoreDrillJob, type DrillCheck, type Artifact, type ResourceType, type DbCredentials } from "@cbm/shared";
 import { mkdtemp, rm, open } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { stagePlaintext } from "./stage.js";
-import { docker, tarEntryCount, writeFileIntoVolume } from "./docker.js";
+import { docker, tarEntryCount, writeFileIntoVolume, type RunResult } from "./docker.js";
 import { restoreDatabase } from "./dump.js";
 import { detectEngine } from "./engines.js";
 import type { Emit } from "./backup.js";
@@ -98,46 +98,51 @@ async function removeSandbox(sb: Sandbox): Promise<void> {
   if (sb.volume) await docker(["volume", "rm", "-f", sb.volume]).catch(() => undefined);
 }
 
-/** Start a network-less database container with throwaway credentials. */
+/** Start a network-less database container with throwaway credentials (passed
+ * through docker's environment, never its arguments). */
 async function startSqlSandbox(engine: string, image: string, name: string): Promise<Sandbox> {
   const pw = randomBytes(18).toString("base64url");
   let env: string[];
+  let secrets: Record<string, string>;
   let creds: DbCredentials;
   if (engine === "postgresql") {
-    env = ["-e", "POSTGRES_USER=cbm", "-e", `POSTGRES_PASSWORD=${pw}`, "-e", "POSTGRES_DB=drill"];
+    env = ["-e", "POSTGRES_USER=cbm", "-e", "POSTGRES_PASSWORD", "-e", "POSTGRES_DB=drill"];
+    secrets = { POSTGRES_PASSWORD: pw };
     creds = { user: "cbm", password: pw, database: "drill" };
   } else if (engine === "mongodb") {
-    env = ["-e", "MONGO_INITDB_ROOT_USERNAME=cbm", "-e", `MONGO_INITDB_ROOT_PASSWORD=${pw}`];
+    env = ["-e", "MONGO_INITDB_ROOT_USERNAME=cbm", "-e", "MONGO_INITDB_ROOT_PASSWORD"];
+    secrets = { MONGO_INITDB_ROOT_PASSWORD: pw };
     creds = { user: "cbm", password: pw };
   } else {
     // MariaDB images also honour the MYSQL_* variables; set both to be safe.
-    env = ["-e", `MYSQL_ROOT_PASSWORD=${pw}`, "-e", `MARIADB_ROOT_PASSWORD=${pw}`];
+    env = ["-e", "MYSQL_ROOT_PASSWORD", "-e", "MARIADB_ROOT_PASSWORD"];
+    secrets = { MYSQL_ROOT_PASSWORD: pw, MARIADB_ROOT_PASSWORD: pw };
     creds = { user: "root", password: pw };
   }
-  const r = await docker(["run", "-d", "--name", name, "--network", "none", ...LABELS(Date.now()), ...env, image]);
+  const r = await docker(["run", "-d", "--name", name, "--network", "none", ...LABELS(Date.now()), ...env, image], secrets);
   if (r.code !== 0) throw new Error(`could not start a ${engine} sandbox from ${image}: ${r.stderr.trim().slice(0, 300)}`);
   return { name, engine, image, creds };
 }
 
-/** In-container command that succeeds only once the engine answers queries. */
-function readinessProbe(sb: Sandbox): string[] {
-  const pw = sb.creds.password ?? "";
-  if (sb.engine === "postgresql") return ["-e", `PGPASSWORD=${pw}`, sb.name, "psql", "-U", "cbm", "-d", "drill", "-tAc", "select 1"];
-  if (sb.engine === "mongodb") {
-    const auth = `-u cbm -p '${pw}' --authenticationDatabase admin`;
-    const ev = `--quiet ${auth} --eval 'db.adminCommand({ping:1}).ok'`;
-    return [sb.name, "sh", "-c", `(command -v mongosh >/dev/null 2>&1 && mongosh ${ev}) || mongo ${ev}`];
-  }
+/** `docker exec` into the sandbox with its password in $CBM_SB_PW (from the env). */
+function sandboxExec(sb: Sandbox, script: string): Promise<RunResult> {
+  return docker(["exec", "-e", "CBM_SB_PW", sb.name, "sh", "-c", script], { CBM_SB_PW: sb.creds.password ?? "" });
+}
+
+const MONGO_SHELL = (js: string) =>
+  `(command -v mongosh >/dev/null 2>&1 && mongosh --quiet -u cbm -p "$CBM_SB_PW" --authenticationDatabase admin --eval '${js}') || ` +
+  `mongo --quiet -u cbm -p "$CBM_SB_PW" --authenticationDatabase admin --eval '${js}'`;
+const MYSQL_SHELL = (sql: string) =>
+  `(command -v mariadb >/dev/null 2>&1 && MYSQL_PWD="$CBM_SB_PW" mariadb -uroot -N -e "${sql}") || MYSQL_PWD="$CBM_SB_PW" mysql -uroot -N -e "${sql}"`;
+const PG_SHELL = (sql: string) => `PGPASSWORD="$CBM_SB_PW" psql -U cbm -d drill -tAc "${sql}"`;
+
+/** Succeeds only once the engine answers queries. */
+function readinessProbe(sb: Sandbox): Promise<RunResult> {
+  if (sb.engine === "postgresql") return sandboxExec(sb, PG_SHELL("select 1"));
+  if (sb.engine === "mongodb") return sandboxExec(sb, MONGO_SHELL("db.adminCommand({ping:1}).ok"));
   // redis-cli exits 0 even on a "-LOADING" reply, so require a literal PONG.
-  if (sb.engine === "redis") return [sb.name, "sh", "-c", '[ "$(redis-cli ping)" = "PONG" ]'];
-  return [
-    "-e",
-    `MYSQL_PWD=${pw}`,
-    sb.name,
-    "sh",
-    "-c",
-    "(command -v mariadb >/dev/null 2>&1 && mariadb -uroot -e 'select 1') || mysql -uroot -e 'select 1'",
-  ];
+  if (sb.engine === "redis") return sandboxExec(sb, '[ "$(redis-cli ping)" = "PONG" ]');
+  return sandboxExec(sb, MYSQL_SHELL("select 1"));
 }
 
 /**
@@ -149,7 +154,7 @@ async function waitReady(sb: Sandbox, timeoutMs = 240_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let streak = 0;
   while (Date.now() < deadline) {
-    const r = await docker(["exec", ...readinessProbe(sb)]);
+    const r = await readinessProbe(sb);
     streak = r.code === 0 ? streak + 1 : 0;
     if (streak >= 3) return;
     const state = await docker(["inspect", "-f", "{{.State.Running}}", sb.name]);
@@ -164,41 +169,30 @@ async function waitReady(sb: Sandbox, timeoutMs = 240_000): Promise<void> {
 
 /** How many tables/collections the sandbox holds after the load. */
 async function countRestored(sb: Sandbox): Promise<number> {
-  const pw = sb.creds.password ?? "";
-  let r;
+  let r: RunResult;
   if (sb.engine === "postgresql") {
-    r = await docker([
-      "exec",
-      "-e",
-      `PGPASSWORD=${pw}`,
-      sb.name,
-      "psql",
-      "-U",
-      "cbm",
-      "-d",
-      "drill",
-      "-tAc",
-      "select count(*) from information_schema.tables where table_schema not in ('pg_catalog','information_schema') and table_type='BASE TABLE'",
-    ]);
+    r = await sandboxExec(
+      sb,
+      PG_SHELL(
+        "select count(*) from information_schema.tables where table_schema not in ('pg_catalog','information_schema') and table_type='BASE TABLE'",
+      ),
+    );
   } else if (sb.engine === "mongodb") {
-    const js =
-      "let n=0;db.adminCommand({listDatabases:1}).databases.filter(d=>!['admin','config','local'].includes(d.name))" +
-      ".forEach(d=>{n+=db.getSiblingDB(d.name).getCollectionNames().length});print(n)";
-    const ev = `--quiet -u cbm -p '${pw}' --authenticationDatabase admin --eval "${js}"`;
-    r = await docker(["exec", sb.name, "sh", "-c", `(command -v mongosh >/dev/null 2>&1 && mongosh ${ev}) || mongo ${ev}`]);
+    r = await sandboxExec(
+      sb,
+      MONGO_SHELL(
+        "let n=0;db.adminCommand({listDatabases:1}).databases.filter(d=>![\"admin\",\"config\",\"local\"].includes(d.name))" +
+          ".forEach(d=>{n+=db.getSiblingDB(d.name).getCollectionNames().length});print(n)",
+      ),
+    );
   } else {
-    const q =
-      "select count(*) from information_schema.tables where table_schema not in " +
-      "('mysql','information_schema','performance_schema','sys') and table_type='BASE TABLE'";
-    r = await docker([
-      "exec",
-      "-e",
-      `MYSQL_PWD=${pw}`,
-      sb.name,
-      "sh",
-      "-c",
-      `(command -v mariadb >/dev/null 2>&1 && mariadb -uroot -N -e "${q}") || mysql -uroot -N -e "${q}"`,
-    ]);
+    r = await sandboxExec(
+      sb,
+      MYSQL_SHELL(
+        "select count(*) from information_schema.tables where table_schema not in " +
+          "('mysql','information_schema','performance_schema','sys') and table_type='BASE TABLE'",
+      ),
+    );
   }
   const n = Number.parseInt(r.stdout.trim().split("\n").pop() ?? "", 10);
   if (r.code !== 0 || !Number.isFinite(n)) throw new Error(`could not count restored objects: ${r.stderr.trim().slice(0, 300)}`);
@@ -328,7 +322,7 @@ export async function runRestoreDrill(
           checks.push({ ...base, ok: size > 0, detail: size > 0 ? "present and readable" : "empty file" });
         }
       } catch (e) {
-        checks.push({ ...base, ok: false, detail: e instanceof Error ? e.message : String(e) });
+        checks.push({ ...base, ok: false, detail: redactSecrets(e instanceof Error ? e.message : String(e)) });
       }
       const last = checks[checks.length - 1];
       emit(last.ok ? "info" : "error", `${last.ok ? "OK" : "FAILED"} ${a.filename}: ${last.detail}`, progress);

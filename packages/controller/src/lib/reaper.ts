@@ -83,7 +83,11 @@ export async function reaper(now = new Date(), opts: ReaperOptions = {}): Promis
     if (!reason) continue;
 
     stuck++;
-    await prisma.agentJob.update({ where: { id: j.id }, data: { status: "failed", error: reason, finishedAt: now } });
+    await prisma.agentJob.update({
+      where: { id: j.id },
+      // Drop the credentials the payload carried for the agent (see lib/scrub).
+      data: { status: "failed", error: reason, finishedAt: now, payload: { scrubbed: true, type: j.type } },
+    });
     if (j.snapshotId) {
       const upd = await prisma.snapshot.updateMany({
         where: { id: j.snapshotId, status: "running" },

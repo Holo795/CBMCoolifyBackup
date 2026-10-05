@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { JobResult } from "@cbm/shared";
+import { JobResult, redactSecrets } from "@cbm/shared";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { authenticateAgentFromRequest } from "@/lib/agent-auth";
@@ -11,6 +11,7 @@ import {
   notifyDrillFailed,
 } from "@/lib/notify";
 import { enqueueMirror } from "@/lib/jobs";
+import { scrubPayload } from "@/lib/scrub";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const agent = await authenticateAgentFromRequest(req);
@@ -26,7 +27,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid result", details: parsed.error.issues }, { status: 400 });
   }
-  const result = parsed.data;
+  // Redact free text from the agent (an older agent may still echo credentials).
+  const result = { ...parsed.data, error: parsed.data.error ? redactSecrets(parsed.data.error) : undefined };
   const succeeded = result.status === "succeeded";
 
   await prisma.agentJob.update({
@@ -230,6 +232,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
     }
   }
+
+  // The payload held decrypted credentials and keys for the agent; nothing reads
+  // it once the job is done, so keep only its non-secret scalars.
+  await prisma.agentJob
+    .update({ where: { id }, data: { payload: scrubPayload(job.payload) as Prisma.InputJsonValue } })
+    .catch(() => undefined);
 
   return NextResponse.json({ ok: true });
 }
