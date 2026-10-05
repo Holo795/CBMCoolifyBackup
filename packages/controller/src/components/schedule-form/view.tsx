@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, Input, Label, Select } from "@/components/ui";
+import { useT } from "@/components/i18n-provider";
 
 export type Dest = { id: string; name: string };
 export type Defaults = {
@@ -33,41 +34,42 @@ export function ScheduleFormView({
   error: string | null;
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
 }) {
+  const t = useT();
   if (destinations.length === 0) {
-    return <p className="text-sm text-muted-foreground">Add a destination first (Destinations page).</p>;
+    return <p className="text-sm text-muted-foreground">{t("instances.scheduleForm.addDestinationFirst")}</p>;
   }
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="frequency">Frequency</Label>
+          <Label htmlFor="frequency">{t("instances.scheduleForm.frequency")}</Label>
           <Select id="frequency" name="frequency" value={frequency} onChange={(e) => onFrequencyChange(e.target.value)}>
-            <option value="hourly">Hourly</option>
-            <option value="daily">Daily (02:00)</option>
-            <option value="weekly">Weekly (Mon)</option>
-            <option value="monthly">Monthly (1st)</option>
-            <option value="custom">Custom cron…</option>
+            <option value="hourly">{t("instances.scheduleForm.freqHourly")}</option>
+            <option value="daily">{t("instances.scheduleForm.freqDaily")}</option>
+            <option value="weekly">{t("instances.scheduleForm.freqWeekly")}</option>
+            <option value="monthly">{t("instances.scheduleForm.freqMonthly")}</option>
+            <option value="custom">{t("instances.scheduleForm.freqCustom")}</option>
           </Select>
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="mode">Mode</Label>
+          <Label htmlFor="mode">{t("instances.scheduleForm.mode")}</Label>
           <Select id="mode" name="mode" defaultValue={defaults?.mode ?? "backup"}>
-            <option value="backup">backup (versioned)</option>
-            <option value="sync">sync (single copy)</option>
+            <option value="backup">{t("instances.scheduleForm.modeBackup")}</option>
+            <option value="sync">{t("instances.scheduleForm.modeSync")}</option>
           </Select>
         </div>
       </div>
 
       {frequency === "custom" && (
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="customCron">Cron expression</Label>
+          <Label htmlFor="customCron">{t("instances.scheduleForm.cronExpression")}</Label>
           <Input id="customCron" name="customCron" defaultValue={defaults?.customCron ?? "0 2 * * *"} className="font-mono" />
         </div>
       )}
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="destinationId">Destination</Label>
+        <Label htmlFor="destinationId">{t("instances.scheduleForm.destination")}</Label>
         <Select id="destinationId" name="destinationId" defaultValue={defaults?.destinationId} required>
           {destinations.map((d) => (
             <option key={d.id} value={d.id}>
@@ -78,14 +80,14 @@ export function ScheduleFormView({
       </div>
 
       <div className="grid grid-cols-3 gap-2">
-        <Ret name="retentionDaily" label="Keep daily" def={defaults?.retentionDaily ?? 7} />
-        <Ret name="retentionWeekly" label="Keep weekly" def={defaults?.retentionWeekly ?? 4} />
-        <Ret name="retentionMonthly" label="Keep monthly" def={defaults?.retentionMonthly ?? 6} />
+        <Ret name="retentionDaily" label={t("instances.scheduleForm.keepDaily")} def={defaults?.retentionDaily ?? 7} />
+        <Ret name="retentionWeekly" label={t("instances.scheduleForm.keepWeekly")} def={defaults?.retentionWeekly ?? 4} />
+        <Ret name="retentionMonthly" label={t("instances.scheduleForm.keepMonthly")} def={defaults?.retentionMonthly ?? 6} />
       </div>
 
       {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
       <Button type="submit" variant="primary" disabled={pending} className="self-start">
-        {pending ? "Saving…" : submitLabel}
+        {pending ? t("common.saving") : submitLabel}
       </Button>
     </form>
   );

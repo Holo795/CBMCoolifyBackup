@@ -5,6 +5,7 @@ import { backupNow } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { ResourceToggles } from "@/components/resource-toggles";
 import { Gate } from "@/components/role-gate";
+import { getT } from "@/lib/i18n";
 import { Boxes, Play, Unplug, Pin } from "lucide-react";
 
 type ResourceRow = Prisma.ResourceGetPayload<{ include: { instance: true } }>;
@@ -13,7 +14,7 @@ type OrphanedRow = Prisma.ResourceGetPayload<{
 }>;
 
 /** Presentation only: the Resources list markup. Data is fetched in ./page.tsx. */
-export function ResourcesView({
+export async function ResourcesView({
   rows,
   orphaned,
   liveInstanceIds,
@@ -32,34 +33,35 @@ export function ResourcesView({
   q?: string;
   type?: string;
 }) {
+  const t = await getT();
   const qs = (p: number) =>
     `/resources?${new URLSearchParams({ ...(q ? { q } : {}), ...(type ? { type } : {}), page: String(p) }).toString()}`;
 
   return (
     <>
-      <PageHeader title="Resources" description="Enable backups and pick a capture mode per resource" />
+      <PageHeader title={t("resources.title")} description={t("resources.description")} />
 
       <form className="mb-4 flex gap-2" action="/resources" method="get">
-        <Input name="q" defaultValue={q ?? ""} placeholder="Search by name…" className="max-w-xs" />
-        <Input name="type" defaultValue={type ?? ""} placeholder="Filter type (postgresql…)" className="max-w-xs" />
+        <Input name="q" defaultValue={q ?? ""} placeholder={t("resources.searchPlaceholder")} className="max-w-xs" />
+        <Input name="type" defaultValue={type ?? ""} placeholder={t("resources.filterTypePlaceholder")} className="max-w-xs" />
         <Button type="submit" variant="outline">
-          Filter
+          {t("resources.filter")}
         </Button>
       </form>
 
       {rows.length === 0 ? (
-        <EmptyState icon={<Boxes className="h-6 w-6" />} title="No resources" hint="Connect a Coolify instance and sync to discover resources." />
+        <EmptyState icon={<Boxes className="h-6 w-6" />} title={t("resources.emptyTitle")} hint={t("resources.emptyHint")} />
       ) : (
         <Card>
           <CardContent className="p-0">
             <table className="hidden w-full text-sm md:table">
               <thead className="border-b text-left text-xs text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2.5 font-medium">Name</th>
-                  <th className="px-4 py-2.5 font-medium">Type</th>
-                  <th className="px-4 py-2.5 font-medium">Project</th>
-                  <th className="px-4 py-2.5 font-medium">Status</th>
-                  <th className="px-4 py-2.5 font-medium">Backup settings</th>
+                  <th className="px-4 py-2.5 font-medium">{t("resources.colName")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("resources.colType")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("resources.colProject")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("resources.colStatus")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("resources.colBackupSettings")}</th>
                   <th className="px-4 py-2.5"></th>
                 </tr>
               </thead>
@@ -83,8 +85,7 @@ export function ResourcesView({
                             </div>
                             <div className="absolute inset-0 flex items-center justify-center px-4">
                               <span className="flex items-center gap-1.5 text-sm font-medium text-[var(--color-warning)]">
-                                <Unplug className="h-4 w-4 shrink-0" /> Agent unavailable - this resource can&apos;t be
-                                backed up
+                                <Unplug className="h-4 w-4 shrink-0" /> {t("resources.agentUnavailableRow")}
                               </span>
                             </div>
                           </div>
@@ -101,7 +102,7 @@ export function ResourcesView({
                         </a>
                         {isControlPlane && (
                           <Badge tone="accent" className="ml-2">
-                            <Pin className="h-3 w-3" /> control plane
+                            <Pin className="h-3 w-3" /> {t("resources.controlPlane")}
                           </Badge>
                         )}
                       </td>
@@ -119,8 +120,8 @@ export function ResourcesView({
                       </td>
                       <td className="px-4 py-2.5">
                         <Gate min="operator">
-                          <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg="Queued">
-                            <Play className="h-3.5 w-3.5" /> Backup
+                          <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg={t("resources.queued")}>
+                            <Play className="h-3.5 w-3.5" /> {t("resources.backup")}
                           </ActionButton>
                         </Gate>
                       </td>
@@ -143,7 +144,7 @@ export function ResourcesView({
                         <Badge>{r.type}</Badge>
                       </div>
                       <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-warning)]">
-                        <Unplug className="h-3.5 w-3.5 shrink-0" /> Agent unavailable
+                        <Unplug className="h-3.5 w-3.5 shrink-0" /> {t("resources.agentUnavailable")}
                       </span>
                     </div>
                   );
@@ -156,7 +157,7 @@ export function ResourcesView({
                       </a>
                       {isControlPlane && (
                         <Badge tone="accent">
-                          <Pin className="h-3 w-3" /> control plane
+                          <Pin className="h-3 w-3" /> {t("resources.controlPlane")}
                         </Badge>
                       )}
                     </div>
@@ -167,8 +168,8 @@ export function ResourcesView({
                     </div>
                     <Gate min="operator">
                       <ResourceToggles id={r.id} backupEnabled={r.backupEnabled} liveBackup={r.liveBackup} />
-                      <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg="Queued">
-                        <Play className="h-3.5 w-3.5" /> Backup
+                      <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg={t("resources.queued")}>
+                        <Play className="h-3.5 w-3.5" /> {t("resources.backup")}
                       </ActionButton>
                     </Gate>
                   </div>
@@ -180,17 +181,18 @@ export function ResourcesView({
       )}
       <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
         <span>
-          {total} resource{total === 1 ? "" : "s"} · page {page}/{totalPages}
+          {t(total === 1 ? "resources.resourceCountOne" : "resources.resourceCountOther", { count: total })} ·{" "}
+          {t("resources.pageIndicator", { page, pages: totalPages })}
         </span>
         <div className="flex gap-2">
           {page > 1 && (
             <a href={qs(page - 1)} className="rounded-md border px-3 py-1.5 hover:bg-muted">
-              ← Prev
+              {t("resources.prev")}
             </a>
           )}
           {page < totalPages && (
             <a href={qs(page + 1)} className="rounded-md border px-3 py-1.5 hover:bg-muted">
-              Next →
+              {t("resources.next")}
             </a>
           )}
         </div>
@@ -199,17 +201,17 @@ export function ResourcesView({
       {orphaned.length > 0 && (
         <details className="mt-8">
           <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
-            Removed from Coolify · {orphaned.length} - kept for their backups
+            {t("resources.removedSummary", { count: orphaned.length })}
           </summary>
           <Card className="mt-3">
             <CardContent className="p-0">
               <table className="hidden w-full text-sm md:table">
                 <thead className="border-b text-left text-xs text-muted-foreground">
                   <tr>
-                    <th className="px-4 py-2.5 font-medium">Name</th>
-                    <th className="px-4 py-2.5 font-medium">Type</th>
-                    <th className="px-4 py-2.5 font-medium">Project</th>
-                    <th className="px-4 py-2.5 font-medium">Snapshots</th>
+                    <th className="px-4 py-2.5 font-medium">{t("resources.colName")}</th>
+                    <th className="px-4 py-2.5 font-medium">{t("resources.colType")}</th>
+                    <th className="px-4 py-2.5 font-medium">{t("resources.colProject")}</th>
+                    <th className="px-4 py-2.5 font-medium">{t("resources.colSnapshots")}</th>
                     <th className="px-4 py-2.5"></th>
                   </tr>
                 </thead>
@@ -228,7 +230,7 @@ export function ResourcesView({
                       <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{r._count.snapshots}</td>
                       <td className="px-4 py-2.5 text-right">
                         <a href={`/resources/${r.id}`} className="text-xs text-accent hover:underline">
-                          View / restore →
+                          {t("resources.viewRestore")}
                         </a>
                       </td>
                     </tr>
@@ -243,19 +245,19 @@ export function ResourcesView({
                     <span className="min-w-0">
                       <span className="block truncate font-medium">{r.name}</span>
                       <span className="text-xs text-muted-foreground">
-                        {r.type} · {r._count.snapshots} snapshot{r._count.snapshots === 1 ? "" : "s"}
+                        {r.type} ·{" "}
+                        {t(r._count.snapshots === 1 ? "resources.snapshotCountOne" : "resources.snapshotCountOther", {
+                          count: r._count.snapshots,
+                        })}
                       </span>
                     </span>
-                    <span className="shrink-0 text-xs text-accent">View →</span>
+                    <span className="shrink-0 text-xs text-accent">{t("resources.view")}</span>
                   </a>
                 ))}
               </div>
             </CardContent>
           </Card>
-          <p className="mt-2 text-xs text-muted-foreground">
-            These no longer exist in Coolify. You can&apos;t back them up, but their snapshots are kept - restore them
-            (e.g. “→ new” to recreate the resource).
-          </p>
+          <p className="mt-2 text-xs text-muted-foreground">{t("resources.orphanedNote")}</p>
         </details>
       )}
     </>

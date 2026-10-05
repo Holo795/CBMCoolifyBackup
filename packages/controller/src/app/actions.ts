@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
+import { headers, cookies } from "next/headers";
+import { LOCALE_COOKIE, isLocale } from "@/lib/i18n-shared";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
@@ -17,6 +18,13 @@ import { setTimezone, isValidTimezone } from "@/lib/settings";
 
 function s(fd: FormData, key: string): string {
   return (fd.get(key) ?? "").toString().trim();
+}
+
+/** Set the UI language (cookie). Public: usable from the sign-in page too. */
+export async function setLocale(locale: string): Promise<{ ok: boolean }> {
+  if (!isLocale(locale)) return { ok: false };
+  (await cookies()).set(LOCALE_COOKIE, locale, { path: "/", maxAge: 60 * 60 * 24 * 365, sameSite: "lax" });
+  return { ok: true };
 }
 
 /* ----------------------------- settings ----------------------------- */

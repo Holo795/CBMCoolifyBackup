@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { restoreSnapshot } from "@/app/actions";
+import { useT } from "@/components/i18n-provider";
 import { RestoreActionsView } from "./view";
 
 /**
@@ -27,6 +28,7 @@ export function RestoreActions({
   instances?: { id: string; name: string }[];
   currentInstanceId?: string;
 }) {
+  const t = useT();
   const router = useRouter();
   const [pending, start] = useTransition();
   const [busy, setBusy] = useState<"in_place" | "new_resource" | null>(null);
@@ -37,7 +39,7 @@ export function RestoreActions({
 
   const run = (target: "in_place" | "new_resource", targetInstanceId?: string) => {
     if (!hasAgent || pending) return;
-    if (target === "in_place" && !window.confirm("Restore this snapshot in place? This overwrites current data.")) return;
+    if (target === "in_place" && !window.confirm(t("snapshots.restoreInPlaceConfirm"))) return;
     setError(null);
     setBusy(target);
     start(async () => {

@@ -6,11 +6,13 @@ import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label, Select,
 import { Copy, Check, Mail, AlertTriangle, Trash2 } from "lucide-react";
 import { createInvitation, revokeInvitation } from "@/app/actions";
 import { ROLES } from "@/lib/roles";
+import { useT } from "@/components/i18n-provider";
 
 export type PendingInvite = { id: string; email: string; role: string; expires: string };
 
 /** Admin-only: create an invite (link, optionally emailed) and manage pending ones. */
 export function InvitePanel({ canEmail, invites }: { canEmail: boolean; invites: PendingInvite[] }) {
+  const t = useT();
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +27,7 @@ export function InvitePanel({ canEmail, invites }: { canEmail: boolean; invites:
     start(async () => {
       const r = await createInvitation(fd);
       if (r.error || !r.link) {
-        setError(r.error ?? "Could not create the invite");
+        setError(r.error ?? t("users.invite.createError"));
         return;
       }
       setResult({ link: r.link, emailed: !!r.emailed });
@@ -49,20 +51,20 @@ export function InvitePanel({ canEmail, invites }: { canEmail: boolean; invites:
   return (
     <Card className="h-fit min-w-0">
       <CardHeader>
-        <CardTitle>Invite a user</CardTitle>
+        <CardTitle>{t("users.invite.title")}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <form onSubmit={onSubmit} className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="invite-email">Email</Label>
-            <Input id="invite-email" name="email" type="email" placeholder="person@example.com" required />
+            <Label htmlFor="invite-email">{t("users.email")}</Label>
+            <Input id="invite-email" name="email" type="email" placeholder={t("users.invite.emailPlaceholder")} required />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="invite-role">Role</Label>
+            <Label htmlFor="invite-role">{t("users.role")}</Label>
             <Select id="invite-role" name="role" defaultValue="viewer">
               {ROLES.map((r) => (
                 <option key={r} value={r}>
-                  {r}
+                  {t(`users.roles.${r}`)}
                 </option>
               ))}
             </Select>
@@ -70,15 +72,15 @@ export function InvitePanel({ canEmail, invites }: { canEmail: boolean; invites:
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
             <input type="checkbox" name="sendEmail" disabled={!canEmail} className="h-4 w-4" />
             <span className="inline-flex items-center gap-1">
-              <Mail className="h-3.5 w-3.5" /> Email the invite link
+              <Mail className="h-3.5 w-3.5" /> {t("users.invite.emailLink")}
             </span>
           </label>
           {!canEmail && (
-            <p className="text-xs text-muted-foreground">Configure SMTP in <a href="/settings#email" className="underline">Settings</a> to email invites. You can still copy the link below.</p>
+            <p className="text-xs text-muted-foreground">{t("users.invite.smtpBefore")}<a href="/settings#email" className="underline">{t("users.invite.settingsLink")}</a>{t("users.invite.smtpAfter")}</p>
           )}
           {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
           <Button type="submit" variant="primary" disabled={pending}>
-            {pending ? "…" : "Create invite link"}
+            {pending ? "…" : t("users.invite.createLink")}
           </Button>
         </form>
 
@@ -86,11 +88,11 @@ export function InvitePanel({ canEmail, invites }: { canEmail: boolean; invites:
           <div className="flex w-full flex-col gap-2">
             <div className="flex items-start gap-2 rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-2.5 text-xs">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-warning)]" />
-              <span>Copy this link now - it&apos;s shown <b>once</b> and can&apos;t be retrieved later.{result.emailed ? " It was also emailed to the invitee." : ""} The link is valid 48h.</span>
+              <span>{t("users.invite.copyNowBefore")}<b>{t("users.invite.once")}</b>{t("users.invite.copyNowAfter")}{result.emailed ? t("users.invite.alsoEmailed") : ""}{t("users.invite.validity")}</span>
             </div>
             <div className="flex items-start gap-2">
               <pre className="min-w-0 flex-1 overflow-auto rounded-md bg-muted/40 p-3 font-mono text-xs leading-relaxed">{result.link}</pre>
-              <Button size="sm" variant="outline" onClick={() => onCopy(result.link)} aria-label="Copy invite link">
+              <Button size="sm" variant="outline" onClick={() => onCopy(result.link)} aria-label={t("users.invite.copyAria")}>
                 {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
               </Button>
             </div>
@@ -99,22 +101,22 @@ export function InvitePanel({ canEmail, invites }: { canEmail: boolean; invites:
 
         {invites.length > 0 && (
           <div className="flex flex-col gap-2">
-            <h3 className="text-xs font-medium text-muted-foreground">Pending invitations</h3>
+            <h3 className="text-xs font-medium text-muted-foreground">{t("users.invite.pending")}</h3>
             <div className="flex flex-col divide-y rounded-md border">
               {invites.map((i) => (
                 <div key={i.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
                   <div className="min-w-0">
                     <span className="block truncate font-medium">{i.email}</span>
-                    <span className="text-xs text-muted-foreground">expires {i.expires}</span>
+                    <span className="text-xs text-muted-foreground">{t("users.invite.expires", { date: i.expires })}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge tone={i.role === "admin" ? "accent" : "neutral"}>{i.role}</Badge>
+                    <Badge tone={i.role === "admin" ? "accent" : "neutral"}>{t(`users.roles.${i.role}`)}</Badge>
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={() => onRevoke(i.id)}
                       disabled={pending}
-                      aria-label="Revoke invitation"
+                      aria-label={t("users.invite.revokeAria")}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>

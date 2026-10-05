@@ -2,6 +2,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, Badge, statusTone } from "@/components/ui";
 import { formatBytes, timeAgo } from "@/lib/cn";
+import { getT } from "@/lib/i18n";
 
 export type OverviewCounts = {
   instances: number;
@@ -22,18 +23,19 @@ export type OverviewSnapshot = {
 };
 
 /** Presentation only: the Overview dashboard markup. Data is fetched in ./page.tsx. */
-export function OverviewView({ counts, recent }: { counts: OverviewCounts; recent: OverviewSnapshot[] }) {
+export async function OverviewView({ counts, recent }: { counts: OverviewCounts; recent: OverviewSnapshot[] }) {
+  const t = await getT();
   const stats = [
-    { label: "Coolify instances", value: counts.instances, href: "/instances" },
-    { label: "Resources", value: counts.resources, href: "/resources" },
-    { label: "Backup-enabled", value: counts.enabled, href: "/resources" },
-    { label: "Snapshots", value: counts.snapshots, href: "/snapshots" },
-    { label: "Agents online", value: counts.agentsOnline, href: "/agents" },
+    { label: t("overview.instances"), value: counts.instances, href: "/instances" },
+    { label: t("overview.resources"), value: counts.resources, href: "/resources" },
+    { label: t("overview.backupEnabled"), value: counts.enabled, href: "/resources" },
+    { label: t("overview.snapshots"), value: counts.snapshots, href: "/snapshots" },
+    { label: t("overview.agentsOnline"), value: counts.agentsOnline, href: "/agents" },
   ];
 
   return (
     <>
-      <PageHeader title="Overview" description="Backup posture across your Coolify fleet" />
+      <PageHeader title={t("overview.title")} description={t("overview.description")} />
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         {stats.map((s) => (
           <Link key={s.label} href={s.href}>
@@ -47,21 +49,21 @@ export function OverviewView({ counts, recent }: { counts: OverviewCounts; recen
         ))}
       </div>
 
-      <h2 className="mb-3 mt-8 text-sm font-medium text-muted-foreground">Recent snapshots</h2>
+      <h2 className="mb-3 mt-8 text-sm font-medium text-muted-foreground">{t("overview.recent")}</h2>
       <Card>
         <CardContent className="p-0">
           {recent.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">No snapshots yet.</p>
+            <p className="p-6 text-sm text-muted-foreground">{t("overview.noSnapshots")}</p>
           ) : (
             <>
               <table className="hidden w-full text-sm md:table">
                 <thead className="border-b text-left text-xs text-muted-foreground">
                   <tr>
-                    <th className="px-4 py-2.5 font-medium">Resource</th>
-                    <th className="px-4 py-2.5 font-medium">Mode</th>
-                    <th className="px-4 py-2.5 font-medium">Status</th>
-                    <th className="px-4 py-2.5 font-medium">Size</th>
-                    <th className="px-4 py-2.5 font-medium">When</th>
+                    <th className="px-4 py-2.5 font-medium">{t("overview.resource")}</th>
+                    <th className="px-4 py-2.5 font-medium">{t("overview.mode")}</th>
+                    <th className="px-4 py-2.5 font-medium">{t("overview.status")}</th>
+                    <th className="px-4 py-2.5 font-medium">{t("overview.size")}</th>
+                    <th className="px-4 py-2.5 font-medium">{t("overview.when")}</th>
                   </tr>
                 </thead>
                 <tbody>

@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { Github } from "lucide-react";
 import { navFor } from "@/components/nav";
+import { useT } from "@/components/i18n-provider";
 import { cn } from "@/lib/cn";
 
 /** Presentation only: the fixed sidebar. Logic in ./index.tsx. */
 export function SidebarView({ pathname, role }: { pathname: string; role: string }) {
+  const t = useT();
   return (
     <aside className="hidden w-60 shrink-0 flex-col border-r bg-card/40 md:flex">
       <div className="flex h-14 items-center justify-center border-b px-5">
@@ -28,7 +30,7 @@ export function SidebarView({ pathname, role }: { pathname: string; role: string
               )}
             >
               <Icon className="h-4 w-4" />
-              {item.label}
+              {t(item.labelKey)}
             </Link>
           );
         })}
@@ -41,11 +43,9 @@ export function SidebarView({ pathname, role }: { pathname: string; role: string
           className="flex items-center gap-1.5 hover:text-foreground"
         >
           <Github className="h-3.5 w-3.5" />
-          <span>
-            Built by <span className="font-medium text-foreground">Holo795</span>
-          </span>
+          <span>{t("nav.builtBy")}</span>
         </a>
-        <p className="mt-1 text-[10px]">CBM · Coolify Backup Manager · Apache-2.0</p>
+        <p className="mt-1 text-[10px]">{t("nav.tagline")}</p>
       </div>
     </aside>
   );

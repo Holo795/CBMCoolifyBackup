@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateInstanceServerMap } from "@/app/actions";
+import { useT } from "@/components/i18n-provider";
 import { ServerMapFormView, type MapRow } from "./view";
 
 /**
@@ -20,6 +21,7 @@ export function ServerMapForm({
   current: Record<string, string>;
 }) {
   const router = useRouter();
+  const t = useT();
   const [rows, setRows] = useState<MapRow[]>(() => {
     const existing = Object.entries(current).map(([source, target]) => ({ source, target }));
     return existing.length ? existing : [{ source: "", target: servers[0]?.uuid ?? "" }];
@@ -35,7 +37,7 @@ export function ServerMapForm({
     start(async () => {
       const map = Object.fromEntries(rows.filter((r) => r.source.trim() && r.target).map((r) => [r.source.trim(), r.target]));
       const r = await updateInstanceServerMap(instanceId, map);
-      setMsg(r?.error ?? "Saved");
+      setMsg(r?.error ?? t("instances.serverMap.saved"));
       setTimeout(() => setMsg(null), 4000);
       if (!r?.error) router.refresh();
     });

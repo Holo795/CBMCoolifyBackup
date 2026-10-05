@@ -24,6 +24,7 @@ import { isAgentOnline as agentOnline } from "@/lib/agent-status";
 import type { groupServersByInstance } from "@/lib/servers";
 import { Server, RefreshCw, Trash2, CalendarClock, ShieldCheck, Pencil } from "lucide-react";
 import type { BackupPolicy, Destination } from "@/generated/prisma/client";
+import { getT } from "@/lib/i18n";
 
 type PolicyWithDest = BackupPolicy & { destination: Destination };
 type InstanceRow = Prisma.CoolifyInstanceGetPayload<{
@@ -37,7 +38,7 @@ type RunInfo = { at: Date; ok: number; failed: number; running: number; total: n
 type ServersByInstance = ReturnType<typeof groupServersByInstance>;
 
 /** Presentation only: the Coolify instances markup. Data is fetched in ./page.tsx. */
-export function InstancesView({
+export async function InstancesView({
   instances,
   destinations,
   tz,
@@ -50,6 +51,7 @@ export function InstancesView({
   serversByInstance: ServersByInstance;
   runByPolicy: Map<string, RunInfo>;
 }) {
+  const t = await getT();
   // A schedule block (used both instance-wide and per-server).
   function scheduleBlock(opts: {
     policy: PolicyWithDest | undefined;
@@ -65,41 +67,48 @@ export function InstancesView({
           <CalendarClock className="h-3.5 w-3.5 text-muted-foreground" />
           {policy ? (
             <span>
-              Backups <span className="font-medium text-foreground">{describeCron(policy.cron, tz)}</span> →{" "}
-              {policy.destination.name} · {policy.mode} · keep {policy.retentionDaily}d/{policy.retentionWeekly}w/
-              {policy.retentionMonthly}m
+              {t("instances.schedule.backupsPrefix")}{" "}
+              <span className="font-medium text-foreground">{describeCron(policy.cron, tz)}</span> →{" "}
+              {policy.destination.name} · {policy.mode} ·{" "}
+              {t("instances.schedule.keep", {
+                daily: policy.retentionDaily,
+                weekly: policy.retentionWeekly,
+                monthly: policy.retentionMonthly,
+              })}
             </span>
           ) : (
-            <span className="text-[var(--color-warning)]">No backup schedule - nothing runs automatically.</span>
+            <span className="text-[var(--color-warning)]">{t("instances.schedule.none")}</span>
           )}
           {policy && remove && (
             <form action={remove}>
               <button type="submit" className="text-[var(--color-danger)] hover:underline">
-                remove
+                {t("instances.schedule.remove")}
               </button>
             </form>
           )}
         </div>
         {lastRun && (
           <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>Last run {timeAgo(lastRun.at)}:</span>
+            <span>{t("instances.schedule.lastRun", { time: timeAgo(lastRun.at) })}</span>
             <span className="text-[var(--color-success)]">✓ {lastRun.ok}</span>
             {lastRun.failed > 0 && <span className="text-[var(--color-danger)]">✗ {lastRun.failed}</span>}
-            {lastRun.running > 0 && <span className="text-[var(--color-accent)]">⏳ {lastRun.running} running</span>}
+            {lastRun.running > 0 && (
+              <span className="text-[var(--color-accent)]">⏳ {t("instances.schedule.running", { count: lastRun.running })}</span>
+            )}
             <span>
-              · {lastRun.total} resource{lastRun.total === 1 ? "" : "s"}
+              · {t(lastRun.total === 1 ? "instances.schedule.resourceOne" : "instances.schedule.resourceMany", { count: lastRun.total })}
             </span>
           </div>
         )}
         <details className="text-xs">
           <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-            {policy ? "Edit schedule" : emptyLabel}
+            {policy ? t("instances.schedule.edit") : emptyLabel}
           </summary>
           <div className="mt-3">
             <ScheduleForm
               action={action}
               destinations={destinations}
-              submitLabel={policy ? "Update schedule" : "Set schedule"}
+              submitLabel={policy ? t("instances.schedule.update") : t("instances.schedule.set")}
               defaults={
                 policy
                   ? {
@@ -122,15 +131,15 @@ export function InstancesView({
 
   return (
     <>
-      <PageHeader title="Coolify instances" description="Connect each Coolify control plane via its API token" />
+      <PageHeader title={t("instances.pageTitle")} description={t("instances.pageDescription")} />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_auto]">
         <div className="flex flex-col gap-3">
           {instances.length === 0 ? (
             <EmptyState
               icon={<Server className="h-6 w-6" />}
-              title="No instances connected"
-              hint="Add your first Coolify instance with its base URL and an API token."
+              title={t("instances.empty.title")}
+              hint={t("instances.empty.hint")}
             />
           ) : (
             instances.map((i) => {
@@ -147,20 +156,23 @@ export function InstancesView({
                         <div className="font-medium">{i.name}</div>
                         <div className="truncate font-mono text-xs text-muted-foreground">{i.baseUrl}</div>
                         <div className="text-xs text-muted-foreground">
-                          {i._count.resources} resources ·{" "}
-                          {servers.length > 0 ? `${servers.length} server${servers.length === 1 ? "" : "s"} · ` : ""}
-                          {liveAgents} agent{liveAgents === 1 ? "" : "s"} online · synced {timeAgo(i.lastSyncedAt)}
+                          {t("instances.summary.resources", { count: i._count.resources })} ·{" "}
+                          {servers.length > 0
+                            ? `${t(servers.length === 1 ? "instances.summary.serverOne" : "instances.summary.serverMany", { count: servers.length })} · `
+                            : ""}
+                          {t(liveAgents === 1 ? "instances.summary.agentOne" : "instances.summary.agentMany", { count: liveAgents })} ·{" "}
+                          {t("instances.summary.synced", { time: timeAgo(i.lastSyncedAt) })}
                         </div>
                       </div>
                       <Gate min="admin">
                         <div className="flex shrink-0 gap-2">
                           <form action={syncInstanceAction.bind(null, i.id)}>
                             <Button size="sm" variant="outline" type="submit">
-                              <RefreshCw className="h-3.5 w-3.5" /> Sync
+                              <RefreshCw className="h-3.5 w-3.5" /> {t("instances.sync")}
                             </Button>
                           </form>
                           <form action={deleteInstance.bind(null, i.id)}>
-                            <Button size="sm" variant="danger" type="submit" aria-label="Delete">
+                            <Button size="sm" variant="danger" type="submit" aria-label={t("common.delete")}>
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </form>
@@ -173,25 +185,34 @@ export function InstancesView({
                       <div className="flex flex-wrap items-center gap-2">
                         {!multiServer && (
                           <>
-                            <span className="text-xs text-muted-foreground">Agent:</span>
+                            <span className="text-xs text-muted-foreground">{t("instances.agentLabel")}</span>
                             <Badge tone={statusTone(liveAgents > 0 ? "online" : staleAgents > 0 ? "offline" : "pending")}>
-                              {liveAgents > 0 ? "connected" : staleAgents > 0 ? "agent offline" : "not installed"}
+                              {liveAgents > 0
+                                ? t("instances.badge.connected")
+                                : staleAgents > 0
+                                  ? t("instances.badge.agentOffline")
+                                  : t("instances.badge.notInstalled")}
                             </Badge>
                           </>
                         )}
                         {i.enrollTokenHash && (
-                          <span className="font-mono text-xs text-muted-foreground" title="Current enrollment token (masked)">
+                          <span className="font-mono text-xs text-muted-foreground" title={t("instances.enrollTokenTitle")}>
                             {i.enrollTokenHint}
                           </span>
                         )}
                         <Gate min="operator">
                           {liveAgents > 0 ? (
-                            <ActionButton action={backupCoolifyInstance.bind(null, i.id)} variant="outline" size="sm" successMsg="Queued">
-                              <ShieldCheck className="h-3.5 w-3.5" /> Back up Coolify
+                            <ActionButton
+                              action={backupCoolifyInstance.bind(null, i.id)}
+                              variant="outline"
+                              size="sm"
+                              successMsg={t("instances.backupQueued")}
+                            >
+                              <ShieldCheck className="h-3.5 w-3.5" /> {t("instances.backupCoolify")}
                             </ActionButton>
                           ) : (
-                            <Button variant="outline" size="sm" disabled title="No live agent - install the agent below first">
-                              <ShieldCheck className="h-3.5 w-3.5" /> Back up Coolify
+                            <Button variant="outline" size="sm" disabled title={t("instances.noLiveAgentTitle")}>
+                              <ShieldCheck className="h-3.5 w-3.5" /> {t("instances.backupCoolify")}
                             </Button>
                           )}
                         </Gate>
@@ -201,17 +222,17 @@ export function InstancesView({
                         <details className="text-xs">
                           <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
                             <Pencil className="mr-1 inline h-3.5 w-3.5" />
-                            Edit instance (re-point to another Coolify)
+                            {t("instances.editInstance")}
                           </summary>
                           <div className="mt-3 max-w-md">
-                            <p className="mb-3 text-xs text-muted-foreground">Point this instance at a different Coolify (disaster recovery: the old panel is gone). Every resource, snapshot and schedule keeps following it. Re-run the install command on the new host afterwards so an agent serves it.</p>
-                            <ActionForm action={repointInstance.bind(null, i.id)} submitLabel="Re-point instance" resetOnSuccess={false}>
+                            <p className="mb-3 text-xs text-muted-foreground">{t("instances.repointHint")}</p>
+                            <ActionForm action={repointInstance.bind(null, i.id)} submitLabel={t("instances.repointSubmit")} resetOnSuccess={false}>
                               <div className="flex flex-col gap-1.5">
-                                <Label htmlFor={`baseUrl-${i.id}`}>Base URL</Label>
+                                <Label htmlFor={`baseUrl-${i.id}`}>{t("instances.baseUrl")}</Label>
                                 <Input id={`baseUrl-${i.id}`} name="baseUrl" defaultValue={i.baseUrl} required />
                               </div>
                               <div className="flex flex-col gap-1.5">
-                                <Label htmlFor={`apiToken-${i.id}`}>API token (blank = keep current)</Label>
+                                <Label htmlFor={`apiToken-${i.id}`}>{t("instances.apiTokenKeep")}</Label>
                                 <Input id={`apiToken-${i.id}`} name="apiToken" type="password" placeholder="cf_…" />
                               </div>
                             </ActionForm>
@@ -219,9 +240,7 @@ export function InstancesView({
                         </details>
                       </Gate>
                       {multiServer && (
-                        <p className="text-xs text-muted-foreground">
-                          This instance spans several servers - install the agent (same command) on each host below.
-                        </p>
+                        <p className="text-xs text-muted-foreground">{t("instances.multiServerNote")}</p>
                       )}
                     </div>
 
@@ -239,10 +258,14 @@ export function InstancesView({
                                 <Server className="h-3.5 w-3.5 text-muted-foreground" />
                                 <span className="text-sm font-medium">{sv.name}</span>
                                 <Badge tone={statusTone(serverLive > 0 ? "online" : serverStale > 0 ? "offline" : "pending")}>
-                                  {serverLive > 0 ? "agent connected" : serverStale > 0 ? "agent offline" : "no agent installed"}
+                                  {serverLive > 0
+                                    ? t("instances.badge.agentConnected")
+                                    : serverStale > 0
+                                      ? t("instances.badge.agentOffline")
+                                      : t("instances.badge.noAgentInstalled")}
                                 </Badge>
                                 {serverLive === 0 && (
-                                  <span className="text-xs text-[var(--color-warning)]">run the install command on this host</span>
+                                  <span className="text-xs text-[var(--color-warning)]">{t("instances.runInstallOnHost")}</span>
                                 )}
                               </div>
                               <Gate min="admin">
@@ -251,7 +274,7 @@ export function InstancesView({
                                   lastRun: policy ? runByPolicy.get(policy.id) : undefined,
                                   action: setServerSchedule.bind(null, i.id, sv.uuid),
                                   remove: removeServerSchedule.bind(null, i.id, sv.uuid),
-                                  emptyLabel: "Set a backup schedule for this server",
+                                  emptyLabel: t("instances.schedule.emptyServer"),
                                 })}
                               </Gate>
                             </div>
@@ -259,7 +282,7 @@ export function InstancesView({
                         })}
                         <Gate min="admin">
                           <details className="text-xs">
-                            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Server mapping for restores (source → here)</summary>
+                            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">{t("instances.serverMapSummary")}</summary>
                             <div className="mt-3 max-w-lg">
                               <ServerMapForm
                                 instanceId={i.id}
@@ -279,7 +302,7 @@ export function InstancesView({
                             lastRun: instancePolicy ? runByPolicy.get(instancePolicy.id) : undefined,
                             action: setInstanceSchedule.bind(null, i.id),
                             remove: removeInstanceSchedule.bind(null, i.id),
-                            emptyLabel: "Set a backup schedule for this instance",
+                            emptyLabel: t("instances.schedule.emptyInstance"),
                           })}
                         </div>
                       </Gate>
@@ -294,26 +317,23 @@ export function InstancesView({
         <Gate min="admin">
           <Card className="h-fit lg:w-[360px]">
           <CardHeader>
-            <CardTitle>Connect an instance</CardTitle>
+            <CardTitle>{t("instances.connectTitle")}</CardTitle>
           </CardHeader>
           <CardContent>
-            <ActionForm action={connectInstance} submitLabel="Connect & sync">
+            <ActionForm action={connectInstance} submitLabel={t("instances.connectSubmit")}>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="name">Name</Label>
+                <Label htmlFor="name">{t("instances.name")}</Label>
                 <Input id="name" name="name" placeholder="production" required />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="baseUrl">Base URL</Label>
+                <Label htmlFor="baseUrl">{t("instances.baseUrl")}</Label>
                 <Input id="baseUrl" name="baseUrl" placeholder="https://coolify.example.com" required />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="apiToken">API token</Label>
+                <Label htmlFor="apiToken">{t("instances.apiToken")}</Label>
                 <Input id="apiToken" name="apiToken" type="password" placeholder="cf_…" required />
               </div>
-              <p className="text-xs text-muted-foreground">
-                After connecting, reveal the install command on the instance card and run it on the Coolify host to
-                start the agent.
-              </p>
+              <p className="text-xs text-muted-foreground">{t("instances.connectHint")}</p>
             </ActionForm>
           </CardContent>
           </Card>

@@ -2,6 +2,7 @@
 
 import { type ReactNode } from "react";
 import { Button } from "@/components/ui";
+import { useT } from "@/components/i18n-provider";
 import { Trash2, AlertTriangle } from "lucide-react";
 
 /** Presentation only: the delete button + typed-confirmation modal. Logic in ./index.tsx. */
@@ -36,6 +37,7 @@ export function ConfirmDeleteView({
   onClose: () => void;
   onConfirm: () => void;
 }) {
+  const t = useT();
   return (
     <>
       <Button size={size} variant={variant} aria-label={title} onClick={onOpenClick}>
@@ -54,7 +56,7 @@ export function ConfirmDeleteView({
               <h3 className="font-medium">{title}</h3>
             </div>
             <div className="mb-4 text-sm text-muted-foreground">{body}</div>
-            <label className="mb-1.5 block text-xs text-muted-foreground">Type <span className="font-mono text-foreground">{confirmWord}</span> to confirm:</label>
+            <label className="mb-1.5 block text-xs text-muted-foreground">{t("components.typeBefore")} <span className="font-mono text-foreground">{confirmWord}</span> {t("components.typeAfter")}</label>
             <input
               autoFocus
               value={text}

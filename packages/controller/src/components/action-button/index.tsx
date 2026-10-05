@@ -2,6 +2,7 @@
 
 import { useState, useTransition, type ReactNode } from "react";
 import { ActionButtonView } from "./view";
+import { useT } from "@/components/i18n-provider";
 
 type Result = { ok?: boolean; error?: string; detail?: string } | void;
 
@@ -11,7 +12,7 @@ export function ActionButton({
   variant = "secondary",
   size = "sm",
   confirm,
-  successMsg = "Done",
+  successMsg,
   disabled = false,
   title,
 }: {
@@ -25,6 +26,7 @@ export function ActionButton({
   disabled?: boolean;
   title?: string;
 }) {
+  const t = useT();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -34,7 +36,7 @@ export function ActionButton({
     start(async () => {
       const r = await action();
       if (r && "error" in r && r.error) setMsg({ ok: false, text: r.error });
-      else setMsg({ ok: true, text: (r && "detail" in r && r.detail) || successMsg });
+      else setMsg({ ok: true, text: (r && "detail" in r && r.detail) || successMsg || t("common.done") });
       setTimeout(() => setMsg(null), 6000);
     });
   };

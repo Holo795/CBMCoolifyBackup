@@ -6,9 +6,10 @@ import { SmtpConfigForm, EmailVerificationToggle, type SmtpCurrent } from "@/com
 import { SelfBackupForm } from "@/components/self-backup-form";
 import { RecoveryFilePanel } from "@/components/recovery-file-panel";
 import { CheckCircle2, Circle } from "lucide-react";
+import { getT, type T } from "@/lib/i18n";
 
 /** Presentation only: the Settings page markup. Data is fetched in ./page.tsx. */
-export function SettingsView({
+export async function SettingsView({
   tz,
   alertWebhookUrl,
   requireEmailVerification,
@@ -27,17 +28,15 @@ export function SettingsView({
   selfBackup: { enabled: boolean; destinationId: string; lastRunAt: string | null; lastStatus: string | null };
   recoveryFile: { generation: number; at: string | null; stale: boolean; staleReason: string | null; hasSelfBackup: boolean };
 }) {
+  const t = await getT();
   return (
     <>
-      <PageHeader title="Settings" description="Application-wide preferences" />
+      <PageHeader title={t("settings.title")} description={t("settings.description")} />
       <div className="flex max-w-xl flex-col gap-6">
         <Card id="timezone" className="scroll-mt-20">
           <CardHeader>
-            <CardTitle>Timezone</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Used to evaluate backup schedules (cron) and to display every timestamp in the UI. Stored on the server, so
-              it&apos;s the same for everyone - independent of each browser&apos;s timezone.
-            </p>
+            <CardTitle>{t("settings.timezoneTitle")}</CardTitle>
+            <p className="text-sm text-muted-foreground">{t("settings.timezoneDesc")}</p>
           </CardHeader>
           <CardContent>
             <TimezoneForm current={tz} />
@@ -46,8 +45,8 @@ export function SettingsView({
 
         <Card id="alerts" className="scroll-mt-20">
           <CardHeader>
-            <CardTitle>Failure alerts</CardTitle>
-            <p className="text-sm text-muted-foreground">Get notified when a backup fails. Paste a Discord or Slack webhook URL (or any endpoint that accepts a JSON <code>{`{ content, text }`}</code> body). Leave blank to disable.</p>
+            <CardTitle>{t("settings.alertsTitle")}</CardTitle>
+            <p className="text-sm text-muted-foreground">{t("settings.alertsDescBefore")}<code>{`{ content, text }`}</code>{t("settings.alertsDescAfter")}</p>
           </CardHeader>
           <CardContent>
             <AlertWebhookForm current={alertWebhookUrl} />
@@ -56,20 +55,15 @@ export function SettingsView({
 
         <Card id="email" className="scroll-mt-20">
           <CardHeader>
-            <CardTitle>Email (SMTP)</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Used for password reset and (optionally) account verification. Save your SMTP details, then send a test
-              email to confirm they work.
-            </p>
+            <CardTitle>{t("settings.emailTitle")}</CardTitle>
+            <p className="text-sm text-muted-foreground">{t("settings.emailDesc")}</p>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             {!ready && (
-              <div className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--color-warning)]">SMTP isn&apos;t configured or verified yet - <strong>password reset</strong> and <strong>account verification</strong> won&apos;t work until you set it up and a test email succeeds.</div>
+              <div className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--color-warning)]">{t("settings.emailNotReadyPre")}<strong>{t("settings.emailNotReadyPasswordReset")}</strong>{t("settings.emailNotReadyMid")}<strong>{t("settings.emailNotReadyVerification")}</strong>{t("settings.emailNotReadyPost")}</div>
             )}
             {Object.values(smtpCurrent.envLocked).some(Boolean) && (
-              <p className="text-xs text-muted-foreground">
-                Some fields are set by environment variables and can&apos;t be edited here.
-              </p>
+              <p className="text-xs text-muted-foreground">{t("settings.emailEnvLocked")}</p>
             )}
             <SmtpConfigForm current={smtpCurrent} />
             <div className="border-t pt-4">
@@ -80,11 +74,11 @@ export function SettingsView({
 
         <Card id="disaster-recovery" className="scroll-mt-20">
           <CardHeader>
-            <CardTitle>Disaster recovery</CardTitle>
-            <p className="text-sm text-muted-foreground">CBM keeps an always-current, encrypted copy of its own metadata (instances, destinations, snapshot index, keys) on a destination of your choice, so a dead machine never takes the &quot;brain&quot; with it.</p>
+            <CardTitle>{t("settings.drTitle")}</CardTitle>
+            <p className="text-sm text-muted-foreground">{t("settings.drDesc")}</p>
           </CardHeader>
           <CardContent className="flex flex-col gap-6">
-            <DrReadiness selfBackupOk={selfBackup.enabled} recoveryFileOk={recoveryFile.generation > 0 && !recoveryFile.stale} />
+            <DrReadiness t={t} selfBackupOk={selfBackup.enabled} recoveryFileOk={recoveryFile.generation > 0 && !recoveryFile.stale} />
             <SelfBackupForm destinations={drDestinations} current={selfBackup} />
             <div className="border-t pt-6">
               <RecoveryFilePanel current={recoveryFile} />
@@ -111,14 +105,14 @@ function DrItem({ done, label }: { done: boolean; label: string }) {
 }
 
 /** Two-step DR readiness at a glance. Green only when you can actually recover. */
-function DrReadiness({ selfBackupOk, recoveryFileOk }: { selfBackupOk: boolean; recoveryFileOk: boolean }) {
+function DrReadiness({ t, selfBackupOk, recoveryFileOk }: { t: T; selfBackupOk: boolean; recoveryFileOk: boolean }) {
   const ready = selfBackupOk && recoveryFileOk;
   return (
     <div className={`rounded-lg border p-3 ${ready ? "" : "border-[var(--color-warning)]/40 bg-[var(--color-warning)]/5"}`}>
-      <p className="mb-2 text-xs font-medium">{ready ? "Disaster recovery is ready" : "Finish setting up disaster recovery"}</p>
+      <p className="mb-2 text-xs font-medium">{ready ? t("settings.drReady") : t("settings.drFinishSetup")}</p>
       <ul className="flex flex-col gap-1.5 text-sm">
-        <DrItem done={selfBackupOk} label="Metadata self-backup enabled" />
-        <DrItem done={recoveryFileOk} label="Recovery file downloaded and up to date" />
+        <DrItem done={selfBackupOk} label={t("settings.drItemSelfBackup")} />
+        <DrItem done={recoveryFileOk} label={t("settings.drItemRecoveryFile")} />
       </ul>
     </div>
   );

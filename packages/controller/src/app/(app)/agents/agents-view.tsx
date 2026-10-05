@@ -6,6 +6,7 @@ import { deleteAgent } from "@/app/actions";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { AgentServerSelect } from "@/components/agent-server-select";
 import { Gate } from "@/components/role-gate";
+import { getT } from "@/lib/i18n";
 import { timeAgo } from "@/lib/cn";
 import { Cpu } from "lucide-react";
 
@@ -13,19 +14,20 @@ type AgentRow = Prisma.AgentGetPayload<{ include: { instance: true } }>;
 export type AgentItem = { agent: AgentRow; options: { uuid: string; name: string }[] };
 
 /** Presentation only: the Agents list markup. Data is fetched in ./page.tsx. */
-export function AgentsView({ items }: { items: AgentItem[] }) {
+export async function AgentsView({ items }: { items: AgentItem[] }) {
+  const t = await getT();
   return (
     <>
       <PageHeader
-        title="Agents"
-        description="One per Docker host. Agents auto-enroll and self-link when you connect a Coolify instance."
+        title={t("agents.title")}
+        description={t("agents.description")}
       />
 
       {items.length === 0 ? (
         <EmptyState
           icon={<Cpu className="h-6 w-6" />}
-          title="No agents connected"
-          hint="Connect a Coolify instance, then run its one-line install command (Reveal install command) on the host - the agent enrolls and links itself."
+          title={t("agents.empty.title")}
+          hint={t("agents.empty.hint")}
         />
       ) : (
         <Card>
@@ -34,13 +36,13 @@ export function AgentsView({ items }: { items: AgentItem[] }) {
             <table className="hidden w-full text-sm md:table">
               <thead className="border-b text-left text-xs text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2.5 font-medium">Host</th>
-                  <th className="px-4 py-2.5 font-medium">Status</th>
-                  <th className="px-4 py-2.5 font-medium">Instance</th>
-                  <th className="px-4 py-2.5 font-medium">Server</th>
-                  <th className="px-4 py-2.5 font-medium">Docker</th>
-                  <th className="px-4 py-2.5 font-medium">Containers</th>
-                  <th className="px-4 py-2.5 font-medium">Last seen</th>
+                  <th className="px-4 py-2.5 font-medium">{t("agents.host")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("agents.status")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("agents.instance")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("agents.server")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("agents.docker")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("agents.containers")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("agents.lastSeen")}</th>
                   <th className="px-4 py-2.5"></th>
                 </tr>
               </thead>
@@ -49,7 +51,7 @@ export function AgentsView({ items }: { items: AgentItem[] }) {
                   <tr key={a.id} className="border-b last:border-0">
                     <td className="px-4 py-2.5 font-medium">{a.hostname}</td>
                     <td className="px-4 py-2.5">
-                      <Badge tone={statusTone(a.status)}>{a.status}</Badge>
+                      <Badge tone={statusTone(a.status)}>{t(`agents.statuses.${a.status}`)}</Badge>
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground">
                       {a.instance ? (
@@ -57,7 +59,7 @@ export function AgentsView({ items }: { items: AgentItem[] }) {
                           {a.instance.name}
                         </Link>
                       ) : (
-                        <span className="text-[var(--color-warning)]">unlinked</span>
+                        <span className="text-[var(--color-warning)]">{t("agents.unlinked")}</span>
                       )}
                     </td>
                     <td className="px-4 py-2.5">
@@ -79,12 +81,12 @@ export function AgentsView({ items }: { items: AgentItem[] }) {
                         <ConfirmDeleteButton
                           action={deleteAgent.bind(null, a.id)}
                           confirmWord={a.hostname}
-                          title={`Remove agent “${a.hostname}”?`}
+                          title={t("agents.remove.title", { host: a.hostname })}
                           body={
                             <>
-                              Removes this agent from the controller. If it&apos;s still running on{" "}
-                              <b>{a.hostname}</b>, it will keep failing until you reconfigure it (re-run the install
-                              command).
+                              {t("agents.remove.bodyBefore")}
+                              <b>{a.hostname}</b>
+                              {t("agents.remove.bodyAfter")}
                             </>
                           }
                         />
@@ -101,22 +103,22 @@ export function AgentsView({ items }: { items: AgentItem[] }) {
                 <div key={a.id} className="flex flex-col gap-2 p-4">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium">{a.hostname}</span>
-                    <Badge tone={statusTone(a.status)}>{a.status}</Badge>
+                    <Badge tone={statusTone(a.status)}>{t(`agents.statuses.${a.status}`)}</Badge>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     <span>
-                      Instance:{" "}
+                      {t("agents.instance")}:{" "}
                       {a.instance ? (
                         <Link href="/instances" className="text-foreground hover:underline">
                           {a.instance.name}
                         </Link>
                       ) : (
-                        <span className="text-[var(--color-warning)]">unlinked</span>
+                        <span className="text-[var(--color-warning)]">{t("agents.unlinked")}</span>
                       )}
                     </span>
-                    <span>Docker {a.dockerVersion ?? "-"}</span>
-                    <span>{a.containers ?? 0} containers</span>
-                    <span>seen {timeAgo(a.lastSeenAt)}</span>
+                    <span>{t("agents.docker")} {a.dockerVersion ?? "-"}</span>
+                    <span>{t("agents.containersCount", { count: a.containers ?? 0 })}</span>
+                    <span>{t("agents.seen", { time: timeAgo(a.lastSeenAt) })}</span>
                   </div>
                   <Gate min="admin">
                     <div className="flex items-center justify-between gap-2">
@@ -130,11 +132,12 @@ export function AgentsView({ items }: { items: AgentItem[] }) {
                       <ConfirmDeleteButton
                         action={deleteAgent.bind(null, a.id)}
                         confirmWord={a.hostname}
-                        title={`Remove agent “${a.hostname}”?`}
+                        title={t("agents.remove.title", { host: a.hostname })}
                         body={
                           <>
-                            Removes this agent from the controller. If it&apos;s still running on <b>{a.hostname}</b>, it
-                            will keep failing until you reconfigure it.
+                            {t("agents.remove.bodyBefore")}
+                            <b>{a.hostname}</b>
+                            {t("agents.remove.bodyAfterShort")}
                           </>
                         }
                       />
@@ -148,11 +151,11 @@ export function AgentsView({ items }: { items: AgentItem[] }) {
       )}
 
       <p className="mt-4 text-sm text-muted-foreground">
-        Agents are deployed and configured from the{" "}
+        {t("agents.footer.before")}
         <Link href="/instances" className="text-accent hover:underline">
-          Coolify instances
-        </Link>{" "}
-        page - each instance has its own enrollment token, so agents link themselves automatically.
+          {t("agents.footer.link")}
+        </Link>
+        {t("agents.footer.after")}
       </p>
     </>
   );

@@ -2,7 +2,8 @@ import { LayoutDashboard, Server, Boxes, HardDrive, Archive, Cpu, Users, Setting
 
 export interface NavItem {
   href: string;
-  label: string;
+  /** i18n key (see i18n/dictionaries/nav.ts), translated at render time. */
+  labelKey: string;
   icon: LucideIcon;
   /** Only shown to admins (user management). */
   adminOnly?: boolean;
@@ -11,14 +12,14 @@ export interface NavItem {
 // Scheduling lives on each instance (default schedule) and resource (override),
 // so there is no separate "Policies" page in the primary navigation.
 export const NAV: NavItem[] = [
-  { href: "/", label: "Overview", icon: LayoutDashboard },
-  { href: "/instances", label: "Coolify instances", icon: Server },
-  { href: "/resources", label: "Resources", icon: Boxes },
-  { href: "/destinations", label: "Destinations", icon: HardDrive },
-  { href: "/snapshots", label: "Snapshots", icon: Archive },
-  { href: "/agents", label: "Agents", icon: Cpu },
-  { href: "/users", label: "Users", icon: Users, adminOnly: true },
-  { href: "/settings", label: "Settings", icon: Settings, adminOnly: true },
+  { href: "/", labelKey: "nav.overview", icon: LayoutDashboard },
+  { href: "/instances", labelKey: "nav.instances", icon: Server },
+  { href: "/resources", labelKey: "nav.resources", icon: Boxes },
+  { href: "/destinations", labelKey: "nav.destinations", icon: HardDrive },
+  { href: "/snapshots", labelKey: "nav.snapshots", icon: Archive },
+  { href: "/agents", labelKey: "nav.agents", icon: Cpu },
+  { href: "/users", labelKey: "nav.users", icon: Users, adminOnly: true },
+  { href: "/settings", labelKey: "nav.settings", icon: Settings, adminOnly: true },
 ];
 
 /** NAV entries visible to a given role. Admin-only entries need role === "admin".

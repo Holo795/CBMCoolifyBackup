@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { HardDrive, Server, Cpu, Clock, Bell, User, Mail, LifeBuoy } from "lucide-react";
 import { navFor } from "@/components/nav";
+import { useT } from "@/components/i18n-provider";
 import { CommandPaletteView, type Entry } from "./view";
 
 type Index = {
@@ -78,6 +79,7 @@ const EXTRA_STATIC: Entry[] = [
 
 export function CommandPalette({ role }: { role: string }) {
   const router = useRouter();
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -114,7 +116,7 @@ export function CommandPalette({ role }: { role: string }) {
   const entries = useMemo<Entry[]>(() => {
     const navEntries: Entry[] = navFor(role).map((n) => ({
       id: `nav:${n.href}`,
-      label: n.label,
+      label: t(n.labelKey),
       href: n.href,
       group: "Pages",
       keywords: NAV_KEYWORDS[n.href],
@@ -131,7 +133,7 @@ export function CommandPalette({ role }: { role: string }) {
       for (const a of index.agents) dyn.push({ id: `a:${a.id}`, label: a.hostname, href: `/agents`, group: "Agents", icon: Cpu });
     }
     return [...navEntries, ...EXTRA_STATIC, ...dyn];
-  }, [index, role]);
+  }, [index, role, t]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

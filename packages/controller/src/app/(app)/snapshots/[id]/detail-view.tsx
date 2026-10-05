@@ -7,6 +7,7 @@ import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { RestoreActions } from "@/components/restore-actions";
 import { Gate } from "@/components/role-gate";
 import { LiveLog } from "@/components/live-log";
+import { getT } from "@/lib/i18n";
 import { formatBytes, formatDateTime } from "@/lib/cn";
 import { GitCommitHorizontal } from "lucide-react";
 
@@ -15,7 +16,7 @@ type SnapshotDetail = Prisma.SnapshotGetPayload<{
 }>;
 
 /** Presentation only: the snapshot-detail markup. Data is fetched in ./page.tsx. */
-export function SnapshotDetailView({
+export async function SnapshotDetailView({
   snapshot,
   restores,
   tz,
@@ -29,6 +30,7 @@ export function SnapshotDetailView({
   /** Connected instances, offered as "Restore onto" targets (migration). */
   instances: { id: string; name: string }[];
 }) {
+  const t = await getT();
   const manifest = snapshot.manifest as { provenance?: { gitCommitSha?: string; imageDigest?: string } } | null;
 
   return (
@@ -47,9 +49,9 @@ export function SnapshotDetailView({
                   action={repinDeployment.bind(null, snapshot.id)}
                   variant="outline"
                   size="md"
-                  confirm="Re-pin the deployment to this snapshot's commit and redeploy?"
+                  confirm={t("snapshots.repinConfirm")}
                 >
-                  <GitCommitHorizontal className="h-4 w-4" /> Re-pin code
+                  <GitCommitHorizontal className="h-4 w-4" /> {t("snapshots.repin")}
                 </ActionButton>
               )}
             {snapshot.status === "succeeded" && (
@@ -64,13 +66,13 @@ export function SnapshotDetailView({
             <ConfirmDeleteButton
               action={deleteSnapshot.bind(null, snapshot.id)}
               confirmWord="DELETE"
-              title="Delete this snapshot?"
+              title={t("snapshots.deleteTitle")}
               variant="outline"
               size="md"
-              label="Delete"
+              label={t("common.delete")}
               redirectTo="/snapshots"
               body={
-                <>Permanently removes this snapshot ({formatBytes(snapshot.sizeBytes)}), including <b>its files on the destination</b> (deleted by the agent).</>
+                <>{t("snapshots.deleteBodyPlain", { size: formatBytes(snapshot.sizeBytes) })} <b>{t("snapshots.deleteBodyFiles")}</b> {t("snapshots.deleteBodyEnd")}</>
               }
             />
           </div>
@@ -81,21 +83,21 @@ export function SnapshotDetailView({
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Details</CardTitle>
+            <CardTitle>{t("snapshots.detailsTitle")}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-2 text-sm">
-            <Row k="Status" v={<Badge tone={statusTone(snapshot.status)}>{snapshot.status}</Badge>} />
-            <Row k="Directory" v={<span className="font-mono text-xs">{snapshot.destinationDir}</span>} />
-            <Row k="Size" v={formatBytes(snapshot.sizeBytes)} />
-            <Row k="Commit" v={<span className="font-mono text-xs">{manifest?.provenance?.gitCommitSha ?? "-"}</span>} />
-            <Row k="Image" v={<span className="font-mono text-xs">{manifest?.provenance?.imageDigest ?? "-"}</span>} />
-            {snapshot.error && <Row k="Error" v={<span className="text-[var(--color-danger)]">{snapshot.error}</span>} />}
+            <Row k={t("snapshots.rowStatus")} v={<Badge tone={statusTone(snapshot.status)}>{t(`snapshots.status.${snapshot.status}`)}</Badge>} />
+            <Row k={t("snapshots.rowDirectory")} v={<span className="font-mono text-xs">{snapshot.destinationDir}</span>} />
+            <Row k={t("snapshots.rowSize")} v={formatBytes(snapshot.sizeBytes)} />
+            <Row k={t("snapshots.rowCommit")} v={<span className="font-mono text-xs">{manifest?.provenance?.gitCommitSha ?? "-"}</span>} />
+            <Row k={t("snapshots.rowImage")} v={<span className="font-mono text-xs">{manifest?.provenance?.imageDigest ?? "-"}</span>} />
+            {snapshot.error && <Row k={t("snapshots.rowError")} v={<span className="text-[var(--color-danger)]">{snapshot.error}</span>} />}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Artifacts</CardTitle>
+            <CardTitle>{t("snapshots.artifactsTitle")}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-1.5 text-sm">
             {snapshot.artifacts.map((a) => (
@@ -104,19 +106,19 @@ export function SnapshotDetailView({
                   <span className="font-mono text-xs">{a.filename}</span>
                 </div>
                 <span className="shrink-0 flex items-center gap-2 text-xs text-muted-foreground">
-                  {a.encrypted && <Badge tone="success">enc</Badge>}
+                  {a.encrypted && <Badge tone="success">{t("snapshots.enc")}</Badge>}
                   {formatBytes(a.sizeBytes)}
                 </span>
               </div>
             ))}
-            {snapshot.artifacts.length === 0 && <span className="text-muted-foreground">No artifacts.</span>}
+            {snapshot.artifacts.length === 0 && <span className="text-muted-foreground">{t("snapshots.noArtifacts")}</span>}
           </CardContent>
         </Card>
       </div>
 
       <Card className="mt-6">
         <CardHeader>
-          <CardTitle>Backup log</CardTitle>
+          <CardTitle>{t("snapshots.backupLogTitle")}</CardTitle>
         </CardHeader>
         <CardContent>
           <LiveLog id={snapshot.id} initialStatus={snapshot.status} timeZone={tz} />
@@ -126,15 +128,15 @@ export function SnapshotDetailView({
       {restores.length > 0 && (
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle>Restores</CardTitle>
+            <CardTitle>{t("snapshots.restoresTitle")}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-5">
             {restores.map((r) => (
               <div key={r.id} className="flex flex-col gap-2">
                 <div className="flex items-center gap-2 text-sm">
-                  <Badge tone={statusTone(r.status)}>{r.status}</Badge>
+                  <Badge tone={statusTone(r.status)}>{t(`snapshots.status.${r.status}`)}</Badge>
                   <span className="text-muted-foreground">
-                    {r.target === "new_resource" ? "→ new resource" : "in place"} · {formatDateTime(r.createdAt, tz)}
+                    {r.target === "new_resource" ? t("snapshots.restoreTargetNew") : t("snapshots.restoreTargetInPlace")} · {formatDateTime(r.createdAt, tz)}
                   </span>
                   {r.error && <span className="text-xs text-[var(--color-danger)]">{r.error}</span>}
                 </div>

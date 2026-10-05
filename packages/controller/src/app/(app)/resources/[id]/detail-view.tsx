@@ -10,6 +10,7 @@ import { setResourceSchedule, removeResourceOverride, backupNow, deleteSnapshot 
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { RestoreActions } from "@/components/restore-actions";
 import { Gate } from "@/components/role-gate";
+import { getT } from "@/lib/i18n";
 import { effectivePolicy, describeCron, cronToFrequency } from "@/lib/schedule";
 import { formatBytes, timeAgo } from "@/lib/cn";
 import { Play, ArrowLeft, Unplug } from "lucide-react";
@@ -20,7 +21,7 @@ type SnapshotRow = Prisma.SnapshotGetPayload<{ include: { destination: true } }>
 type Eff = Awaited<ReturnType<typeof effectivePolicy>>;
 
 /** Presentation only: the resource-detail markup. Data is fetched in ./page.tsx. */
-export function ResourceDetailView({
+export async function ResourceDetailView({
   resource,
   destinations,
   override,
@@ -39,10 +40,11 @@ export function ResourceDetailView({
   removed: boolean;
   tz: string;
 }) {
+  const t = await getT();
   return (
     <>
       <Link href="/resources" className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-3.5 w-3.5" /> Resources
+        <ArrowLeft className="h-3.5 w-3.5" /> {t("resources.title")}
       </Link>
       <PageHeader
         title={resource.name}
@@ -50,8 +52,8 @@ export function ResourceDetailView({
         action={
           agentDown || removed ? undefined : (
             <Gate min="operator">
-              <ActionButton action={backupNow.bind(null, resource.id)} variant="primary" size="md" successMsg="Backup queued">
-                <Play className="h-4 w-4" /> Back up now
+              <ActionButton action={backupNow.bind(null, resource.id)} variant="primary" size="md" successMsg={t("resources.backupQueued")}>
+                <Play className="h-4 w-4" /> {t("resources.backUpNow")}
               </ActionButton>
             </Gate>
           )
@@ -60,8 +62,7 @@ export function ResourceDetailView({
 
       {removed && (
         <div className="mb-4 flex items-center gap-2 rounded-md border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-3 py-2 text-sm text-[var(--color-danger)]">
-          This resource no longer exists in Coolify. You can&apos;t back it up, but its snapshots below can still be
-          restored (use “→ new” to recreate it).
+          {t("resources.removedBanner")}
         </div>
       )}
 
@@ -74,13 +75,11 @@ export function ResourceDetailView({
         <Gate min="operator">
         <Card>
           <CardHeader>
-            <CardTitle>Backup options</CardTitle>
+            <CardTitle>{t("resources.backupOptions")}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-              Backups never restart this resource. Databases are exported live; for files, the agent briefly freezes
-              (pauses) only the containers that write to them for a few seconds, then resumes them - with no restart
-              at all. Settings are saved automatically.
+              {t("resources.backupOptionsInfo")}
             </p>
             <ResourceToggles id={resource.id} backupEnabled={resource.backupEnabled} liveBackup={resource.liveBackup} verbose />
           </CardContent>
@@ -90,7 +89,7 @@ export function ResourceDetailView({
         <Gate min="operator">
         <Card>
           <CardHeader>
-            <CardTitle>Backup hooks</CardTitle>
+            <CardTitle>{t("resources.backupHooks")}</CardTitle>
           </CardHeader>
           <CardContent>
             <HooksForm
@@ -105,45 +104,45 @@ export function ResourceDetailView({
         <Gate min="admin">
         <Card>
           <CardHeader>
-            <CardTitle>Schedule</CardTitle>
+            <CardTitle>{t("resources.schedule")}</CardTitle>
             <p className="text-sm text-muted-foreground">
               {override ? (
-                <>Custom override for this resource.</>
+                <>{t("resources.scheduleOverrideDesc")}</>
               ) : eff.source === "instance" ? (
                 <>
-                  Inherits <span className="text-foreground">{resource.instance.name}</span>:{" "}
+                  {t("resources.scheduleInherits")} <span className="text-foreground">{resource.instance.name}</span>:{" "}
                   {eff.policy ? describeCron(eff.policy.cron, tz) : "-"} → {eff.policy?.destination.name}
                 </>
               ) : eff.source === "none" ? (
-                <span className="text-[var(--color-warning)]">No schedule - set one on the instance, or override here.</span>
+                <span className="text-[var(--color-warning)]">{t("resources.scheduleNone")}</span>
               ) : (
-                <>Covered by a global schedule.</>
+                <>{t("resources.scheduleGlobal")}</>
               )}
             </p>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             {override && (
               <div className="flex items-center gap-2 text-xs">
-                <Badge tone="accent">override</Badge>
+                <Badge tone="accent">{t("resources.overrideBadge")}</Badge>
                 <span>
                   {describeCron(override.cron, tz)} → {override.destination.name} · {override.mode}
                 </span>
                 <form action={removeResourceOverride.bind(null, resource.id)}>
                   <button type="submit" className="text-[var(--color-danger)] hover:underline">
-                    revert to inherited
+                    {t("resources.revertToInherited")}
                   </button>
                 </form>
               </div>
             )}
             <details className="text-sm">
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                {override ? "Edit override" : "Override schedule for this resource"}
+                {override ? t("resources.editOverride") : t("resources.overrideSchedule")}
               </summary>
               <div className="mt-3">
                 <ScheduleForm
                   action={setResourceSchedule.bind(null, resource.id)}
                   destinations={destinations}
-                  submitLabel={override ? "Update override" : "Create override"}
+                  submitLabel={override ? t("resources.updateOverride") : t("resources.createOverride")}
                   defaults={
                     override
                       ? {
@@ -165,10 +164,10 @@ export function ResourceDetailView({
         </Gate>
       </div>
 
-      <h2 className="mb-3 mt-8 text-sm font-medium text-muted-foreground">Snapshots</h2>
+      <h2 className="mb-3 mt-8 text-sm font-medium text-muted-foreground">{t("resources.snapshotsHeading")}</h2>
       {snapshots.length === 0 ? (
         <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-          No snapshots yet for this resource.
+          {t("resources.noSnapshots")}
         </p>
       ) : (
         <Card>
@@ -176,11 +175,11 @@ export function ResourceDetailView({
             <table className="hidden w-full text-sm md:table">
               <thead className="border-b text-left text-xs text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2.5 font-medium">When</th>
-                  <th className="px-4 py-2.5 font-medium">Mode</th>
-                  <th className="px-4 py-2.5 font-medium">Status</th>
-                  <th className="px-4 py-2.5 font-medium">Size</th>
-                  <th className="px-4 py-2.5 font-medium">Destination</th>
+                  <th className="px-4 py-2.5 font-medium">{t("resources.colWhen")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("resources.colMode")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("resources.colStatus")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("resources.colSize")}</th>
+                  <th className="px-4 py-2.5 font-medium">{t("resources.colDestination")}</th>
                   <th className="px-4 py-2.5"></th>
                 </tr>
               </thead>
@@ -206,10 +205,10 @@ export function ResourceDetailView({
                           {s.status === "succeeded" && <RestoreActions snapshotId={s.id} hasAgent={!agentDown} />}
                           <ConfirmDeleteButton
                             action={deleteSnapshot.bind(null, s.id)}
-                            confirmWord="DELETE"
-                            title="Delete this snapshot?"
+                            confirmWord={t("resources.deleteConfirmWord")}
+                            title={t("resources.deleteSnapshotTitle")}
                             body={
-                              <>Permanently removes this snapshot ({formatBytes(s.sizeBytes)}), including <b>its files on the destination</b> (deleted by the agent).</>
+                              <>{t("resources.deleteSnapshotBodyPre", { size: formatBytes(s.sizeBytes) })}<b>{t("resources.deleteSnapshotBodyBold")}</b>{t("resources.deleteSnapshotBodyPost")}</>
                             }
                           />
                         </Gate>
@@ -240,10 +239,10 @@ export function ResourceDetailView({
                       {s.status === "succeeded" && <RestoreActions snapshotId={s.id} hasAgent={!agentDown} />}
                       <ConfirmDeleteButton
                         action={deleteSnapshot.bind(null, s.id)}
-                        confirmWord="DELETE"
-                        title="Delete this snapshot?"
+                        confirmWord={t("resources.deleteConfirmWord")}
+                        title={t("resources.deleteSnapshotTitle")}
                         body={
-                          <>Permanently removes this snapshot ({formatBytes(s.sizeBytes)}), including <b>its files on the destination</b> (deleted by the agent).</>
+                          <>{t("resources.deleteSnapshotBodyPre", { size: formatBytes(s.sizeBytes) })}<b>{t("resources.deleteSnapshotBodyBold")}</b>{t("resources.deleteSnapshotBodyPost")}</>
                         }
                       />
                     </Gate>
@@ -259,10 +258,11 @@ export function ResourceDetailView({
           <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
             <div className="flex max-w-sm flex-col items-center gap-2 rounded-xl border bg-card/80 px-6 py-5 text-center shadow-lg backdrop-blur-sm">
               <Unplug className="h-6 w-6 text-[var(--color-warning)]" />
-              <div className="font-medium">Agent unavailable</div>
+              <div className="font-medium">{t("resources.agentUnavailable")}</div>
               <p className="text-sm text-muted-foreground">
-                This resource is unavailable: no agent is installed on{" "}
-                <span className="text-foreground">{resource.instance.name}</span>.
+                {t("resources.agentUnavailableDetailPre")}{" "}
+                <span className="text-foreground">{resource.instance.name}</span>
+                {t("resources.agentUnavailableDetailPost")}
               </p>
             </div>
           </div>

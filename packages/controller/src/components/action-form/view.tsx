@@ -2,6 +2,7 @@
 
 import { type ReactNode, type RefObject } from "react";
 import { Button } from "@/components/ui";
+import { useT } from "@/components/i18n-provider";
 
 /** Presentation only: the form shell + status messages. Logic in ./index.tsx. */
 export function ActionFormView({
@@ -21,13 +22,14 @@ export function ActionFormView({
   error: string | null;
   warning: string | null;
 }) {
+  const t = useT();
   return (
     <form ref={formRef} onSubmit={onSubmit} className="flex flex-col gap-3">
       {children}
       {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
       {warning && <p className="text-sm text-[var(--color-warning)]">{warning}</p>}
       <Button type="submit" variant="primary" disabled={pending} className="self-start">
-        {pending ? "Working…" : submitLabel}
+        {pending ? t("components.working") : submitLabel}
       </Button>
     </form>
   );

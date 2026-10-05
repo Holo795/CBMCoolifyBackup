@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label, Badge } from "@/components/ui";
+import { useT } from "@/components/i18n-provider";
 
 /** Presentation only: the invite-acceptance card. Logic in ./accept-form.tsx. */
 export function AcceptInviteFormView({
@@ -32,24 +33,25 @@ export function AcceptInviteFormView({
   onLastNameChange: (v: string) => void;
   onSubmit: (e: React.FormEvent) => void;
 }) {
+  const t = useT();
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle>Accept your invitation</CardTitle>
+          <CardTitle>{t("auth.inviteTitle")}</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Joining as <Badge tone="accent">{role}</Badge>
+            {t("auth.joiningAs")} <Badge tone="accent">{role}</Badge>
           </p>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t("auth.email")}</Label>
               <Input id="email" type="email" value={email} readOnly disabled />
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="firstName">First name</Label>
+                <Label htmlFor="firstName">{t("auth.firstName")}</Label>
                 <Input
                   id="firstName"
                   value={firstName}
@@ -58,7 +60,7 @@ export function AcceptInviteFormView({
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="lastName">Last name</Label>
+                <Label htmlFor="lastName">{t("auth.lastName")}</Label>
                 <Input
                   id="lastName"
                   value={lastName}
@@ -68,7 +70,7 @@ export function AcceptInviteFormView({
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t("auth.password")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -80,7 +82,7 @@ export function AcceptInviteFormView({
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="confirm">Confirm password</Label>
+              <Label htmlFor="confirm">{t("auth.confirmPassword")}</Label>
               <Input
                 id="confirm"
                 type="password"
@@ -93,7 +95,7 @@ export function AcceptInviteFormView({
             </div>
             {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
             <Button type="submit" variant="primary" disabled={loading}>
-              {loading ? "…" : "Create account"}
+              {loading ? "…" : t("auth.createAccount")}
             </Button>
           </form>
         </CardContent>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useT } from "@/components/i18n-provider";
 import { RecoveryFilePanelView } from "./view";
 
 /**
@@ -19,6 +20,7 @@ export function RecoveryFilePanel({
     hasSelfBackup: boolean;
   };
 }) {
+  const t = useT();
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState<"export" | "import" | null>(null);
@@ -46,7 +48,7 @@ export function RecoveryFilePanel({
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        flash(false, body.error ?? `Export failed (${res.status})`);
+        flash(false, body.error ?? t("settings.exportFailed", { status: res.status }));
         return;
       }
       const disposition = res.headers.get("content-disposition") ?? "";
@@ -59,7 +61,7 @@ export function RecoveryFilePanel({
       a.click();
       URL.revokeObjectURL(url);
       setPassword("");
-      flash(true, "Recovery file downloaded - store it in a vault and destroy older copies.");
+      flash(true, t("settings.recoveryDownloaded"));
       router.refresh();
     } catch (e) {
       flash(false, (e as Error).message);
@@ -70,7 +72,7 @@ export function RecoveryFilePanel({
 
   const onImport = async () => {
     if (!importFile) {
-      flash(false, "Pick a recovery file first");
+      flash(false, t("settings.pickFileFirst"));
       return;
     }
     setBusy("import");
@@ -84,13 +86,10 @@ export function RecoveryFilePanel({
       const res = await fetch("/api/recovery/import", { method: "POST", body: fd });
       const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; detail?: string };
       if (!res.ok || body.error) {
-        flash(false, body.error ?? `Import failed (${res.status})`);
+        flash(false, body.error ?? t("settings.importFailed", { status: res.status }));
         return;
       }
-      flash(
-        true,
-        `${body.detail ?? "Imported."} You are signed out now - sign back in with your OLD credentials.`,
-      );
+      flash(true, `${body.detail ?? t("settings.importedDefault")}${t("settings.importedSignedOut")}`);
     } catch (e) {
       flash(false, (e as Error).message);
     } finally {

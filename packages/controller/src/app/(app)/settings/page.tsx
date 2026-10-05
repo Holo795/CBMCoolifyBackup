@@ -5,6 +5,7 @@ import { requireUser, can } from "@/lib/session";
 import { getTimezone } from "@/lib/settings";
 import { smtpReady, smtpEnvOverrides } from "@/lib/email";
 import { formatDateTime } from "@/lib/cn";
+import { getT } from "@/lib/i18n";
 import { SettingsView } from "./settings-view";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ export default async function SettingsPage() {
   const me = await requireUser();
   if (!can(me, "admin")) redirect("/");
 
+  const t = await getT();
   const tz = await getTimezone();
   const setting = await prisma.setting.findUnique({ where: { id: "global" } }).catch(() => null);
   const ready = await smtpReady();
@@ -62,11 +64,11 @@ export default async function SettingsPage() {
     at: setting?.recoveryFileAt ? formatDateTime(setting.recoveryFileAt, tz) : null,
     stale: destChanged || credsChanged || keyChanged,
     staleReason: destChanged
-      ? "self-backup destination changed"
+      ? t("settings.staleDestChanged")
       : credsChanged
-        ? "destination credentials changed"
+        ? t("settings.staleCredsChanged")
         : keyChanged
-          ? "master key changed"
+          ? t("settings.staleKeyChanged")
           : null,
     hasSelfBackup: !!(setting?.selfBackupEnabled && setting.selfBackupDestinationId),
   };

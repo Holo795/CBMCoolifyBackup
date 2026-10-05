@@ -2,13 +2,14 @@
 
 import { useRef, useState, useTransition } from "react";
 import { ActionFormView } from "./view";
+import { useT } from "@/components/i18n-provider";
 
 type ActionResult = { ok?: boolean; error?: string; warning?: string } | void;
 
 export function ActionForm({
   action,
   children,
-  submitLabel = "Save",
+  submitLabel,
   resetOnSuccess = true,
 }: {
   action: (fd: FormData) => Promise<ActionResult>;
@@ -16,6 +17,7 @@ export function ActionForm({
   submitLabel?: string;
   resetOnSuccess?: boolean;
 }) {
+  const t = useT();
   const formRef = useRef<HTMLFormElement>(null);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +39,7 @@ export function ActionForm({
   };
 
   return (
-    <ActionFormView formRef={formRef} onSubmit={onSubmit} submitLabel={submitLabel} pending={pending} error={error} warning={warning}>
+    <ActionFormView formRef={formRef} onSubmit={onSubmit} submitLabel={submitLabel ?? t("common.save")} pending={pending} error={error} warning={warning}>
       {children}
     </ActionFormView>
   );

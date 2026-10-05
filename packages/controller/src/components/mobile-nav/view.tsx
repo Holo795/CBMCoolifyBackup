@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Menu, X, Github } from "lucide-react";
 import { navFor } from "@/components/nav";
+import { useT } from "@/components/i18n-provider";
 import { cn } from "@/lib/cn";
 
 /** Presentation only: hamburger button + slide-out drawer. Logic in ./index.tsx. */
@@ -19,6 +20,7 @@ export function MobileNavView({
   pathname: string;
   role: string;
 }) {
+  const t = useT();
   return (
     <div className="md:hidden">
       <button
@@ -60,7 +62,7 @@ export function MobileNavView({
                     )}
                   >
                     <Icon className="h-4 w-4" />
-                    {item.label}
+                    {t(item.labelKey)}
                   </Link>
                 );
               })}
@@ -73,9 +75,7 @@ export function MobileNavView({
                 className="flex items-center gap-1.5 hover:text-foreground"
               >
                 <Github className="h-3.5 w-3.5" />
-                <span>
-                  Built by <span className="font-medium text-foreground">Holo795</span>
-                </span>
+                <span>{t("nav.builtBy")}</span>
               </a>
             </div>
           </aside>

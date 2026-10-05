@@ -2,6 +2,7 @@
 
 import { Button, Input, Select } from "@/components/ui";
 import { Plus, X } from "lucide-react";
+import { useT } from "@/components/i18n-provider";
 
 export type MapRow = { source: string; target: string };
 
@@ -25,15 +26,16 @@ export function ServerMapFormView({
   onRemoveRow: (i: number) => void;
   onSave: () => void;
 }) {
+  const t = useT();
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs text-muted-foreground">When restoring a snapshot that ran on another server, land it on the mapped server below. Unmapped sources go to the first server.</p>
+      <p className="text-xs text-muted-foreground">{t("instances.serverMap.hint")}</p>
       {rows.map((row, i) => (
         <div key={i} className="flex items-center gap-2">
           <Input
             value={row.source}
             onChange={(e) => onRowChange(i, { ...row, source: e.target.value })}
-            placeholder="source server uuid"
+            placeholder={t("instances.serverMap.sourcePlaceholder")}
             className="max-w-56 font-mono text-xs"
           />
           <span className="text-xs text-muted-foreground">→</span>
@@ -41,7 +43,7 @@ export function ServerMapFormView({
             value={row.target}
             onChange={(e) => onRowChange(i, { ...row, target: e.target.value })}
             className="max-w-48"
-            aria-label="Target server"
+            aria-label={t("instances.serverMap.targetServer")}
           >
             {servers.map((s) => (
               <option key={s.uuid} value={s.uuid}>
@@ -49,17 +51,17 @@ export function ServerMapFormView({
               </option>
             ))}
           </Select>
-          <Button size="icon" variant="ghost" onClick={() => onRemoveRow(i)} aria-label="Remove mapping">
+          <Button size="icon" variant="ghost" onClick={() => onRemoveRow(i)} aria-label={t("instances.serverMap.removeMapping")}>
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
       ))}
       <div className="flex items-center gap-2">
         <Button size="sm" variant="outline" onClick={onAddRow}>
-          <Plus className="h-3.5 w-3.5" /> Add mapping
+          <Plus className="h-3.5 w-3.5" /> {t("instances.serverMap.addMapping")}
         </Button>
         <Button size="sm" variant="primary" disabled={pending} onClick={onSave}>
-          {pending ? "Saving…" : "Save map"}
+          {pending ? t("common.saving") : t("instances.serverMap.saveMap")}
         </Button>
         {msg && <span className="text-xs text-muted-foreground">{msg}</span>}
       </div>

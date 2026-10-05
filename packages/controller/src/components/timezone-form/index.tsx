@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { updateTimezone } from "@/app/actions";
+import { useT } from "@/components/i18n-provider";
 import { TimezoneFormView } from "./view";
 
 // Full IANA list when the runtime supports it, else a small fallback.
@@ -11,6 +12,7 @@ const ZONES: string[] =
     : ["UTC", "Europe/Paris", "Europe/London", "America/New_York", "America/Los_Angeles", "Asia/Tokyo"];
 
 export function TimezoneForm({ current }: { current: string }) {
+  const t = useT();
   const [tz, setTz] = useState(current);
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
@@ -26,7 +28,7 @@ export function TimezoneForm({ current }: { current: string }) {
   const onAction = (fd: FormData) =>
     start(async () => {
       const r = await updateTimezone(fd);
-      setMsg(r?.error ?? "Saved ✓");
+      setMsg(r?.error ?? t("settings.saved"));
     });
 
   return <TimezoneFormView tz={tz} onTzChange={setTz} zones={ZONES} now={now} onAction={onAction} pending={pending} msg={msg} />;

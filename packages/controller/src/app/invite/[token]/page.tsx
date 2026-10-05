@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { sha256Hex } from "@/lib/crypto";
+import { getT } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui";
 import { AcceptInviteForm } from "./accept-form";
 
@@ -8,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function InvitePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  const t = await getT();
   const invite = await prisma.invitation.findUnique({ where: { tokenHash: sha256Hex(token) } });
 
   const invalid = !invite || !!invite.acceptedAt;
@@ -18,16 +20,12 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
       <div className="flex min-h-screen items-center justify-center p-4">
         <Card className="w-full max-w-sm">
           <CardHeader className="text-center">
-            <CardTitle>Invitation unavailable</CardTitle>
+            <CardTitle>{t("auth.inviteUnavailable")}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3 text-sm text-muted-foreground">
-            <p>
-              {expired
-                ? "This invitation link has expired. Ask an admin to send you a new one."
-                : "This invitation link is invalid or has already been used."}
-            </p>
+            <p>{expired ? t("auth.inviteExpired") : t("auth.inviteInvalid")}</p>
             <Link href="/login" className="text-accent hover:underline">
-              Go to sign in
+              {t("auth.goToSignIn")}
             </Link>
           </CardContent>
         </Card>

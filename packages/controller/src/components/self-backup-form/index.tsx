@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateSelfBackup, runSelfBackupNow, verifyRecoveryPath } from "@/app/actions";
+import { useT } from "@/components/i18n-provider";
 import { SelfBackupFormView } from "./view";
 
 /**
@@ -17,6 +18,7 @@ export function SelfBackupForm({
   destinations: { id: string; name: string; type: string }[];
   current: { enabled: boolean; destinationId: string; lastRunAt: string | null; lastStatus: string | null };
 }) {
+  const t = useT();
   const router = useRouter();
   const [pending, start] = useTransition();
   const [runPending, startRun] = useTransition();
@@ -33,7 +35,7 @@ export function SelfBackupForm({
     const fd = new FormData(e.currentTarget);
     start(async () => {
       const r = await updateSelfBackup(fd);
-      flash(r?.error ?? r?.detail ?? "Saved");
+      flash(r?.error ?? r?.detail ?? t("settings.savedPlain"));
       if (!r?.error) router.refresh();
     });
   };
@@ -41,14 +43,14 @@ export function SelfBackupForm({
   const onRunNow = () =>
     startRun(async () => {
       const r = await runSelfBackupNow();
-      flash(r?.error ?? r?.detail ?? "Done");
+      flash(r?.error ?? r?.detail ?? t("settings.done"));
       if (!r?.error) router.refresh();
     });
 
   const onVerify = () =>
     startVerify(async () => {
       const r = await verifyRecoveryPath();
-      flash(r?.error ?? r?.detail ?? "Verified");
+      flash(r?.error ?? r?.detail ?? t("settings.verified"));
     });
 
   return (

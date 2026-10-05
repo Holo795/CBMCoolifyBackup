@@ -6,6 +6,7 @@ import { Select } from "@/components/ui";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { setUserRole, removeUser } from "@/app/actions";
 import { ROLES } from "@/lib/roles";
+import { useT } from "@/components/i18n-provider";
 
 /** Admin-only per-user controls: change role + remove. Guards are also enforced
  *  server-side; here we just hide/disable what isn't allowed. */
@@ -22,6 +23,7 @@ export function UserRowActions({
   isSelf: boolean;
   isLastAdmin: boolean;
 }) {
+  const t = useT();
   const router = useRouter();
   const [value, setValue] = useState(role);
   const [pending, start] = useTransition();
@@ -46,10 +48,10 @@ export function UserRowActions({
   return (
     <div className="flex items-center justify-end gap-2">
       {err && <span className="text-xs text-[var(--color-danger)]">{err}</span>}
-      <Select value={value} onChange={onRole} disabled={pending || isLastAdmin} className="w-28" aria-label="Role">
+      <Select value={value} onChange={onRole} disabled={pending || isLastAdmin} className="w-28" aria-label={t("users.role")}>
         {ROLES.map((r) => (
           <option key={r} value={r}>
-            {r}
+            {t(`users.roles.${r}`)}
           </option>
         ))}
       </Select>
@@ -57,9 +59,9 @@ export function UserRowActions({
         <ConfirmDeleteButton
           action={() => removeUser(userId)}
           confirmWord={email}
-          title={`Remove ${email}?`}
+          title={t("users.remove.title", { email })}
           body={
-            <>This permanently removes <b>{email}</b> and signs out their sessions. They&apos;d need a new invitation to return.</>
+            <>{t("users.remove.bodyBefore")}<b>{email}</b>{t("users.remove.bodyAfter")}</>
           }
         />
       )}

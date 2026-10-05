@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, Input, Label } from "@/components/ui";
+import { useT } from "@/components/i18n-provider";
 
 /** Presentation only: the webhook form. Logic in ./index.tsx. */
 export function AlertWebhookFormView({
@@ -18,24 +19,25 @@ export function AlertWebhookFormView({
   pending: boolean;
   msg: string | null;
 }) {
+  const t = useT();
   return (
     <form action={onAction} className="flex flex-col gap-3">
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="alertWebhookUrl">Webhook URL (Discord / Slack / custom)</Label>
+        <Label htmlFor="alertWebhookUrl">{t("settings.alertWebhookLabel")}</Label>
         <Input
           id="alertWebhookUrl"
           name="alertWebhookUrl"
           value={url}
           onChange={(e) => onUrlChange(e.target.value)}
-          placeholder="https://discord.com/api/webhooks/…  (leave blank to disable)"
+          placeholder={t("settings.alertWebhookPlaceholder")}
         />
       </div>
       <div className="flex items-center gap-3">
         <Button type="submit" variant="primary" disabled={pending}>
-          {pending ? "Saving…" : "Save"}
+          {pending ? t("common.saving") : t("common.save")}
         </Button>
         <Button type="button" variant="outline" disabled={pending || !url} onClick={onTest}>
-          Send test
+          {t("settings.sendTest")}
         </Button>
         {msg && <span className="text-xs text-muted-foreground">{msg}</span>}
       </div>

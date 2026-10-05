@@ -1,19 +1,22 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useT } from "@/components/i18n-provider";
 import { ScheduleFormView, type Dest, type Defaults } from "./view";
 
 export function ScheduleForm({
   action,
   destinations,
   defaults,
-  submitLabel = "Save schedule",
+  submitLabel,
 }: {
   action: (fd: FormData) => Promise<{ ok?: boolean; error?: string } | void>;
   destinations: Dest[];
   defaults?: Defaults;
   submitLabel?: string;
 }) {
+  const t = useT();
+  const label = submitLabel ?? t("instances.scheduleForm.saveSchedule");
   const [frequency, setFrequency] = useState(defaults?.frequency ?? "daily");
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +35,7 @@ export function ScheduleForm({
     <ScheduleFormView
       destinations={destinations}
       defaults={defaults}
-      submitLabel={submitLabel}
+      submitLabel={label}
       frequency={frequency}
       onFrequencyChange={setFrequency}
       pending={pending}

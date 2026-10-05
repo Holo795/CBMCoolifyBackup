@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { getT } from "@/lib/i18n";
 import { DestinationDetailView } from "./detail-view";
 
 export const dynamic = "force-dynamic";
 
 export default async function DestinationDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const t = await getT();
   const dest = await prisma.destination.findUnique({ where: { id } });
   if (!dest) notFound();
 
@@ -36,7 +38,7 @@ export default async function DestinationDetail({ params }: { params: Promise<{ 
       const a = g.agentId ? agentById.get(g.agentId) : undefined;
       return {
         key: g.agentId ?? "unknown",
-        label: a?.serverName ?? a?.hostname ?? "Unknown host",
+        label: a?.serverName ?? a?.hostname ?? t("destinations.unknownHost"),
         bytes: Number(g._sum.sizeBytes ?? 0n),
         count: g._count,
       };
@@ -56,7 +58,7 @@ export default async function DestinationDetail({ params }: { params: Promise<{ 
       id: g.resourceId,
       bytes: Number(g._sum.sizeBytes ?? 0n),
       count: g._count,
-      name: byId.get(g.resourceId)?.name ?? "(deleted resource)",
+      name: byId.get(g.resourceId)?.name ?? t("destinations.deletedResource"),
       type: byId.get(g.resourceId)?.type,
     }))
     .sort((a, b) => b.bytes - a.bytes);

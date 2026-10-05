@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, Input, Label } from "@/components/ui";
+import { useT } from "@/components/i18n-provider";
 
 export interface SmtpCurrent {
   host: string;
@@ -27,61 +28,62 @@ export function SmtpConfigFormView({
   onAction: (fd: FormData) => void;
   onTest: () => void;
 }) {
+  const t = useT();
   const env = current.envLocked;
 
   return (
     <form action={onAction} className="flex flex-col gap-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="flex flex-col gap-1.5 sm:col-span-2">
-          <Label htmlFor="smtpHost">Host</Label>
+          <Label htmlFor="smtpHost">{t("settings.smtpHost")}</Label>
           <Input id="smtpHost" name="smtpHost" defaultValue={current.host} disabled={env.host} placeholder="smtp.example.com" />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="smtpPort">Port</Label>
+          <Label htmlFor="smtpPort">{t("settings.smtpPort")}</Label>
           <Input id="smtpPort" name="smtpPort" type="number" defaultValue={current.port} disabled={env.port} placeholder="587" />
         </div>
       </div>
 
       <label className="flex items-center gap-2 text-sm text-muted-foreground">
         <input type="checkbox" name="smtpSecure" defaultChecked={current.secure} disabled={env.secure} />
-        Implicit TLS (secure connection, usually port 465)
+        {t("settings.smtpImplicitTls")}
       </label>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="smtpUser">Username</Label>
+          <Label htmlFor="smtpUser">{t("settings.smtpUsername")}</Label>
           <Input id="smtpUser" name="smtpUser" defaultValue={current.user} disabled={env.user} autoComplete="off" />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="smtpPassword">Password</Label>
+          <Label htmlFor="smtpPassword">{t("settings.smtpPassword")}</Label>
           <Input
             id="smtpPassword"
             name="smtpPassword"
             type="password"
             disabled={env.password}
             autoComplete="new-password"
-            placeholder={env.password ? "(set by environment)" : current.hasPassword ? "•••••••• (unchanged)" : ""}
+            placeholder={env.password ? t("settings.smtpPasswordEnvPlaceholder") : current.hasPassword ? t("settings.smtpPasswordUnchanged") : ""}
           />
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="smtpFrom">From address</Label>
+          <Label htmlFor="smtpFrom">{t("settings.smtpFrom")}</Label>
           <Input id="smtpFrom" name="smtpFrom" type="email" defaultValue={current.from} disabled={env.from} placeholder="cbm@yourdomain.com" />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="smtpFromName">From name (optional)</Label>
+          <Label htmlFor="smtpFromName">{t("settings.smtpFromName")}</Label>
           <Input id="smtpFromName" name="smtpFromName" defaultValue={current.fromName} disabled={env.fromName} placeholder="CBM Backups" />
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" variant="primary" disabled={pending}>
-          {pending ? "Saving…" : "Save"}
+          {pending ? t("common.saving") : t("common.save")}
         </Button>
         <Button type="button" variant="outline" disabled={pending} onClick={onTest}>
-          Send test email (establish connection)
+          {t("settings.smtpSendTest")}
         </Button>
         {msg && <span className="text-xs text-muted-foreground">{msg}</span>}
       </div>
@@ -101,15 +103,13 @@ export function EmailVerificationToggleView({
   error: string | null;
   onChange: (checked: boolean) => void;
 }) {
+  const t = useT();
   return (
     <label className="flex items-start gap-2 text-sm">
       <input type="checkbox" checked={on} disabled={pending} className="mt-0.5" onChange={(e) => onChange(e.target.checked)} />
       <span>
-        <span className="font-medium">Require email verification</span>
-        <span className="mt-0.5 block text-xs text-muted-foreground">
-          New users and email changes receive a verification link. Sign-in is never blocked - it&apos;s a soft reminder.
-          Requires a working SMTP.
-        </span>
+        <span className="font-medium">{t("settings.requireEmailVerification")}</span>
+        <span className="mt-0.5 block text-xs text-muted-foreground">{t("settings.requireEmailVerificationDesc")}</span>
         {error && <span className="mt-0.5 block text-xs text-[var(--color-danger)]">{error}</span>}
       </span>
     </label>
