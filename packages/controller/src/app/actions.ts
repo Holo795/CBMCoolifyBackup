@@ -192,9 +192,10 @@ export async function updateSmtp(fd: FormData) {
   return { ok: true };
 }
 
-/** Verify the saved SMTP config and send a test email; flips the "verified" flag. */
+/** Verify the saved SMTP config and send a test email to the admin who asked
+ * (the From address is often an unread no-reply); flips the "verified" flag. */
 export async function testSmtp() {
-  await requireRole("admin");
+  const user = await requireRole("admin");
   const t = await getT();
   const { effectiveSmtp, verifySmtp, sendMail } = await import("@/lib/email");
   const cfg = await effectiveSmtp();
@@ -202,14 +203,14 @@ export async function testSmtp() {
   const v = await verifySmtp(cfg);
   if (!v.ok) return { error: t("messages.smtpConnectFailed", { error: v.error ?? "" }) };
   try {
-    await sendMail({ to: cfg.from, subject: "CBM SMTP test", text: "✅ Your CBM SMTP settings are working." });
+    await sendMail({ to: user.email, subject: "CBM SMTP test", text: "✅ Your CBM SMTP settings are working." });
   } catch (e) {
     return { error: t("messages.smtpSendFailed", { error: (e as Error).message }) };
   }
   await prisma.setting.update({ where: { id: "global" }, data: { smtpLastVerifiedOk: true } });
   revalidatePath("/settings");
   revalidatePath("/login");
-  return { ok: true, detail: t("messages.testEmailSent", { to: cfg.from }) };
+  return { ok: true, detail: t("messages.testEmailSent", { to: user.email }) };
 }
 
 /** Toggle soft account-email verification. Enabling requires a working SMTP. */
