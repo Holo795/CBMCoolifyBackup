@@ -21,7 +21,7 @@
     "dev:agent": "npm run dev --workspace @cbm/agent"
   },
   "devDependencies": {
-    "eslint": "^9.39.4",
-    "eslint-config-next": "^16.2.9"
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.8"
   }
 }

@@ -20,7 +20,7 @@
     "test": "tsc -p tsconfig.json && node --test dist/contract.test.js"
   },
   "dependencies": {
-    "zod": "^3.25.0"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "typescript": "^5.7.0"
