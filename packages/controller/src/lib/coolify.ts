@@ -123,6 +123,13 @@ export function parseImageRef(ref?: string): { name?: string; tag?: string } {
   return { name: core };
 }
 
+/**
+ * Secrets Coolify generates for a service (its database users and passwords):
+ * the data in its volumes was created with them, so they must follow it to a
+ * clone. Domains (SERVICE_FQDN_* / SERVICE_URL_*) are per-resource and don't.
+ */
+export const GENERATED_SECRET = /^SERVICE_(USER|PASSWORD|BASE64|REALBASE64)_/;
+
 /** Every Coolify API call is bounded: one that hangs would otherwise block the
  * scheduler (it enqueues backups through these calls) for minutes. */
 const COOLIFY_TIMEOUT_MS = 30_000;
@@ -561,30 +568,49 @@ export class CoolifyClient {
     return created.uuid;
   }
 
-  /** Read a resource's environment variables (excluding Coolify-managed ones). */
+  /** Read a resource's environment variables: the user's own, plus the secrets
+   * Coolify generated for it (see GENERATED_SECRET) - not its other managed ones. */
   async getEnvVars(kind: "applications" | "services", uuid: string): Promise<Array<Record<string, unknown>>> {
     const envs = await this.get<Array<Record<string, unknown>>>(`/api/v1/${kind}/${uuid}/envs`).catch(() => []);
-    return (envs ?? []).filter((e) => e?.key && !e.is_coolify);
+    return (envs ?? []).filter(
+      (e) => e?.key && !e.is_preview && (!e.is_coolify || GENERATED_SECRET.test(String(e.key))),
+    );
   }
 
-  /** Best-effort set of environment variables on a resource. */
+  /**
+   * Set environment variables on a resource, replacing any it already has with
+   * the same key (a cloned service starts with freshly generated credentials
+   * that must give way to the source's). Best effort; returns how many were set.
+   */
   async setEnvVars(
     kind: "applications" | "services",
     uuid: string,
     envs: Array<Record<string, unknown>>,
   ): Promise<number> {
-    let n = 0;
-    for (const e of envs ?? []) {
-      if (!e?.key) continue;
-      // Coolify's field is `is_buildtime` (not `is_build_time` - that 500s).
-      const ok = await this.post(`/api/v1/${kind}/${uuid}/envs`, {
-        key: e.key,
-        value: e.value ?? "",
-        is_preview: false,
-        is_buildtime: !!e.is_buildtime,
+    const data = (envs ?? [])
+      .filter((e) => e?.key)
+      .map((e) => ({
+        key: String(e.key),
+        value: String(e.value ?? ""),
         is_literal: !!e.is_literal,
         is_multiline: !!e.is_multiline,
-      })
+        // Coolify's field is `is_buildtime` (not `is_build_time` - that 500s);
+        // the services endpoint doesn't take it.
+        ...(kind === "applications" ? { is_buildtime: !!e.is_buildtime } : {}),
+      }));
+    if (data.length === 0) return 0;
+    // The bulk endpoint upserts by key.
+    const res = await fetch(`${this.baseUrl}/api/v1/${kind}/${uuid}/envs/bulk`, {
+      signal: AbortSignal.timeout(COOLIFY_TIMEOUT_MS),
+      method: "PATCH",
+      headers: { authorization: `Bearer ${this.token}`, accept: "application/json", "content-type": "application/json" },
+      body: JSON.stringify({ data }),
+    }).catch(() => null);
+    if (res?.ok) return data.length;
+    // Older Coolify: one by one (creates only).
+    let n = 0;
+    for (const e of data) {
+      const ok = await this.post(`/api/v1/${kind}/${uuid}/envs`, { ...e, is_preview: false })
         .then(() => true)
         .catch(() => false);
       if (ok) n++;

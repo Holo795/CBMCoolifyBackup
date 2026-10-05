@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "./prisma";
 import { decryptSecret, encryptSecret } from "./crypto";
 import { effectivePolicy } from "./schedule";
-import { CoolifyClient, type DbEngine, type CloneEngine, type DbConfig, type CoolifyRaw } from "./coolify";
+import { CoolifyClient, GENERATED_SECRET, type DbEngine, type CloneEngine, type DbConfig, type CoolifyRaw } from "./coolify";
 import { syncInstance } from "./discovery";
 import { remapEnv, type RemapChange } from "./remap";
 import type { Destination, Prisma } from "@/generated/prisma/client";
@@ -363,6 +363,7 @@ async function cloneForRestore(
     // Env from the snapshot if present (autonomous), else live from the original.
     changes = await applyEnv(
       client,
+      srcClient ?? client,
       manifest,
       cloned.type === "service" ? "services" : "applications",
       newUuid,
@@ -388,7 +389,7 @@ async function cloneForRestore(
       src,
       serverUuid,
     });
-    changes = await applyEnv(client, manifest, "services", newUuid, "services", resource.coolifyUuid, mapping);
+    changes = await applyEnv(client, srcClient ?? client, manifest, "services", newUuid, "services", resource.coolifyUuid, mapping);
   } else {
     throw new Error(`Restore → new resource is not supported for type "${resource.type}"`);
   }
@@ -629,6 +630,8 @@ function dbCredsFromCaptured(
  * clone's env is created once; we never update an existing resource). */
 async function applyEnv(
   client: CoolifyClient,
+  /** The original's instance (differs from `client`'s when migrating). */
+  srcClient: CoolifyClient,
   manifest: SnapshotManifest,
   destKind: "applications" | "services",
   newUuid: string,
@@ -644,7 +647,13 @@ async function applyEnv(
       envs = null; // fall back to the live original below
     }
   }
-  if (!envs) envs = await client.getEnvVars(srcKind, srcUuid).catch(() => []);
+  if (!envs) envs = await srcClient.getEnvVars(srcKind, srcUuid).catch(() => []);
+  else if (!envs.some((e) => GENERATED_SECRET.test(String(e.key)))) {
+    // Snapshots taken before 2.1 didn't capture the service's generated
+    // credentials; take them from the original while it still exists.
+    const live = await srcClient.getEnvVars(srcKind, srcUuid).catch(() => []);
+    envs = [...envs, ...live.filter((e) => GENERATED_SECRET.test(String(e.key)))];
+  }
   const { envs: rewired, changes } = remapEnv(envs, mapping);
   await client.setEnvVars(destKind, newUuid, rewired);
   return changes;
