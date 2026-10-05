@@ -31,8 +31,13 @@ Works for all types:
   first deploy.
 
 For apps and services, the clone is created **but not deployed** by default (no domain, by
-design) — you review it in Coolify, then deploy. Its data is already in place. Environment
-variables captured in the snapshot are applied to the clone automatically.
+design) — you review it in Coolify, then deploy. Its data is already in place: an application's
+named volumes are recreated on the clone and filled. Environment variables captured in the
+snapshot are applied to the clone automatically, including the credentials Coolify generated
+for a service (`SERVICE_USER_*` / `SERVICE_PASSWORD_*`), since its restored database was created
+with them; domains are not copied.
+
+The Coolify **control plane** ("Back up Coolify") can only be restored in place.
 
 Because each snapshot also captures the **full resource definition** (git/build pack, image,
 compose, domains, database credentials), `→ new` works even when the **source Coolify is gone**,
