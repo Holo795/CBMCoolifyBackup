@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getTimezone } from "@/lib/settings";
 import { groupServersByInstance } from "@/lib/servers";
 import { InstancesView } from "./instances-view";
+import { DESTINATION_SECRETS, INSTANCE_SECRETS } from "@/lib/public-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -9,13 +10,14 @@ export default async function InstancesPage() {
   const [instances, destinations, serverRows] = await Promise.all([
     prisma.coolifyInstance.findMany({
       orderBy: { createdAt: "asc" },
+      omit: INSTANCE_SECRETS,
       include: {
         _count: { select: { resources: true } },
         agents: { select: { status: true, lastSeenAt: true, serverUuid: true } },
-        policies: { where: { resourceId: null }, include: { destination: true } },
+        policies: { where: { resourceId: null }, include: { destination: { omit: DESTINATION_SECRETS } } },
       },
     }),
-    prisma.destination.findMany({ orderBy: { name: "asc" } }),
+    prisma.destination.findMany({ orderBy: { name: "asc" }, omit: DESTINATION_SECRETS }),
     prisma.resource.findMany({
       where: { serverUuid: { not: null } },
       select: { instanceId: true, serverUuid: true, serverName: true },

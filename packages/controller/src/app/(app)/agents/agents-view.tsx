@@ -9,8 +9,9 @@ import { Gate } from "@/components/role-gate";
 import { getT } from "@/lib/i18n";
 import { timeAgo } from "@/lib/cn";
 import { Cpu } from "lucide-react";
+import { type AGENT_SECRETS, type INSTANCE_SECRETS } from "@/lib/public-fields";
 
-type AgentRow = Prisma.AgentGetPayload<{ include: { instance: true } }>;
+type AgentRow = Prisma.AgentGetPayload<{ omit: typeof AGENT_SECRETS; include: { instance: { omit: typeof INSTANCE_SECRETS } } }>;
 export type AgentItem = { agent: AgentRow; options: { uuid: string; name: string }[] };
 
 /** Presentation only: the Agents list markup. Data is fetched in ./page.tsx. */

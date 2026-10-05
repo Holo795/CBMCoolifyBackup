@@ -8,10 +8,11 @@ import { Gate } from "@/components/role-gate";
 import { getT } from "@/lib/i18n";
 import { resourceStatusLabel } from "@/lib/status";
 import { Boxes, Play, Unplug, Pin } from "lucide-react";
+import { type INSTANCE_SECRETS } from "@/lib/public-fields";
 
-type ResourceRow = Prisma.ResourceGetPayload<{ include: { instance: true } }>;
+type ResourceRow = Prisma.ResourceGetPayload<{ include: { instance: { omit: typeof INSTANCE_SECRETS } } }>;
 type OrphanedRow = Prisma.ResourceGetPayload<{
-  include: { instance: true; _count: { select: { snapshots: true } } };
+  include: { instance: { omit: typeof INSTANCE_SECRETS }; _count: { select: { snapshots: true } } };
 }>;
 
 /** Presentation only: the Resources list markup. Data is fetched in ./page.tsx. */

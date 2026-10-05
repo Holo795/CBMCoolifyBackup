@@ -1,11 +1,16 @@
 import { prisma } from "@/lib/prisma";
 import { groupServersByInstance } from "@/lib/servers";
 import { AgentsView, type AgentItem } from "./agents-view";
+import { AGENT_SECRETS, INSTANCE_SECRETS } from "@/lib/public-fields";
 
 export const dynamic = "force-dynamic";
 
 export default async function AgentsPage() {
-  const agents = await prisma.agent.findMany({ orderBy: { createdAt: "asc" }, include: { instance: true } });
+  const agents = await prisma.agent.findMany({
+    orderBy: { createdAt: "asc" },
+    omit: AGENT_SECRETS,
+    include: { instance: { omit: INSTANCE_SECRETS } },
+  });
 
   // Candidate servers per instance, derived from discovered resources (no extra
   // Coolify API call). Drives the per-agent "Server" override dropdown.

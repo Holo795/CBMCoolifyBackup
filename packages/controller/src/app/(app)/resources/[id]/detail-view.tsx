@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { Prisma, Destination } from "@/generated/prisma/client";
+import type { Prisma } from "@/generated/prisma/client";
 import { PageHeader } from "@/components/page-header";
 import { ScheduleForm } from "@/components/schedule-form";
 import { ActionButton } from "@/components/action-button";
@@ -14,10 +14,11 @@ import { getT } from "@/lib/i18n";
 import { effectivePolicy, describeCron, cronToFrequency } from "@/lib/schedule";
 import { formatBytes, timeAgo } from "@/lib/cn";
 import { Play, ArrowLeft, Unplug } from "lucide-react";
+import { type DESTINATION_SECRETS, type INSTANCE_SECRETS, type PublicDestination } from "@/lib/public-fields";
 
-type ResourceRow = Prisma.ResourceGetPayload<{ include: { instance: true } }>;
-type OverrideRow = Prisma.BackupPolicyGetPayload<{ include: { destination: true } }>;
-type SnapshotRow = Prisma.SnapshotGetPayload<{ include: { destination: true } }>;
+type ResourceRow = Prisma.ResourceGetPayload<{ include: { instance: { omit: typeof INSTANCE_SECRETS } } }>;
+type OverrideRow = Prisma.BackupPolicyGetPayload<{ include: { destination: { omit: typeof DESTINATION_SECRETS } } }>;
+type SnapshotRow = Prisma.SnapshotGetPayload<{ include: { destination: { omit: typeof DESTINATION_SECRETS } } }>;
 type Eff = Awaited<ReturnType<typeof effectivePolicy>>;
 
 /** Presentation only: the resource-detail markup. Data is fetched in ./page.tsx. */
@@ -30,15 +31,18 @@ export async function ResourceDetailView({
   agentDown,
   removed,
   tz,
+  isAdmin,
 }: {
   resource: ResourceRow;
-  destinations: Destination[];
+  destinations: PublicDestination[];
   override: OverrideRow | null;
   snapshots: SnapshotRow[];
   eff: Eff;
   agentDown: boolean;
   removed: boolean;
   tz: string;
+  /** Hook commands are admin-only: not even serialized for other roles. */
+  isAdmin: boolean;
 }) {
   const t = await getT();
   return (
@@ -86,8 +90,10 @@ export async function ResourceDetailView({
         </Card>
         </Gate>
 
-        {/* Hooks run arbitrary commands inside containers: configuration, admin-only. */}
-        <Gate min="admin">
+        {/* Hooks run arbitrary commands inside containers: configuration, admin-only.
+            Decided here (server) rather than by <Gate> alone, whose children
+            would still reach the browser. */}
+        {isAdmin && (
         <Card>
           <CardHeader>
             <CardTitle>{t("resources.backupHooks")}</CardTitle>
@@ -108,7 +114,7 @@ export async function ResourceDetailView({
             />
           </CardContent>
         </Card>
-        </Gate>
+        )}
 
         <Gate min="admin">
         <Card>

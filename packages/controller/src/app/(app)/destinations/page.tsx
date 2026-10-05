@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { DestinationsView, type DestinationItem } from "./destinations-view";
+import { DESTINATION_SECRETS } from "@/lib/public-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -7,6 +8,7 @@ export default async function DestinationsPage() {
   const [destinations, sizeGroups, missingGroups] = await Promise.all([
     prisma.destination.findMany({
       orderBy: { createdAt: "asc" },
+      omit: DESTINATION_SECRETS,
       include: { _count: { select: { snapshots: true, policies: true } } },
     }),
     prisma.snapshot.groupBy({ by: ["destinationId"], _sum: { sizeBytes: true }, where: { status: "succeeded" } }),

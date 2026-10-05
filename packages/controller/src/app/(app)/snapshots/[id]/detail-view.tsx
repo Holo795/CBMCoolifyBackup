@@ -11,11 +11,12 @@ import { getT } from "@/lib/i18n";
 import { formatBytes, formatDateTime } from "@/lib/cn";
 import { GitCommitHorizontal, ShieldCheck, Check, X } from "lucide-react";
 import { drillTone } from "@/lib/status";
+import { type DESTINATION_SECRETS } from "@/lib/public-fields";
 
 type DrillCheckRow = { artifact: string; kind: string; engine?: string; ok: boolean; detail: string };
 
 type SnapshotDetail = Prisma.SnapshotGetPayload<{
-  include: { resource: true; destination: true; artifacts: true };
+  include: { resource: true; destination: { omit: typeof DESTINATION_SECRETS }; artifacts: true };
 }>;
 
 /** Presentation only: the snapshot-detail markup. Data is fetched in ./page.tsx. */

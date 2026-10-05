@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { liveAgentWhere } from "@/lib/agent-status";
 import { ResourcesView } from "./resources-view";
+import { INSTANCE_SECRETS } from "@/lib/public-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -26,12 +27,12 @@ export default async function ResourcesPage({
     prisma.resource.findMany({
       where: { status: { not: "deleted" }, coolifyUuid: { startsWith: "coolify-self" } },
       orderBy: [{ name: "asc" }],
-      include: { instance: true },
+      include: { instance: { omit: INSTANCE_SECRETS } },
     }),
     prisma.resource.findMany({
       where,
       orderBy: [{ projectName: "asc" }, { name: "asc" }],
-      include: { instance: true },
+      include: { instance: { omit: INSTANCE_SECRETS } },
       skip: (page - 1) * PER_PAGE,
       take: PER_PAGE,
     }),
@@ -39,7 +40,7 @@ export default async function ResourcesPage({
     prisma.resource.findMany({
       where: { status: "deleted" },
       orderBy: [{ projectName: "asc" }, { name: "asc" }],
-      include: { instance: true, _count: { select: { snapshots: true } } },
+      include: { instance: { omit: INSTANCE_SECRETS }, _count: { select: { snapshots: true } } },
     }),
   ]);
   // Which instances have a live agent (recent heartbeat)? Resources whose

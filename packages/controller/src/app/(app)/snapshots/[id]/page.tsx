@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { liveAgentWhere } from "@/lib/agent-status";
 import { getTimezone } from "@/lib/settings";
 import { SnapshotDetailView } from "./detail-view";
+import { DESTINATION_SECRETS } from "@/lib/public-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ export default async function SnapshotDetail({ params }: { params: Promise<{ id:
   const { id } = await params;
   const snapshot = await prisma.snapshot.findUnique({
     where: { id },
-    include: { resource: true, destination: true, artifacts: true },
+    include: { resource: true, destination: { omit: DESTINATION_SECRETS }, artifacts: true },
   });
   if (!snapshot) notFound();
 

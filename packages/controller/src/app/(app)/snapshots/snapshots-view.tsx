@@ -11,11 +11,12 @@ import { getT } from "@/lib/i18n";
 import { formatBytes, timeAgo } from "@/lib/cn";
 import { drillTone } from "@/lib/status";
 import { Archive, RefreshCw, X, ShieldCheck } from "lucide-react";
+import { type DESTINATION_SECRETS } from "@/lib/public-fields";
 
 type SnapshotRow = Prisma.SnapshotGetPayload<{
   include: {
     resource: true;
-    destination: true;
+    destination: { omit: typeof DESTINATION_SECRETS };
     _count: { select: { artifacts: true } };
     drills: { select: { status: true } };
   };

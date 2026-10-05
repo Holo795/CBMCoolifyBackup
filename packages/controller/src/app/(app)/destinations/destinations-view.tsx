@@ -12,8 +12,10 @@ import { Gate } from "@/components/role-gate";
 import { getT } from "@/lib/i18n";
 import { formatBytes } from "@/lib/cn";
 import { HardDrive, Lock, PlugZap, ChevronRight, ShieldCheck, AlertTriangle, FileCheck2, Copy } from "lucide-react";
+import type { DESTINATION_SECRETS } from "@/lib/public-fields";
 
 type DestinationRow = Prisma.DestinationGetPayload<{
+  omit: typeof DESTINATION_SECRETS;
   include: { _count: { select: { snapshots: true; policies: true } } };
 }>;
 

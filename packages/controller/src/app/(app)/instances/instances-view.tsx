@@ -23,15 +23,17 @@ import { describeCron, cronToFrequency } from "@/lib/schedule";
 import { isAgentOnline as agentOnline } from "@/lib/agent-status";
 import type { groupServersByInstance } from "@/lib/servers";
 import { Server, RefreshCw, Trash2, CalendarClock, ShieldCheck, Pencil } from "lucide-react";
-import type { BackupPolicy, Destination } from "@/generated/prisma/client";
+import type { BackupPolicy } from "@/generated/prisma/client";
+import type { DESTINATION_SECRETS, INSTANCE_SECRETS, PublicDestination } from "@/lib/public-fields";
 import { getT } from "@/lib/i18n";
 
-type PolicyWithDest = BackupPolicy & { destination: Destination };
+type PolicyWithDest = BackupPolicy & { destination: PublicDestination };
 type InstanceRow = Prisma.CoolifyInstanceGetPayload<{
+  omit: typeof INSTANCE_SECRETS;
   include: {
     _count: { select: { resources: true } };
     agents: { select: { status: true; lastSeenAt: true; serverUuid: true } };
-    policies: { include: { destination: true } };
+    policies: { include: { destination: { omit: typeof DESTINATION_SECRETS } } };
   };
 }>;
 type RunInfo = { at: Date; ok: number; failed: number; running: number; total: number };
@@ -46,7 +48,7 @@ export async function InstancesView({
   runByPolicy,
 }: {
   instances: InstanceRow[];
-  destinations: Destination[];
+  destinations: PublicDestination[];
   tz: string;
   serversByInstance: ServersByInstance;
   runByPolicy: Map<string, RunInfo>;
@@ -195,7 +197,7 @@ export async function InstancesView({
                             </Badge>
                           </>
                         )}
-                        {i.enrollTokenHash && (
+                        {i.enrollTokenSetAt && (
                           <span className="font-mono text-xs text-muted-foreground" title={t("instances.enrollTokenTitle")}>
                             {i.enrollTokenHint}
                           </span>
@@ -218,7 +220,7 @@ export async function InstancesView({
                         </Gate>
                       </div>
                       <Gate min="admin">
-                        <RevealInstall instanceId={i.id} hasToken={!!i.enrollTokenHash} />
+                        <RevealInstall instanceId={i.id} hasToken={!!i.enrollTokenSetAt} />
                         <details className="text-xs">
                           <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
                             <Pencil className="mr-1 inline h-3.5 w-3.5" />

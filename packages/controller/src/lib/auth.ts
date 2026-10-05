@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { APIError } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
+import { isPasswordCompromised } from "better-auth/plugins/haveibeenpwned";
 import { prisma } from "./prisma";
 import { env } from "./env";
 import { sendMail } from "./email";
@@ -24,6 +25,20 @@ if (env.oauth.gitlabClientId && env.oauth.gitlabClientSecret) {
     clientId: env.oauth.gitlabClientId,
     clientSecret: env.oauth.gitlabClientSecret,
   };
+}
+
+/** Endpoints that set a new password (body.password or body.newPassword). */
+const NEW_PASSWORD_PATHS = new Set(["/sign-up/email", "/change-password", "/reset-password"]);
+const BREACH_CHECK_TIMEOUT_MS = 3000;
+
+/**
+ * Is this password in a known breach? Unlike better-auth's haveIBeenPwned
+ * plugin this fails OPEN: a self-hosted install without Internet access (or
+ * an HIBP outage) must still be able to sign up and reset passwords.
+ */
+async function passwordBreached(password: string): Promise<boolean> {
+  const timeout = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), BREACH_CHECK_TIMEOUT_MS).unref());
+  return Promise.race([isPasswordCompromised(password).catch(() => false), timeout]);
 }
 
 export const auth = betterAuth({
@@ -105,7 +120,21 @@ export const auth = betterAuth({
     },
   },
   socialProviders,
-  trustedOrigins: [env.authUrl, "http://localhost:3000"],
+  // localhost:3000 is the dev server; in production only the configured URL.
+  trustedOrigins: env.isProd ? [env.authUrl] : [env.authUrl, "http://localhost:3000"],
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (!env.passwordBreachCheck || !NEW_PASSWORD_PATHS.has(ctx.path)) return;
+      const body = ctx.body as { password?: unknown; newPassword?: unknown } | undefined;
+      const password = body?.newPassword ?? body?.password;
+      if (typeof password !== "string" || !password) return;
+      if (await passwordBreached(password)) {
+        throw new APIError("BAD_REQUEST", {
+          message: "This password appears in a known data breach - choose another one.",
+        });
+      }
+    }),
+  },
   databaseHooks: {
     user: {
       create: {

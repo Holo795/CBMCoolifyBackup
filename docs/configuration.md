@@ -5,12 +5,13 @@
 | Variable | Required | Default | Description |
 | --- | :---: | --- | --- |
 | `DATABASE_URL` | ✅ (prod) | — | PostgreSQL connection string for the controller's metadata DB. |
-| `BETTER_AUTH_SECRET` | ✅ | `dev-insecure…` | Long random string for session signing. Also the fallback for `MASTER_KEY`. |
-| `BETTER_AUTH_URL` | ✅ | `http://localhost:3000` | The public URL the app is served at (used by auth + links in alerts). |
+| `BETTER_AUTH_SECRET` | ✅ | `dev-insecure…` | Long random string for session signing. Also the fallback for `MASTER_KEY`. `AUTH_SECRET` is accepted as an alias. |
+| `BETTER_AUTH_URL` | ✅ | `http://localhost:3000` | The public URL the app is served at (used by auth + links in alerts). `APP_URL` is accepted as an alias. In production it is the only origin trusted for sign-in requests. |
 | `MASTER_KEY` | recommended | falls back to `BETTER_AUTH_SECRET` | Base64, 32 bytes. Encrypts all secrets at rest (and restic repo passwords). **Back this up.** |
 | `AGENT_IMAGE` | — | `ghcr.io/holo795/cbm-agent` | Agent image the install command / `/install.sh` tells hosts to run. |
 | `AGENT_IMAGE_TAG` | — | `latest` | Tag for the agent image. |
 | `AGENT_CONTROLLER_URL` | — | falls back to `BETTER_AUTH_URL` | URL agents dial to reach the controller, if it differs from the browser URL (e.g. `http://host.docker.internal:3000` in local dev). |
+| `PASSWORD_BREACH_CHECK` | — | `true` | Refuse new passwords (sign-up, change, reset) that appear in a known breach, via HaveIBeenPwned's k-anonymity API (only the first 5 characters of the password's SHA-1 leave the server). If the API can't be reached within 3 s the password is accepted. `false` turns it off. |
 
 Generate secrets:
 
@@ -91,6 +92,7 @@ Most are set by the install command; you rarely set them by hand.
 | `DOCKER_BIN` | `docker` | Path to the Docker CLI. |
 | `POLL_INTERVAL_MS` | `5000` | Job poll interval. |
 | `HEARTBEAT_INTERVAL_MS` | `30000` | Heartbeat interval. |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
 
 The agent container must mount the Docker socket and (for "local" destinations) a persistent
 `/backups` volume — the install command does both.

@@ -39,6 +39,9 @@ export const env = {
     googleClientId: optional("GOOGLE_CLIENT_ID"),
     googleClientSecret: optional("GOOGLE_CLIENT_SECRET"),
   },
+  // Refuse new passwords found in known breaches (HaveIBeenPwned, k-anonymity:
+  // only a 5-char hash prefix leaves the server). Fails open when unreachable.
+  passwordBreachCheck: optional("PASSWORD_BREACH_CHECK", "true") !== "false",
   isProd: process.env.NODE_ENV === "production",
 };
 
