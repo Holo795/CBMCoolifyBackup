@@ -189,6 +189,11 @@ model Destination {
   integrityCheckEnabled Boolean @default(false)
   lastIntegrityAt      DateTime?
   lastIntegrityStatus  String?   // "ok" | an error detail
+  // Mirror: every backup written here is also copied to this destination, for a
+  // second independent copy (redundancy). Null = no mirror.
+  mirrorToId      String?
+  mirrorTo        Destination?  @relation("DestinationMirror", fields: [mirrorToId], references: [id], onDelete: SetNull)
+  mirrorFrom      Destination[] @relation("DestinationMirror")
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   policies        BackupPolicy[]
@@ -249,8 +254,14 @@ model Snapshot {
   finishedAt    DateTime?
   artifacts     Artifact[]
   restoreJobs   RestoreJob[]
+  // A mirror copy points at the source snapshot it was copied from, so retention
+  // can prune both together. Null for an original (non-mirror) snapshot.
+  mirrorOfId    String?
+  mirrorOf      Snapshot?    @relation("SnapshotMirror", fields: [mirrorOfId], references: [id], onDelete: Cascade)
+  mirrors       Snapshot[]   @relation("SnapshotMirror")
 
   @@index([runId])
+  @@index([mirrorOfId])
 }
 
 model Artifact {

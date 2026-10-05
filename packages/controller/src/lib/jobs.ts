@@ -2,6 +2,7 @@ import {
   type BackupJob,
   type RestoreJob,
   type PruneJob,
+  type MirrorJob,
   type ResolvedDestination,
   type EncryptionSpec,
   type SnapshotManifest,
@@ -872,4 +873,53 @@ export async function enqueueVerifyDestination(
   }
   // Snapshots existed but nothing could be queued → no agent able to reach them.
   return queued === 0 ? { queued, reason: "no-agent" } : { queued };
+}
+
+/**
+ * Mirror a freshly-succeeded backup to its destination's configured second
+ * destination (a first-class copy under the target's own crypto). No-op when the
+ * source destination has no mirror, or when the snapshot is itself a mirror.
+ */
+export async function enqueueMirror(sourceSnapshotId: string): Promise<{ queued: boolean; reason?: string }> {
+  const snap = await prisma.snapshot.findUnique({
+    where: { id: sourceSnapshotId },
+    include: { destination: { include: { mirrorTo: true } } },
+  });
+  if (!snap || snap.status !== "succeeded" || snap.mirrorOfId) return { queued: false };
+  if (!snap.manifest) return { queued: false, reason: "no-manifest" };
+  const source = snap.destination;
+  const target = source.mirrorTo;
+  if (!target) return { queued: false };
+  // Don't duplicate if this run was already mirrored (idempotent re-delivery).
+  const existing = await prisma.snapshot.findFirst({ where: { mirrorOfId: snap.id }, select: { id: true } });
+  if (existing) return { queued: false, reason: "already-mirrored" };
+
+  // The copy runs where the source files are reachable: the producing agent for
+  // a "local" source, otherwise any online agent.
+  const agent = source.type === "local" ? await agentById(snap.agentId) : await anyOnlineAgent();
+  if (!agent || agent.status !== "online") return { queued: false, reason: "no-agent" };
+
+  const srcEnc = resolveEncryption(source);
+  const tgtEnc = resolveEncryption(target);
+  const agentJob = await prisma.agentJob.create({
+    data: { agentId: agent.id, type: "mirror", status: "queued", payload: {} },
+  });
+  const job: MirrorJob & { sourceSnapshotId: string; targetDestinationId: string } = {
+    id: agentJob.id,
+    type: "mirror",
+    source: resolveDestination(source),
+    target: resolveDestination(target),
+    sourceStorage: resolveStorage(source),
+    targetStorage: resolveStorage(target),
+    dir: snap.destinationDir,
+    resticSnapshotId: snap.resticSnapshotId ?? undefined,
+    sourceEncryptionKey: srcEnc.enabled ? srcEnc.key : undefined,
+    targetEncryptionKey: tgtEnc.enabled ? tgtEnc.key : undefined,
+    manifest: snap.manifest as unknown as MirrorJob["manifest"],
+    // Extras (ignored by the agent's parse) for the result route.
+    sourceSnapshotId: snap.id,
+    targetDestinationId: target.id,
+  };
+  await prisma.agentJob.update({ where: { id: agentJob.id }, data: { payload: job as unknown as object } });
+  return { queued: true };
 }

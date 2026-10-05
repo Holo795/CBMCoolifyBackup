@@ -6,10 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle, Badge, EmptyState } from "@/c
 import { testDestinationAction, deleteDestination, verifyDestinationNow, checkIntegrityNow } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { IntegrityToggle } from "@/components/integrity-toggle";
+import { MirrorPicker } from "@/components/mirror-picker";
 import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { Gate } from "@/components/role-gate";
 import { formatBytes } from "@/lib/cn";
-import { HardDrive, Lock, PlugZap, ChevronRight, ShieldCheck, AlertTriangle, FileCheck2 } from "lucide-react";
+import { HardDrive, Lock, PlugZap, ChevronRight, ShieldCheck, AlertTriangle, FileCheck2, Copy } from "lucide-react";
 
 type DestinationRow = Prisma.DestinationGetPayload<{
   include: { _count: { select: { snapshots: true; policies: true } } };
@@ -19,6 +20,8 @@ export type DestinationItem = { dest: DestinationRow; bytes: bigint; missing: nu
 
 /** Presentation only: the Destinations list markup. Data is fetched in ./page.tsx. */
 export function DestinationsView({ items, globalBytes }: { items: DestinationItem[]; globalBytes: bigint }) {
+  const allDests = items.map((i) => ({ id: i.dest.id, name: i.dest.name }));
+  const nameById = new Map(allDests.map((d) => [d.id, d.name]));
   return (
     <>
       <PageHeader
@@ -61,6 +64,11 @@ export function DestinationsView({ items, globalBytes }: { items: DestinationIte
                           <AlertTriangle className="h-3 w-3" /> integrity failed
                         </Badge>
                       )}
+                      {d.mirrorToId && nameById.has(d.mirrorToId) && (
+                        <Badge tone="accent">
+                          <Copy className="h-3 w-3" /> mirrors to {nameById.get(d.mirrorToId)}
+                        </Badge>
+                      )}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
                       <span className="font-medium text-foreground">{formatBytes(bytes)}</span> · {d._count.snapshots}{" "}
@@ -91,6 +99,7 @@ export function DestinationsView({ items, globalBytes }: { items: DestinationIte
                       </ActionButton>
                     </Gate>
                     <Gate min="admin">
+                      <MirrorPicker id={d.id} current={d.mirrorToId} candidates={allDests.filter((c) => c.id !== d.id)} />
                       <IntegrityToggle id={d.id} enabled={d.integrityCheckEnabled} />
                       <ActionButton action={testDestinationAction.bind(null, d.id)} variant="outline" size="sm" successMsg="Reachable ✓">
                         <PlugZap className="h-3.5 w-3.5" /> Test

@@ -41,10 +41,17 @@ export async function applyRetention(policyId: string): Promise<{ deleted: numbe
     const toDelete = snaps.filter((s) => !keep.has(s.id));
     if (toDelete.length === 0) continue;
 
+    // Mirror copies of the pruned snapshots: prune their files on the second
+    // destination too (the DB rows cascade-delete, but the stored files won't).
+    const mirrors = await prisma.snapshot.findMany({
+      where: { mirrorOfId: { in: toDelete.map((s) => s.id) } },
+      include: { destination: true },
+    });
+
     // Delete files on the destination via the agent (grouped/routed by the shared
     // rule: per producing agent for "local", per instance for ssh/s3).
     const groups = groupSnapshotsForPrune(
-      toDelete.map((s) => ({
+      [...toDelete, ...mirrors].map((s) => ({
         id: s.id,
         destinationDir: s.destinationDir,
         agentId: s.agentId,

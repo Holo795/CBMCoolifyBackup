@@ -766,6 +766,27 @@ export async function checkIntegrityNow(destinationId: string) {
   }
 }
 
+/** Set (or clear) the second destination this one mirrors every backup to. */
+export async function setDestinationMirror(
+  destinationId: string,
+  mirrorToId: string | null,
+): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    await requireRole("admin");
+    if (mirrorToId === destinationId) return { error: "A destination can't mirror to itself" };
+    if (mirrorToId) {
+      const target = await prisma.destination.findUnique({ where: { id: mirrorToId }, select: { id: true, mirrorToId: true } });
+      if (!target) return { error: "Mirror target not found" };
+      if (target.mirrorToId === destinationId) return { error: "That would create a mirror loop (A → B → A)" };
+    }
+    await prisma.destination.update({ where: { id: destinationId }, data: { mirrorToId } });
+    revalidatePath("/destinations");
+    return { ok: true };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
 /** Toggle the weekly deep integrity check for a destination. */
 export async function setIntegrityCheck(destinationId: string, enabled: boolean): Promise<{ ok?: boolean; error?: string }> {
   try {

@@ -3,6 +3,7 @@ import { JobResult } from "@cbm/shared";
 import { prisma } from "@/lib/prisma";
 import { authenticateAgentFromRequest } from "@/lib/agent-auth";
 import { notifyBackupFailed, notifyMissingBackups, notifyCorruptBackups, notifyIntegrityFailure } from "@/lib/notify";
+import { enqueueMirror } from "@/lib/jobs";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const agent = await authenticateAgentFromRequest(req);
@@ -63,12 +64,57 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           },
         })
         .catch(() => undefined);
+      // If the destination mirrors to a second one, copy this backup there too.
+      await enqueueMirror(job.snapshotId).catch((e) => console.error("[mirror] enqueue failed:", (e as Error).message));
     } else {
       await prisma.snapshot.update({
         where: { id: job.snapshotId },
         data: { status: "failed", finishedAt: new Date(), error: result.error ?? "unknown error" },
       });
       await notifyBackupFailed(job.snapshotId).catch(() => undefined);
+    }
+  }
+
+  if (job.type === "mirror") {
+    const payload = job.payload as { sourceSnapshotId?: string; targetDestinationId?: string } | null;
+    if (succeeded && result.manifest && payload?.sourceSnapshotId && payload.targetDestinationId) {
+      const src = await prisma.snapshot.findUnique({ where: { id: payload.sourceSnapshotId } });
+      // Only create the mirror row if it doesn't exist yet (idempotent re-delivery).
+      const already = src
+        ? await prisma.snapshot.findFirst({ where: { mirrorOfId: src.id }, select: { id: true } })
+        : null;
+      if (src && !already) {
+        const m = result.manifest;
+        const totalSize = m.artifacts.reduce((acc, a) => acc + (a.sizeBytes ?? 0), 0);
+        await prisma.snapshot.create({
+          data: {
+            resourceId: src.resourceId,
+            destinationId: payload.targetDestinationId,
+            agentId: agent.id,
+            mode: src.mode,
+            captureMode: src.captureMode,
+            status: "succeeded",
+            destinationDir: src.destinationDir,
+            manifest: m as unknown as object,
+            sizeBytes: BigInt(totalSize),
+            resticSnapshotId: result.resticSnapshotId ?? undefined,
+            runId: src.runId,
+            mirrorOfId: src.id,
+            finishedAt: new Date(),
+            artifacts: {
+              create: m.artifacts.map((a) => ({
+                kind: a.kind,
+                filename: a.filename,
+                sizeBytes: BigInt(a.sizeBytes ?? 0),
+                sha256: a.sha256,
+                encrypted: a.encrypted,
+              })),
+            },
+          },
+        });
+      }
+    } else if (!succeeded) {
+      console.error(`[mirror] job ${id} failed: ${result.error ?? "unknown error"}`);
     }
   }
 
