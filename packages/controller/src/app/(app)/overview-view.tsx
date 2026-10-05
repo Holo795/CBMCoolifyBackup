@@ -38,7 +38,11 @@ export async function OverviewView({
   const stats = [
     { label: t("overview.instances"), value: counts.instances, href: "/instances" },
     { label: t("overview.resources"), value: counts.resources, href: "/resources" },
-    { label: t("overview.backupEnabled"), value: counts.enabled, href: "/resources" },
+    {
+      label: t(counts.enabled > 1 ? "overview.backupEnabledOther" : "overview.backupEnabledOne"),
+      value: counts.enabled,
+      href: "/resources",
+    },
     { label: t("overview.snapshots"), value: counts.snapshots, href: "/snapshots" },
     { label: t("overview.agentsOnline"), value: counts.agentsOnline, href: "/agents" },
   ];
