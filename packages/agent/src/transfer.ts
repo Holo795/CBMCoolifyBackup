@@ -1,8 +1,11 @@
 import { copyFile, mkdir } from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
 import { dirname, join, posix } from "node:path";
-import { once } from "node:events";
+import { pipeline } from "node:stream/promises";
 import type { ResolvedDestination } from "@cbm/shared";
+
+/** Above this an S3 upload goes multipart (a single PUT is capped at 5 GiB). */
+const MULTIPART_THRESHOLD = 64 * 1024 * 1024;
 
 export interface Transfer {
   /** Upload a local file to the destination under relPath. */
@@ -163,8 +166,15 @@ function s3Transfer(dest: Extract<ResolvedDestination, { type: "s3" }>): Promise
       },
     });
     const key = (rel: string) => (dest.prefix ? `${dest.prefix.replace(/\/$/, "")}/${rel}` : rel);
+    // S3 prefixes are plain string prefixes, not folders: without the trailing
+    // "/", listing or deleting ".../sync" also hit ".../sync-copies/...", and a
+    // folder's "presence" could be satisfied by a sibling's manifest.
+    const folderPrefix = (relDir: string) => {
+      const k = key(relDir).replace(/\/+$/, "");
+      return k ? `${k}/` : "";
+    };
     const list = async (relDir: string): Promise<string[]> => {
-      const prefix = key(relDir);
+      const prefix = folderPrefix(relDir);
       const out: string[] = [];
       let token: string | undefined;
       do {
@@ -188,32 +198,54 @@ function s3Transfer(dest: Extract<ResolvedDestination, { type: "s3" }>): Promise
       async put(localFile, relPath) {
         const { stat } = await import("node:fs/promises");
         const size = (await stat(localFile)).size;
-        await client.send(
-          new PutObjectCommand({
-            Bucket: dest.bucket,
-            Key: key(relPath),
-            Body: createReadStream(localFile),
-            ContentLength: size,
-          }),
-        );
+        if (size <= MULTIPART_THRESHOLD) {
+          await client.send(
+            new PutObjectCommand({
+              Bucket: dest.bucket,
+              Key: key(relPath),
+              Body: createReadStream(localFile),
+              ContentLength: size,
+            }),
+          );
+          return;
+        }
+        // Multipart: a single PUT is capped at 5 GiB. Parts are sized so even a
+        // huge archive stays under S3's 10,000-part limit, with bounded memory
+        // (queueSize x partSize buffered).
+        const { Upload } = await import("@aws-sdk/lib-storage");
+        const partSize = Math.max(16 * 1024 * 1024, Math.ceil(size / 9000));
+        await new Upload({
+          client,
+          params: { Bucket: dest.bucket, Key: key(relPath), Body: createReadStream(localFile) },
+          partSize,
+          queueSize: 2,
+          leavePartsOnError: false,
+        }).done();
       },
       async get(relPath, localFile) {
         await mkdir(dirname(localFile), { recursive: true });
         const res = await client.send(new GetObjectCommand({ Bucket: dest.bucket, Key: key(relPath) }));
-        const ws = createWriteStream(localFile);
-        (res.Body as NodeJS.ReadableStream).pipe(ws);
-        await once(ws, "close");
+        if (!res.Body) throw new Error(`empty S3 object ${relPath}`);
+        // pipeline() propagates a network error mid-download (a bare .pipe()
+        // left the job hanging until the reaper's limit).
+        await pipeline(res.Body as NodeJS.ReadableStream, createWriteStream(localFile));
       },
       list,
       async removeDir(relDir) {
         const files = await list(relDir);
-        if (files.length === 0) return;
-        await client.send(
-          new DeleteObjectsCommand({
-            Bucket: dest.bucket,
-            Delete: { Objects: files.map((f) => ({ Key: key(f) })) },
-          }),
-        );
+        // DeleteObjects takes at most 1000 keys, and reports per-key failures
+        // in the response instead of throwing.
+        for (let i = 0; i < files.length; i += 1000) {
+          const res = await client.send(
+            new DeleteObjectsCommand({
+              Bucket: dest.bucket,
+              Delete: { Objects: files.slice(i, i + 1000).map((f) => ({ Key: key(f) })), Quiet: true },
+            }),
+          );
+          if (res.Errors && res.Errors.length > 0) {
+            throw new Error(`could not delete ${res.Errors.length} object(s), e.g. ${res.Errors[0].Key}: ${res.Errors[0].Message}`);
+          }
+        }
       },
       async close() {
         client.destroy();

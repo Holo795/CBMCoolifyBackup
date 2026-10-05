@@ -41,6 +41,8 @@ docker pull "\$IMAGE"
 
 if docker ps -a --format '{{.Names}}' | grep -qx cbm-agent; then
   echo "==> An agent is already installed on this host - reconfiguring with the new token."
+  # A graceful stop lets it resume any container a running job had paused.
+  docker stop -t 30 cbm-agent >/dev/null 2>&1 || true
   docker rm -f cbm-agent >/dev/null 2>&1 || true
 fi
 
@@ -48,6 +50,7 @@ echo "==> Starting cbm-agent"
 docker run -d --name cbm-agent --restart unless-stopped \\
   -v /var/run/docker.sock:/var/run/docker.sock \\
   -v /backups:/backups \\
+  -v cbm-agent-work:/var/lib/cbm-agent \\
   -e CONTROLLER_URL="\$CONTROLLER_URL" \\
   -e ENROLLMENT_TOKEN="\$TOKEN" \\
   -e AGENT_HOSTNAME="\$(hostname)" \\

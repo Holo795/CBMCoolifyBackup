@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { makeTransfer } from "./transfer.js";
 import { withResticCtx, resticRestoreById } from "./restic.js";
 import { decryptFile } from "./crypto.js";
+import { assertFreeSpace } from "./disk.js";
 
 /** Where a snapshot's artifacts live and how to read them back. */
 export type StageSource = {
@@ -26,6 +27,9 @@ export type StageSource = {
 export async function stagePlaintext(src: StageSource, stage: string): Promise<string> {
   const out = join(stage, "plain");
   await mkdir(out, { recursive: true });
+  // Downloaded + decrypted copies can coexist: room for twice the snapshot.
+  const total = (src.manifest.artifacts ?? []).reduce((n, a) => n + (a.sizeBytes ?? 0), 0);
+  await assertFreeSpace(stage, total * 2);
 
   if (src.storage.engine === "restic") {
     if (!src.resticSnapshotId) throw new Error("restic source needs the snapshot id");

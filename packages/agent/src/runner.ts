@@ -7,6 +7,7 @@ import { runVerifyDestination } from "./verify.js";
 import { runMirror } from "./mirror.js";
 import { runRestoreDrill } from "./drill.js";
 import { logger } from "./logger.js";
+import { isDiskFull } from "./disk.js";
 import { sendEvent } from "./client.js";
 
 /**
@@ -51,7 +52,8 @@ export async function executeJob(
       return { jobId: job.id, status: "succeeded" };
     }
   } catch (err) {
-    const message = redactSecrets(err instanceof Error ? err.message : String(err));
+    const raw = err instanceof Error ? err.message : String(err);
+    const message = redactSecrets(isDiskFull(err) ? `Disk full on the agent host (${workDir}): ${raw}` : raw);
     emit("error", `Job failed: ${message}`);
     return { jobId: job.id, status: "failed", error: message };
   }

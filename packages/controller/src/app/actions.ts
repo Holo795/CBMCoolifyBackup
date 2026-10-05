@@ -310,10 +310,13 @@ export async function revealInstallCommand(
   const image = `${env.agentImage}:${env.agentImageTag}`;
   const oneLiner = `curl -fsSL ${base}/install.sh | CBM_TOKEN=${token} sh`;
   const raw = [
-    "docker rm -f cbm-agent 2>/dev/null",
+    "docker stop -t 30 cbm-agent 2>/dev/null; docker rm -f cbm-agent 2>/dev/null",
     "docker run -d --name cbm-agent --restart unless-stopped \\",
     "  -v /var/run/docker.sock:/var/run/docker.sock \\",
     "  -v /backups:/backups \\",
+    // Work dir on a named volume: staging stays off the container layer, and the
+    // pending results / paused-container state survive a reinstall.
+    "  -v cbm-agent-work:/var/lib/cbm-agent \\",
     `  -e CONTROLLER_URL=${base} \\`,
     `  -e ENROLLMENT_TOKEN=${token} \\`,
     '  -e AGENT_HOSTNAME="$(hostname)" \\',

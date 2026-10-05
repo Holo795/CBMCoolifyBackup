@@ -86,6 +86,9 @@ This starts the `cbm-agent` container with:
 
 - the Docker socket mounted (`/var/run/docker.sock`) — required to dump/freeze/inspect,
 - a persistent `/backups` volume (used by "local" destinations),
+- a `cbm-agent-work` volume for its work dir (`/var/lib/cbm-agent`): staging stays off the
+  container's own layer, and its pending results and its record of the containers it paused
+  survive a reinstall (the next agent resumes anything an interrupted job left paused or stopped),
 - the enrollment token, which it exchanges for a bearer token on first start.
 
 The agent is installed **directly** (not through the Coolify API) because Coolify's deploy

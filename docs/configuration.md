@@ -87,6 +87,7 @@ Most are set by the install command; you rarely set them by hand.
 | `AGENT_SERVER_UUID` | — | Pin this agent to a Coolify server (disables auto-detection). Usually left unset. |
 | `AGENT_CONCURRENCY` | `2` | How many jobs the agent runs at once. |
 | `AGENT_WORK_DIR` | `/var/lib/cbm-agent` | Local staging directory for artifacts before upload. |
+| `AGENT_MIN_FREE_MB` | `1024` | Free space kept on the work dir's disk: a backup checks it before freezing anything, and a restore/mirror/drill needs twice the snapshot size on top. |
 | `DOCKER_BIN` | `docker` | Path to the Docker CLI. |
 | `POLL_INTERVAL_MS` | `5000` | Job poll interval. |
 | `HEARTBEAT_INTERVAL_MS` | `30000` | Heartbeat interval. |

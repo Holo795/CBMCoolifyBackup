@@ -32,6 +32,7 @@ import { encryptFile, sha256File } from "./crypto.js";
 import { makeTransfer } from "./transfer.js";
 import { resticEnsureRepo, resticBackupDir, withResticCtx } from "./restic.js";
 import { resolveResource, findDbContainers, readDbCredentials, resourceContainers } from "./resolve.js";
+import { assertFreeSpace } from "./disk.js";
 
 export type Emit = (level: "debug" | "info" | "warn" | "error", message: string, progress?: number) => void;
 
@@ -49,6 +50,7 @@ export type BackupSkipped = { skipped: true; reason: string };
 export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Promise<SnapshotManifest | BackupSkipped> {
   const stage = join(workDir, job.id);
   await mkdir(stage, { recursive: true });
+  await assertFreeSpace(stage);
 
   // Always resolve concrete docker facts from the UUID: it fills in what the
   // controller didn't cache (notably bind mounts, which aren't cached) and keeps
@@ -113,6 +115,8 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
     let i = 0;
     for (const t of targets) {
       i++;
+      // Before freezing anything: never pause an app only to fail on a full disk.
+      await assertFreeSpace(stage);
       const owners = liveBackup ? [] : await t.freezeContainers();
       const paused: string[] = [];
       try {
@@ -387,6 +391,9 @@ async function finalizeArtifact(
     await encryptFile(path, finalPath, job.encryption.key);
     encrypted = true;
     emit("debug", `Encrypted ${baseName} -> ${filename}`);
+    // Only the encrypted copy is uploaded: free the plaintext now instead of
+    // holding both until the end (it doubled the space a backup needed).
+    await rm(path, { force: true });
   }
 
   const size = (await stat(finalPath)).size;
