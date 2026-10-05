@@ -57,6 +57,7 @@ export async function POST(req: NextRequest) {
           : "The self-backup destination was unreachable - restored the dump embedded in the recovery file.",
     });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    console.error("[recovery/import] failed:", (e as Error).message);
+    return NextResponse.json({ error: "Recovery import failed - check the controller logs." }, { status: 500 });
   }
 }

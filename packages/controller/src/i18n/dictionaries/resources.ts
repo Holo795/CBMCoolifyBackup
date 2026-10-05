@@ -62,6 +62,23 @@ export const en = {
   deleteSnapshotBodyPost: " (deleted by the agent).",
   agentUnavailableDetailPre: "This resource is unavailable: no agent is installed on",
   agentUnavailableDetailPost: ".",
+  // Coolify resource states (free-form "state[:health]" — unknown tokens pass through).
+  statuses: {
+    running: "running",
+    exited: "exited",
+    restarting: "restarting",
+    starting: "starting",
+    stopped: "stopped",
+    paused: "paused",
+    degraded: "degraded",
+    unhealthy: "unhealthy",
+    healthy: "healthy",
+    deleted: "deleted",
+    unknown: "unknown",
+    created: "created",
+    removing: "removing",
+    dead: "dead",
+  },
 };
 
 export const fr: typeof en = {
@@ -127,4 +144,20 @@ export const fr: typeof en = {
   deleteSnapshotBodyPost: " (supprimés par l'agent).",
   agentUnavailableDetailPre: "Cette ressource est indisponible : aucun agent n'est installé sur",
   agentUnavailableDetailPost: ".",
+  statuses: {
+    running: "en cours",
+    exited: "arrêté",
+    restarting: "redémarrage",
+    starting: "démarrage",
+    stopped: "stoppé",
+    paused: "en pause",
+    degraded: "dégradé",
+    unhealthy: "défaillant",
+    healthy: "sain",
+    deleted: "supprimé",
+    unknown: "inconnu",
+    created: "créé",
+    removing: "suppression",
+    dead: "mort",
+  },
 };

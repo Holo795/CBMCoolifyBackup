@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    console.error("[recovery/export] failed:", (e as Error).message);
+    return NextResponse.json({ error: "Recovery file export failed - check the controller logs." }, { status: 500 });
   }
 }

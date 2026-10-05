@@ -74,7 +74,7 @@ export async function OverviewView({ counts, recent }: { counts: OverviewCounts;
                         {s.mode} · {s.captureMode}
                       </td>
                       <td className="px-4 py-2.5">
-                        <Badge tone={statusTone(s.status)}>{s.status}</Badge>
+                        <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>
                       </td>
                       <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{formatBytes(s.sizeBytes)}</td>
                       <td className="px-4 py-2.5 text-muted-foreground">{timeAgo(s.startedAt)}</td>
@@ -89,7 +89,7 @@ export async function OverviewView({ counts, recent }: { counts: OverviewCounts;
                   <div key={s.id} className="flex flex-col gap-1.5 p-4">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-medium">{s.resource.name}</span>
-                      <Badge tone={statusTone(s.status)}>{s.status}</Badge>
+                      <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span>{s.mode} · {s.captureMode}</span>

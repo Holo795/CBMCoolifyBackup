@@ -6,6 +6,7 @@ import { ActionButton } from "@/components/action-button";
 import { ResourceToggles } from "@/components/resource-toggles";
 import { Gate } from "@/components/role-gate";
 import { getT } from "@/lib/i18n";
+import { resourceStatusLabel } from "@/lib/status";
 import { Boxes, Play, Unplug, Pin } from "lucide-react";
 
 type ResourceRow = Prisma.ResourceGetPayload<{ include: { instance: true } }>;
@@ -81,7 +82,7 @@ export async function ResourcesView({
                               <span className="font-medium">{r.name}</span>
                               <Badge>{r.type}</Badge>
                               <span className="text-xs text-muted-foreground">{r.projectName || "-"}</span>
-                              <Badge tone={statusTone(r.status)}>{r.status}</Badge>
+                              <Badge tone={statusTone(r.status)}>{resourceStatusLabel(t, r.status)}</Badge>
                             </div>
                             <div className="absolute inset-0 flex items-center justify-center px-4">
                               <span className="flex items-center gap-1.5 text-sm font-medium text-[var(--color-warning)]">
@@ -111,7 +112,7 @@ export async function ResourcesView({
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground">{r.projectName || "-"}</td>
                       <td className="px-4 py-2.5">
-                        <Badge tone={statusTone(r.status)}>{r.status}</Badge>
+                        <Badge tone={statusTone(r.status)}>{resourceStatusLabel(t, r.status)}</Badge>
                       </td>
                       <td className="px-4 py-2.5">
                         <Gate min="operator">
@@ -163,7 +164,7 @@ export async function ResourcesView({
                     </div>
                     <div className="flex flex-wrap items-center gap-2 text-xs">
                       <Badge>{r.type}</Badge>
-                      <Badge tone={statusTone(r.status)}>{r.status}</Badge>
+                      <Badge tone={statusTone(r.status)}>{resourceStatusLabel(t, r.status)}</Badge>
                       <span className="text-muted-foreground">{r.projectName || "-"}</span>
                     </div>
                     <Gate min="operator">
