@@ -284,7 +284,34 @@ export const VerifyDestinationJob = z.object({
 });
 export type VerifyDestinationJob = z.infer<typeof VerifyDestinationJob>;
 
-export const Job = z.discriminatedUnion("type", [BackupJob, RestoreJob, PruneJob, VerifyDestinationJob]);
+/**
+ * Copy one snapshot from a source destination to a mirror destination, for a
+ * second independent copy (redundancy). tar copies the snapshot directory
+ * file-for-file; restic `copy`s the snapshot into the mirror repository. The new
+ * restic snapshot id in the target is returned in JobResult.resticSnapshotId.
+ */
+export const MirrorJob = z.object({
+  id: z.string(),
+  type: z.literal("mirror"),
+  source: ResolvedDestination,
+  target: ResolvedDestination,
+  sourceStorage: StorageSpec.default({ engine: "tar" }),
+  targetStorage: StorageSpec.default({ engine: "tar" }),
+  /** tar: the snapshot directory (same path is reused on the target). */
+  dir: z.string().optional(),
+  /** restic: the source snapshot id to copy into the target repository. */
+  resticSnapshotId: z.string().optional(),
+  /** Base64 AES key of the SOURCE (tar) to stage artifacts back to plaintext. */
+  sourceEncryptionKey: z.string().optional(),
+  /** Base64 AES key of the TARGET (tar) to re-encrypt the copy, so the mirror is
+   * a first-class snapshot under the target's own crypto. */
+  targetEncryptionKey: z.string().optional(),
+  /** The source snapshot's manifest; the agent rebuilds it for the target copy. */
+  manifest: SnapshotManifest,
+});
+export type MirrorJob = z.infer<typeof MirrorJob>;
+
+export const Job = z.discriminatedUnion("type", [BackupJob, RestoreJob, PruneJob, VerifyDestinationJob, MirrorJob]);
 export type Job = z.infer<typeof Job>;
 
 /* ------------------------------------------------------------------ *

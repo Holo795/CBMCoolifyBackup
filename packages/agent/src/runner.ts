@@ -4,6 +4,7 @@ import { runBackup, type Emit } from "./backup.js";
 import { runRestore } from "./restore.js";
 import { runPrune } from "./prune.js";
 import { runVerifyDestination } from "./verify.js";
+import { runMirror } from "./mirror.js";
 import { logger } from "./logger.js";
 import { sendEvent } from "./client.js";
 
@@ -32,6 +33,9 @@ export async function executeJob(
     } else if (job.type === "verify-destination") {
       const verify = await runVerifyDestination(job, emit);
       return { jobId: job.id, status: "succeeded", verify };
+    } else if (job.type === "mirror") {
+      const { resticSnapshotId, manifest } = await runMirror(job, workDir, emit);
+      return { jobId: job.id, status: "succeeded", resticSnapshotId, manifest };
     } else {
       await runPrune(job, emit);
       return { jobId: job.id, status: "succeeded" };
