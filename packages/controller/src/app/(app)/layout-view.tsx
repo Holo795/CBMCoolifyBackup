@@ -1,6 +1,7 @@
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
 import { CommandPalette } from "@/components/command-palette";
+import { ActivityBar } from "@/components/activity-bar";
 import { RoleProvider } from "@/components/role-gate";
 
 /** Presentation only: the authenticated app shell. Data is fetched in ./layout.tsx. */
@@ -23,6 +24,7 @@ export function AppLayoutView({
             <RoleProvider role={role}>{children}</RoleProvider>
           </div>
         </main>
+        <ActivityBar />
       </div>
       <CommandPalette role={role} />
     </div>

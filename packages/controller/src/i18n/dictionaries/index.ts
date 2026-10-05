@@ -15,6 +15,7 @@ import * as settings from "./settings";
 import * as profile from "./profile";
 import * as schedule from "./schedule";
 import * as components from "./components";
+import * as activity from "./activity";
 
 export const dictionaries = {
   en: {
@@ -32,6 +33,7 @@ export const dictionaries = {
     profile: profile.en,
     schedule: schedule.en,
     components: components.en,
+    activity: activity.en,
   },
   fr: {
     common: common.fr,
@@ -48,6 +50,7 @@ export const dictionaries = {
     profile: profile.fr,
     schedule: schedule.fr,
     components: components.fr,
+    activity: activity.fr,
   },
 };
 

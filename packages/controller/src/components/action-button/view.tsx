@@ -24,12 +24,17 @@ export function ActionButtonView({
   children: ReactNode;
 }) {
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="relative inline-flex items-center">
       <Button type="button" variant={variant} size={size} title={title} disabled={pending || disabled} onClick={onClick}>
         {pending ? "…" : children}
       </Button>
+      {/* Floats out of flow so the result never shifts the surrounding layout. */}
       {msg && (
-        <span className={`text-xs ${msg.ok ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>
+        <span
+          className={`pointer-events-none absolute left-1/2 top-full z-10 mt-1 -translate-x-1/2 whitespace-nowrap rounded-md border bg-card px-2 py-0.5 text-xs shadow-sm ${
+            msg.ok ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"
+          }`}
+        >
           {msg.text}
         </span>
       )}
