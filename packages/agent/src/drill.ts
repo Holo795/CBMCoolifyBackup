@@ -171,11 +171,12 @@ async function waitReady(sb: Sandbox, timeoutMs = 240_000): Promise<void> {
 async function countRestored(sb: Sandbox): Promise<number> {
   let r: RunResult;
   if (sb.engine === "postgresql") {
+    // Summed over every database: a dump carries all of the server's databases.
+    const q = "select count(*) from information_schema.tables where table_schema not in ('pg_catalog','information_schema') and table_type='BASE TABLE'";
     r = await sandboxExec(
       sb,
-      PG_SHELL(
-        "select count(*) from information_schema.tables where table_schema not in ('pg_catalog','information_schema') and table_type='BASE TABLE'",
-      ),
+      `PGPASSWORD="$CBM_SB_PW" psql -U cbm -d drill -AtXc "select datname from pg_database where not datistemplate and datallowconn" | ` +
+        `while IFS= read -r d; do PGPASSWORD="$CBM_SB_PW" psql -U cbm -d "$d" -AtXc "${q}"; done | awk '{s+=$1} END {print s+0}'`,
     );
   } else if (sb.engine === "mongodb") {
     r = await sandboxExec(

@@ -1,6 +1,8 @@
-import { open, stat } from "node:fs/promises";
+import { appendFile, open, rm, stat } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
 import type { ResourceType, DbCredentials } from "@cbm/shared";
-import { dockerToFile, dockerFromFile, type SecretEnv } from "./docker.js";
+import { docker, dockerToFile, dockerFromFile, type SecretEnv } from "./docker.js";
 
 /*
  * Secrets travel in the docker client's ENVIRONMENT (`-e NAME` without a value),
@@ -15,12 +17,23 @@ function secret(name: string, value: string | undefined): { args: string[]; env:
   return value ? { args: ["-e", name], env: { [name]: value } } : { args: [], env: {} };
 }
 
-// MySQL/MariaDB: prefer the given client tool, fall back to the classic one.
-// $1 = tool, $2 = user, $3 = database ("" = all).
+/*
+ * Every database of the server is dumped, not just the one Coolify created: a
+ * second database added later (a common setup) used to be silently left out.
+ * System schemas (users, grants) are not: restoring them would replace the
+ * target's own root credentials.
+ */
+
+// MySQL/MariaDB: every user database, in one consistent transaction. Prefer the
+// given tools, fall back to the classic ones. $1 = dump tool, $2 = client, $3 = user.
 const MYSQL_DUMP_SCRIPT =
-  't="$1"; u="$2"; d="$3"; ' +
-  'if [ -n "$d" ]; then set -- --databases "$d"; else set -- --all-databases; fi; ' +
-  'if command -v "$t" >/dev/null 2>&1; then exec "$t" -u"$u" "$@"; else exec mysqldump -u"$u" "$@"; fi';
+  't="$1"; c="$2"; u="$3"; ' +
+  'command -v "$t" >/dev/null 2>&1 || t=mysqldump; command -v "$c" >/dev/null 2>&1 || c=mysql; ' +
+  'dbs=$("$c" -u"$u" -N -B -e "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ' +
+  "('mysql','information_schema','performance_schema','sys') ORDER BY schema_name\") || exit 1; " +
+  'if [ -z "$dbs" ]; then echo "-- no user databases"; exit 0; fi; ' +
+  "IFS='\n'; set -f; " +
+  'exec "$t" -u"$u" --single-transaction --routines --events --triggers --databases $dbs';
 // $1 = client, $2 = user.
 const MYSQL_LOAD_SCRIPT =
   'c="$1"; u="$2"; if command -v "$c" >/dev/null 2>&1; then exec "$c" -u"$u"; else exec mysql -u"$u"; fi';
@@ -46,28 +59,25 @@ export async function dumpDatabase(
 
   switch (type) {
     case "postgresql": {
-      // No shell: user/database are plain argv entries.
-      const s = secret("PGPASSWORD", password);
-      const args = ["exec", ...s.args, container, "pg_dump", "-U", user || "postgres", "--clean", "--if-exists", "--no-owner"];
-      if (database) args.push("-d", database);
-      await dockerToFile(args, outFile, s.env);
+      await dumpPostgres(container, user || "postgres", password, database, outFile);
       return;
     }
     case "mysql":
     case "mariadb": {
       const s = secret("MYSQL_PWD", password);
-      const tool = type === "mariadb" ? "mariadb-dump" : "mysqldump";
+      const [tool, client] = type === "mariadb" ? ["mariadb-dump", "mariadb"] : ["mysqldump", "mysql"];
       await dockerToFile(
-        ["exec", ...s.args, container, "sh", "-c", MYSQL_DUMP_SCRIPT, "sh", tool, user || "root", database],
+        ["exec", ...s.args, container, "sh", "-c", MYSQL_DUMP_SCRIPT, "sh", tool, client, user || "root"],
         outFile,
         s.env,
       );
       return;
     }
     case "mongodb": {
+      // No --db: every database (mongodump always leaves out "local").
       const s = secret("CBM_DB_PASSWORD", user ? password : "");
       await dockerToFile(
-        ["exec", ...s.args, container, "sh", "-c", MONGO_SCRIPT, "sh", "mongodump", user, database, "--archive"],
+        ["exec", ...s.args, container, "sh", "-c", MONGO_SCRIPT, "sh", "mongodump", user, "", "--archive"],
         outFile,
         s.env,
       );
@@ -75,6 +85,67 @@ export async function dumpDatabase(
     }
     default:
       throw new Error(`No logical dump supported for type ${type}`);
+  }
+}
+
+const sqlLiteral = (v: string) => `'${v.replace(/'/g, "''")}'`;
+const psqlIdent = (v: string) => `"${v.replace(/"/g, '""')}"`;
+
+/**
+ * Header that makes psql create (if missing) and switch to one more database,
+ * the way pg_dumpall chains databases in one script.
+ */
+export function pgDatabaseHeader(name: string): string {
+  return (
+    `\n-- CBM: database ${psqlIdent(name)}\n` +
+    `SELECT 'CREATE DATABASE ' || quote_ident(${sqlLiteral(name)}) ` +
+    `WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = ${sqlLiteral(name)})\\gexec\n` +
+    `\\connect ${psqlIdent(name)}\n`
+  );
+}
+
+/**
+ * PostgreSQL: the configured database first, exactly as before (a restore loads
+ * it into the target's configured database), then every other database, each
+ * behind a header that creates and connects to it.
+ */
+async function dumpPostgres(container: string, user: string, password: string, database: string, outFile: string): Promise<void> {
+  const s = secret("PGPASSWORD", password);
+  const primary = database || user; // psql/pg_dump's own default
+  const pgDump = (db: string) => ["exec", ...s.args, container, "pg_dump", "-U", user, "--clean", "--if-exists", "--no-owner", "-d", db];
+
+  await dockerToFile(pgDump(primary), outFile, s.env);
+
+  const list = await docker(
+    [
+      "exec",
+      ...s.args,
+      container,
+      "psql",
+      "-U",
+      user,
+      "-d",
+      primary,
+      "-AtXc",
+      "SELECT datname FROM pg_database WHERE NOT datistemplate AND datallowconn ORDER BY datname",
+    ],
+    s.env,
+  );
+  if (list.code !== 0) throw new Error(`could not list the databases: ${list.stderr.trim().slice(0, 300)}`);
+  const others = list.stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((d) => d && d !== primary);
+
+  for (const db of others) {
+    const part = `${outFile}.db`;
+    try {
+      await dockerToFile(pgDump(db), part, s.env);
+      await appendFile(outFile, pgDatabaseHeader(db));
+      await pipeline(createReadStream(part), createWriteStream(outFile, { flags: "a" }));
+    } finally {
+      await rm(part, { force: true });
+    }
   }
 }
 
@@ -146,9 +217,26 @@ export async function restoreDatabase(
     }
     case "mongodb": {
       const s = secret("CBM_DB_PASSWORD", user ? password : "");
-      // No --db: the archive carries its databases; --drop replaces them.
+      // No --db: the archive carries its databases; --drop replaces them. Never
+      // admin/config: their users would replace the target's own credentials.
       await dockerFromFile(
-        ["exec", "-i", ...s.args, container, "sh", "-c", MONGO_SCRIPT, "sh", "mongorestore", user, "", "--archive", "--drop"],
+        [
+          "exec",
+          "-i",
+          ...s.args,
+          container,
+          "sh",
+          "-c",
+          MONGO_SCRIPT,
+          "sh",
+          "mongorestore",
+          user,
+          "",
+          "--archive",
+          "--drop",
+          "--nsExclude=admin.*",
+          "--nsExclude=config.*",
+        ],
         inFile,
         s.env,
       );

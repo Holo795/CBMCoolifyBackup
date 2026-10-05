@@ -31,6 +31,9 @@ type Engine = {
   seed: string;
   check: string;
   expect: RegExp;
+  /** A second database the dump must carry too (not just the configured one). */
+  seedExtra: string;
+  checkExtra: string;
 };
 
 const ENGINES: Engine[] = [
@@ -43,6 +46,8 @@ const ENGINES: Engine[] = [
     seed: `psql -U app -d shop -c "create table t (v text); insert into t values ('it''s ok')"`,
     check: 'psql -U app -d shop -tAc "select v from t"',
     expect: /it's ok/,
+    seedExtra: `psql -U app -d shop -c 'create database "extra db"' && psql -U app -d "extra db" -c "create table e (v text); insert into e values ('extra-ok')"`,
+    checkExtra: `psql -U app -d "extra db" -tAc "select v from e"`,
   },
   {
     type: "mysql",
@@ -53,6 +58,8 @@ const ENGINES: Engine[] = [
     seed: `MYSQL_PWD="$PW" mysql -uroot shop -e "create table t (v text); insert into t values ('it''s ok')"`,
     check: 'MYSQL_PWD="$PW" mysql -uroot -N shop -e "select v from t"',
     expect: /it's ok/,
+    seedExtra: `MYSQL_PWD="$PW" mysql -uroot -e "create database extra; create table extra.e (v text); insert into extra.e values ('extra-ok')"`,
+    checkExtra: 'MYSQL_PWD="$PW" mysql -uroot -N -e "select v from extra.e"',
   },
   {
     type: "mariadb",
@@ -63,6 +70,8 @@ const ENGINES: Engine[] = [
     seed: `MYSQL_PWD="$PW" mariadb -uroot shop -e "create table t (v text); insert into t values ('it''s ok')"`,
     check: 'MYSQL_PWD="$PW" mariadb -uroot -N shop -e "select v from t"',
     expect: /it's ok/,
+    seedExtra: `MYSQL_PWD="$PW" mariadb -uroot -e "create database extra; create table extra.e (v text); insert into extra.e values ('extra-ok')"`,
+    checkExtra: 'MYSQL_PWD="$PW" mariadb -uroot -N -e "select v from extra.e"',
   },
   {
     type: "mongodb",
@@ -73,6 +82,8 @@ const ENGINES: Engine[] = [
     seed: `mongosh --quiet -u root -p "$PW" --authenticationDatabase admin shop --eval 'db.t.insertOne({v:"it\\u0027s ok"})'`,
     check: `mongosh --quiet -u root -p "$PW" --authenticationDatabase admin shop --eval 'print(db.t.findOne().v)'`,
     expect: /it's ok/,
+    seedExtra: `mongosh --quiet -u root -p "$PW" --authenticationDatabase admin extra --eval 'db.e.insertOne({v:"extra-ok"})'`,
+    checkExtra: `mongosh --quiet -u root -p "$PW" --authenticationDatabase admin extra --eval 'print(db.e.findOne().v)'`,
   },
 ];
 
@@ -99,6 +110,8 @@ for (const e of ENGINES) {
       await start(e, src);
       const seeded = await sh(src, e.seed, e.creds.password);
       assert.equal(seeded.code, 0, seeded.stderr);
+      const extra = await sh(src, e.seedExtra, e.creds.password);
+      assert.equal(extra.code, 0, extra.stderr);
       const file = join(dir, "dump");
       await dumpDatabase(e.type, src, e.creds, file);
 
@@ -107,6 +120,9 @@ for (const e of ENGINES) {
       const got = await sh(dst, e.check, e.creds.password);
       assert.equal(got.code, 0, got.stderr);
       assert.match(got.stdout, e.expect);
+      const gotExtra = await sh(dst, e.checkExtra, e.creds.password);
+      assert.equal(gotExtra.code, 0, gotExtra.stderr);
+      assert.match(gotExtra.stdout, /extra-ok/);
     } finally {
       await docker(["rm", "-f", "-v", src, dst]);
       await rm(dir, { recursive: true, force: true });
