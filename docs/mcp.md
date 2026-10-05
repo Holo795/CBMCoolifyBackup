@@ -128,3 +128,7 @@ live resource or move the disaster-recovery seed.
   trigger backups.
 - The MCP server never sees your Coolify API token, destination credentials or
   encryption keys — those never leave the controller.
+- `/api/v1` is rate-limited per client IP (240 requests/minute; `429` with
+  `Retry-After` beyond that) and every filter is validated — an unknown
+  `status`/`type` or an out-of-range `limit` is rejected with a `400`. The
+  sign-in, sign-up and password-reset endpoints have their own stricter limits.

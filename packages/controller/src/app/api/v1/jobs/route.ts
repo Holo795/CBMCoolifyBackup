@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireApi } from "@/lib/api-auth";
 import { serializeJob } from "@/lib/api-serialize";
+import { parseQuery, jobsQuery } from "@/lib/api-validate";
 
 export const dynamic = "force-dynamic";
 
@@ -14,10 +15,10 @@ export async function GET(req: Request) {
   const auth = await requireApi(req);
   if (!auth.ok) return auth.response;
 
-  const url = new URL(req.url);
-  const type = url.searchParams.get("type") ?? undefined;
-  const status = url.searchParams.get("status") ?? undefined;
-  const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 25, 1), 100);
+  const q = parseQuery(jobsQuery, req);
+  if (!q.ok) return q.response;
+  const { type, status } = q.data;
+  const limit = q.data.limit ?? 25;
 
   const jobs = await prisma.agentJob.findMany({
     where: { ...(type ? { type } : {}), ...(status ? { status } : {}) },

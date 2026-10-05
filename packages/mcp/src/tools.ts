@@ -2,6 +2,12 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { CbmClient, CbmError } from "./client.js";
 
+// Mirror the controller's /api/v1 validation so agents pick valid values up
+// front instead of getting a 400 back.
+const SNAPSHOT_STATUS = z.enum(["queued", "pending", "running", "succeeded", "failed", "missing", "corrupt", "skipped", "cancelled"]);
+const JOB_TYPE = z.enum(["backup", "restore", "prune", "mirror", "verify-destination"]);
+const JOB_STATUS = z.enum(["queued", "running", "succeeded", "failed", "skipped", "cancelled"]);
+
 /** Pretty-print a successful result as a text block. */
 function ok(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -69,7 +75,7 @@ export function registerTools(server: McpServer, client: CbmClient): void {
       description: "List snapshots newest-first, optionally filtered by resource or status.",
       inputSchema: {
         resourceId: z.string().optional().describe("Only snapshots of this resource"),
-        status: z.string().optional().describe("running | succeeded | failed | missing | corrupt | skipped"),
+        status: SNAPSHOT_STATUS.optional().describe("Only snapshots in this state"),
         limit: z.number().int().min(1).max(200).optional().describe("Max rows (default 50)"),
       },
     },
@@ -108,8 +114,8 @@ export function registerTools(server: McpServer, client: CbmClient): void {
       title: "List jobs",
       description: "Recent agent jobs (backup | restore | prune | mirror | verify-destination) with progress.",
       inputSchema: {
-        type: z.string().optional().describe("backup | restore | prune | mirror | verify-destination"),
-        status: z.string().optional().describe("queued | running | succeeded | failed | skipped"),
+        type: JOB_TYPE.optional().describe("Only jobs of this type"),
+        status: JOB_STATUS.optional().describe("Only jobs in this state"),
         limit: z.number().int().min(1).max(100).optional().describe("Max rows (default 25)"),
       },
     },

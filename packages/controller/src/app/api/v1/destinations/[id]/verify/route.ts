@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireApi } from "@/lib/api-auth";
 import { enqueueVerifyDestination } from "@/lib/jobs";
+import { parseQuery, verifyQuery } from "@/lib/api-validate";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const dest = await prisma.destination.findUnique({ where: { id }, select: { id: true } });
   if (!dest) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const deep = new URL(req.url).searchParams.get("deep") === "true";
+  const q = parseQuery(verifyQuery, req);
+  if (!q.ok) return q.response;
+  const deep = q.data.deep === "true";
   try {
     const res = await enqueueVerifyDestination(id, { deep });
     if (res.queued === 0) return NextResponse.json({ queued: 0, reason: res.reason ?? "empty" }, { status: 409 });

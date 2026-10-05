@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireApi } from "@/lib/api-auth";
 import { serializeSnapshot } from "@/lib/api-serialize";
+import { parseQuery, snapshotsQuery } from "@/lib/api-validate";
 
 export const dynamic = "force-dynamic";
 
@@ -34,10 +35,10 @@ export async function GET(req: Request) {
   const auth = await requireApi(req);
   if (!auth.ok) return auth.response;
 
-  const url = new URL(req.url);
-  const resourceId = url.searchParams.get("resourceId") ?? undefined;
-  const status = url.searchParams.get("status") ?? undefined;
-  const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 50, 1), 200);
+  const q = parseQuery(snapshotsQuery, req);
+  if (!q.ok) return q.response;
+  const { resourceId, status } = q.data;
+  const limit = q.data.limit ?? 50;
 
   const rows = await prisma.snapshot.findMany({
     where: { ...(resourceId ? { resourceId } : {}), ...(status ? { status } : {}) },

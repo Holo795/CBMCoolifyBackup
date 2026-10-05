@@ -30,6 +30,19 @@ export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: "postgresql" }),
   secret: env.authSecret,
   baseURL: env.authUrl,
+  // Throttle the credential endpoints against brute force. better-auth only
+  // enables its limiter in production by default, and its default budget is
+  // generous, so: always on, with strict per-IP rules on the sensitive paths
+  // (normal session traffic keeps the default budget).
+  rateLimit: {
+    enabled: true,
+    customRules: {
+      "/sign-in/email": { window: 60, max: 10 },
+      "/sign-up/email": { window: 60, max: 5 },
+      "/request-password-reset": { window: 300, max: 5 },
+      "/reset-password": { window: 300, max: 10 },
+    },
+  },
   emailAndPassword: {
     enabled: true,
     // Soft verification: we never hard-block sign-in (see emailVerification).

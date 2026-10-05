@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireApi } from "@/lib/api-auth";
 import { serializeResource } from "@/lib/api-serialize";
+import { parseQuery, resourcesQuery } from "@/lib/api-validate";
 
 export const dynamic = "force-dynamic";
 
@@ -13,10 +14,10 @@ export async function GET(req: Request) {
   const auth = await requireApi(req);
   if (!auth.ok) return auth.response;
 
-  const url = new URL(req.url);
-  const instanceId = url.searchParams.get("instanceId") ?? undefined;
-  const be = url.searchParams.get("backupEnabled");
-  const backupEnabled = be === "true" ? true : be === "false" ? false : undefined;
+  const q = parseQuery(resourcesQuery, req);
+  if (!q.ok) return q.response;
+  const { instanceId } = q.data;
+  const backupEnabled = q.data.backupEnabled === undefined ? undefined : q.data.backupEnabled === "true";
 
   const rows = await prisma.resource.findMany({
     where: { ...(instanceId ? { instanceId } : {}), ...(backupEnabled === undefined ? {} : { backupEnabled }) },
