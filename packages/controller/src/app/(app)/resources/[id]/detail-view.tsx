@@ -11,7 +11,7 @@ import { ConfirmDeleteButton } from "@/components/confirm-delete";
 import { RestoreActions } from "@/components/restore-actions";
 import { Gate } from "@/components/role-gate";
 import { getT } from "@/lib/i18n";
-import { effectivePolicy, describeCron, cronToFrequency } from "@/lib/schedule";
+import { effectivePolicy, describeCron, cronToFrequency, modeLabel, captureLabel } from "@/lib/schedule";
 import { formatBytes, timeAgo } from "@/lib/cn";
 import { Play, ArrowLeft, Unplug } from "lucide-react";
 import { type DESTINATION_SECRETS, type INSTANCE_SECRETS, type PublicDestination } from "@/lib/public-fields";
@@ -45,6 +45,15 @@ export async function ResourceDetailView({
   isAdmin: boolean;
 }) {
   const t = await getT();
+  // Where the inherited schedule comes from (most specific wins, see effectivePolicy).
+  const inheritedFrom =
+    eff.source === "server"
+      ? t("resources.scheduleFromServer", { name: resource.serverName ?? resource.serverUuid ?? "" })
+      : eff.source === "instance"
+        ? t("resources.scheduleFromInstance", { name: resource.instance.name })
+        : eff.source === "global"
+          ? t("resources.scheduleFromGlobal")
+          : null;
   return (
     <>
       <Link href="/resources" className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
@@ -123,15 +132,14 @@ export async function ResourceDetailView({
             <p className="text-sm text-muted-foreground">
               {override ? (
                 <>{t("resources.scheduleOverrideDesc")}</>
-              ) : eff.source === "instance" ? (
+              ) : inheritedFrom && eff.policy ? (
                 <>
-                  {t("resources.scheduleInherits")} <span className="text-foreground">{resource.instance.name}</span>:{" "}
-                  {eff.policy ? describeCron(eff.policy.cron, tz) : "-"} → {eff.policy?.destination.name}
+                  {inheritedFrom}{" "}
+                  <span className="text-foreground">{describeCron(eff.policy.cron, t, tz)}</span> →{" "}
+                  {eff.policy.destination.name} · {modeLabel(eff.policy.mode, t)}
                 </>
-              ) : eff.source === "none" ? (
-                <span className="text-[var(--color-warning)]">{t("resources.scheduleNone")}</span>
               ) : (
-                <>{t("resources.scheduleGlobal")}</>
+                <span className="text-[var(--color-warning)]">{t("resources.scheduleNone")}</span>
               )}
             </p>
           </CardHeader>
@@ -140,7 +148,7 @@ export async function ResourceDetailView({
               <div className="flex items-center gap-2 text-xs">
                 <Badge tone="accent">{t("resources.overrideBadge")}</Badge>
                 <span>
-                  {describeCron(override.cron, tz)} → {override.destination.name} · {override.mode}
+                  {describeCron(override.cron, t, tz)} → {override.destination.name} · {modeLabel(override.mode, t)}
                 </span>
                 <form action={removeResourceOverride.bind(null, resource.id)}>
                   <button type="submit" className="text-[var(--color-danger)] hover:underline">
@@ -207,7 +215,7 @@ export async function ResourceDetailView({
                       </Link>
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground">
-                      {s.mode} · {s.captureMode}
+                      {modeLabel(s.mode, t)} · {captureLabel(s.captureMode, t)}
                     </td>
                     <td className="px-4 py-2.5">
                       <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>
@@ -245,7 +253,7 @@ export async function ResourceDetailView({
                     <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    <span>{s.mode} · {s.captureMode}</span>
+                    <span>{modeLabel(s.mode, t)} · {captureLabel(s.captureMode, t)}</span>
                     <span>{formatBytes(s.sizeBytes)}</span>
                     <span>{s.destination.name}</span>
                   </div>

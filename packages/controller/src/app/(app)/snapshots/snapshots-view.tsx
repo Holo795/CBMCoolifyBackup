@@ -10,6 +10,7 @@ import { Gate } from "@/components/role-gate";
 import { getT } from "@/lib/i18n";
 import { formatBytes, timeAgo } from "@/lib/cn";
 import { drillTone } from "@/lib/status";
+import { modeLabel, captureLabel } from "@/lib/schedule";
 import { Archive, RefreshCw, X, ShieldCheck } from "lucide-react";
 import { type DESTINATION_SECRETS } from "@/lib/public-fields";
 
@@ -109,7 +110,7 @@ export async function SnapshotsView({
                       <div className="text-xs text-muted-foreground">{s.destination.name}</div>
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground">
-                      {s.mode} · {s.captureMode}
+                      {modeLabel(s.mode, t)} · {captureLabel(s.captureMode, t)}
                     </td>
                     <td className="px-4 py-2.5">
                       <span className="inline-flex items-center gap-1">
@@ -150,7 +151,7 @@ export async function SnapshotsView({
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <span>{s.mode} · {s.captureMode}</span>
+                      <span>{modeLabel(s.mode, t)} · {captureLabel(s.captureMode, t)}</span>
                       <span>{t("snapshots.artifactsCount", { count: s._count.artifacts })}</span>
                       <span>{formatBytes(s.sizeBytes)}</span>
                       <span>{timeAgo(s.startedAt, t)}</span>

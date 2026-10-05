@@ -8,6 +8,7 @@ import { RestoreActions } from "@/components/restore-actions";
 import { Gate } from "@/components/role-gate";
 import { LiveLog } from "@/components/live-log";
 import { getT } from "@/lib/i18n";
+import { modeLabel, captureLabel } from "@/lib/schedule";
 import { formatBytes, formatDateTime } from "@/lib/cn";
 import { GitCommitHorizontal, ShieldCheck, Check, X } from "lucide-react";
 import { drillTone } from "@/lib/status";
@@ -44,7 +45,7 @@ export async function SnapshotDetailView({
     <>
       <PageHeader
         title={snapshot.resource.name}
-        description={`${snapshot.mode} · ${snapshot.captureMode} · ${snapshot.destination.name}`}
+        description={`${modeLabel(snapshot.mode, t)} · ${captureLabel(snapshot.captureMode, t)} · ${snapshot.destination.name}`}
         action={
           <Gate min="operator">
           <div className="flex items-center gap-2">
