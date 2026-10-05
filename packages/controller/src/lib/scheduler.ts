@@ -9,14 +9,32 @@ import { maybeSelfBackup, checkSelfBackupOverdue } from "./self-backup";
 import { syncInstance } from "./discovery";
 import { getTimezone } from "./settings";
 
+/**
+ * Record the outcome of a scheduled verify so "no agent could reach this
+ * destination" is visible in the UI instead of only a log line. A successful
+ * queue clears a stale no-agent flag (the real ok/failed status is written by
+ * the job result).
+ */
+async function recordVerifyOutcome(destId: string, res: { queued: number; reason?: string }): Promise<void> {
+  if (res.reason === "no-agent") {
+    await prisma.destination
+      .update({ where: { id: destId }, data: { lastIntegrityStatus: "no-agent", lastIntegrityAt: new Date() } })
+      .catch(() => undefined);
+  } else if (res.queued > 0) {
+    await prisma.destination
+      .updateMany({ where: { id: destId, lastIntegrityStatus: "no-agent" }, data: { lastIntegrityStatus: null } })
+      .catch(() => undefined);
+  }
+}
+
 /** Daily reconciliation: ask agents to confirm every destination's files are
  * still present, flagging any backup that vanished. */
 async function reconcileAllDestinations(): Promise<void> {
   const dests = await prisma.destination.findMany({ select: { id: true, name: true } });
   for (const d of dests) {
-    await enqueueVerifyDestination(d.id).catch((e) =>
-      console.error(`[scheduler] reconcile ${d.name} failed:`, (e as Error).message),
-    );
+    await enqueueVerifyDestination(d.id)
+      .then((res) => recordVerifyOutcome(d.id, res))
+      .catch((e) => console.error(`[scheduler] reconcile ${d.name} failed:`, (e as Error).message));
   }
 }
 
@@ -28,9 +46,9 @@ async function integrityCheckAllDestinations(): Promise<void> {
     select: { id: true, name: true },
   });
   for (const d of dests) {
-    await enqueueVerifyDestination(d.id, { deep: true }).catch((e) =>
-      console.error(`[scheduler] integrity check ${d.name} failed:`, (e as Error).message),
-    );
+    await enqueueVerifyDestination(d.id, { deep: true })
+      .then((res) => recordVerifyOutcome(d.id, res))
+      .catch((e) => console.error(`[scheduler] integrity check ${d.name} failed:`, (e as Error).message));
   }
 }
 

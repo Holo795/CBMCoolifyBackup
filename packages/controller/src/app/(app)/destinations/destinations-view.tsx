@@ -61,11 +61,18 @@ export async function DestinationsView({ items, globalBytes }: { items: Destinat
                           <FileCheck2 className="h-3 w-3" /> {t("destinations.badge.integrityOk")}
                         </Badge>
                       )}
-                      {d.lastIntegrityStatus != null && d.lastIntegrityStatus !== "ok" && (
-                        <Badge tone="danger">
-                          <AlertTriangle className="h-3 w-3" /> {t("destinations.badge.integrityFailed")}
+                      {d.lastIntegrityStatus === "no-agent" && (
+                        <Badge tone="warning">
+                          <AlertTriangle className="h-3 w-3" /> {t("destinations.badge.noAgent")}
                         </Badge>
                       )}
+                      {d.lastIntegrityStatus != null &&
+                        d.lastIntegrityStatus !== "ok" &&
+                        d.lastIntegrityStatus !== "no-agent" && (
+                          <Badge tone="danger">
+                            <AlertTriangle className="h-3 w-3" /> {t("destinations.badge.integrityFailed")}
+                          </Badge>
+                        )}
                       {d.mirrorToId && nameById.has(d.mirrorToId) && (
                         <Badge tone="accent">
                           <Copy className="h-3 w-3" /> {t("destinations.badge.mirrorsTo", { name: nameById.get(d.mirrorToId) ?? "" })}

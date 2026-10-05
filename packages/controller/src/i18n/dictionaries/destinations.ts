@@ -20,6 +20,7 @@ export const en = {
     missing: "{count} missing",
     integrityOk: "integrity ok",
     integrityFailed: "integrity failed",
+    noAgent: "no agent to verify",
     mirrorsTo: "mirrors to {name}",
   },
   verify: {
@@ -149,6 +150,7 @@ export const fr: typeof en = {
     missing: "{count} manquant",
     integrityOk: "intégrité ok",
     integrityFailed: "intégrité en échec",
+    noAgent: "aucun agent pour vérifier",
     mirrorsTo: "miroir vers {name}",
   },
   verify: {
