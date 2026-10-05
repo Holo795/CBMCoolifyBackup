@@ -55,6 +55,8 @@ needs to actually come back to life isn't covered. CBM backs up the whole resour
 | **Multi‑server** Coolify instances | n/a | ✅ |
 | Alerts on **failed / missing / overdue** backups | ❌ | ✅ |
 | **Reconciliation** (detect backups deleted at the destination) | ❌ | ✅ |
+| **Integrity check** (detect silently corrupted backups) | ❌ | ✅ |
+| **Mirror** a backup to a second destination (redundancy) | ❌ | ✅ |
 | **Disaster recovery** — back up CBM itself, restore it elsewhere | ❌ | ✅ |
 
 ---
@@ -87,9 +89,12 @@ needs to actually come back to life isn't covered. CBM backs up the whole resour
   with a schedule per server.
 - **Alerts** via a generic webhook (Discord / Slack / custom) on **failed**, **missing**
   (deleted at the destination), and **overdue** (never ran) backups.
-- **Reconciliation, parallelism & hooks** — a periodic check confirms every backup is still
-  present at its destination; agents run several jobs at once (`AGENT_CONCURRENCY`); and you
-  can set **per‑container pre/post‑backup commands** (e.g. quiesce an app, flush a cache).
+- **Reconciliation, integrity & mirroring.** A daily check confirms every backup is still
+  **present**; an opt‑in weekly **integrity** check re‑reads the stored data to catch **silent
+  corruption** (`restic check` / tar re‑checksum); and a destination can **mirror** every backup
+  to a second destination for a redundant, independently‑restorable copy.
+- **Parallelism & hooks** — agents run several jobs at once (`AGENT_CONCURRENCY`), and you can
+  set **per‑container pre/post‑backup commands** (e.g. quiesce an app, flush a cache).
 - **Scheduling** with grandfather‑father‑son retention, in a **configurable timezone**.
 - **Team access with roles.** Invite people as **admin / operator / viewer** via one‑time
   invitation links (copy‑paste or emailed). Operators run backups/restores; only admins
@@ -210,8 +215,9 @@ Detailed docs live in **[`/docs`](docs/)**:
 
 Being upfront so you don't lose data by surprise.
 
-- **No automatic restore verification** — artifacts are checksummed and destinations are
-  reconciled, but backups are not (yet) test‑restored. Test your restores.
+- **No automatic restore verification** — destinations are reconciled (presence) and an opt‑in
+  **integrity check** re‑reads the stored data to catch silent corruption, but backups are not
+  (yet) automatically *test‑restored*. Still do a periodic real restore.
 - **Volume copies are crash‑consistent** (the app recovers), not application‑consistent; an
   in‑service database restored from its *volume* is version‑locked to the same engine version
   — use the logical dump captured alongside it for a portable restore.

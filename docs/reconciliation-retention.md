@@ -18,6 +18,29 @@ only find out at restore time. Reconciliation closes that gap.
 A *missing* snapshot can't be restored (the files are gone) — treat it as data loss to
 investigate.
 
+## Integrity check — detecting silent corruption
+
+Reconciliation confirms the files are *present*; the **integrity check** confirms they're not
+silently *corrupt* (bit-rot, a truncated upload). It re-reads the stored content:
+
+- **restic:** runs `restic check` (with a sampled `--read-data-subset`, so it also re-hashes some
+  of the actual pack data, not just the structure).
+- **tar:** re-downloads each artifact and either decrypts it (the AES-GCM tag proves integrity)
+  or compares its sha256 to the manifest.
+
+It's **opt-in per destination** (the *weekly check* toggle) because it re-reads the data and is
+more expensive than reconciliation; it runs weekly, or on demand with **Check integrity**. A
+backup that fails is flagged **corrupt** and alerted; a restic repo-level failure alerts and
+shows on the destination. A corrupt backup that later passes flips back to *succeeded*.
+
+## Mirroring — a second copy
+
+A destination can **mirror** every backup to a second destination (**mirror to** on the
+destination). The copy is re-packaged under the target's own engine and encryption, so it's a
+**first-class snapshot** you can restore, reconcile and integrity-check independently — your
+insurance if one destination is lost or corrupted. Retention prunes the mirror together with its
+source.
+
 ## Retention — grandfather-father-son (GFS)
 
 Each schedule keeps a configurable number of **daily / weekly / monthly** snapshots and deletes
