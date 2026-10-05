@@ -73,6 +73,21 @@ export default async function SettingsPage() {
     hasSelfBackup: !!(setting?.selfBackupEnabled && setting.selfBackupDestinationId),
   };
 
+  // Machine API tokens for the MCP server / external AI agents.
+  const apiTokens = (
+    await prisma.apiToken.findMany({
+      orderBy: { createdAt: "desc" },
+      select: { id: true, name: true, role: true, tokenHint: true, lastUsedAt: true, createdAt: true },
+    })
+  ).map((tok) => ({
+    id: tok.id,
+    name: tok.name,
+    role: tok.role,
+    tokenHint: tok.tokenHint,
+    lastUsedAt: tok.lastUsedAt ? formatDateTime(tok.lastUsedAt, tz) : null,
+    createdAt: formatDateTime(tok.createdAt, tz),
+  }));
+
   return (
     <SettingsView
       tz={tz}
@@ -83,6 +98,7 @@ export default async function SettingsPage() {
       drDestinations={drDestinations}
       selfBackup={selfBackup}
       recoveryFile={recoveryFile}
+      apiTokens={apiTokens}
     />
   );
 }

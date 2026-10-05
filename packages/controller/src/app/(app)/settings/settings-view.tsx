@@ -5,6 +5,8 @@ import { AlertWebhookForm } from "@/components/alert-webhook-form";
 import { SmtpConfigForm, EmailVerificationToggle, type SmtpCurrent } from "@/components/smtp-config-form";
 import { SelfBackupForm } from "@/components/self-backup-form";
 import { RecoveryFilePanel } from "@/components/recovery-file-panel";
+import { ApiTokens } from "@/components/api-tokens";
+import { type ApiTokenRow } from "@/components/api-tokens/view";
 import { CheckCircle2, Circle } from "lucide-react";
 import { getT, type T } from "@/lib/i18n";
 
@@ -18,6 +20,7 @@ export async function SettingsView({
   drDestinations,
   selfBackup,
   recoveryFile,
+  apiTokens,
 }: {
   tz: string;
   alertWebhookUrl: string;
@@ -27,6 +30,7 @@ export async function SettingsView({
   drDestinations: { id: string; name: string; type: string }[];
   selfBackup: { enabled: boolean; destinationId: string; lastRunAt: string | null; lastStatus: string | null };
   recoveryFile: { generation: number; at: string | null; stale: boolean; staleReason: string | null; hasSelfBackup: boolean };
+  apiTokens: ApiTokenRow[];
 }) {
   const t = await getT();
   return (
@@ -83,6 +87,16 @@ export async function SettingsView({
             <div className="border-t pt-6">
               <RecoveryFilePanel current={recoveryFile} />
             </div>
+          </CardContent>
+        </Card>
+
+        <Card id="api-tokens" className="scroll-mt-20">
+          <CardHeader>
+            <CardTitle>{t("settings.apiTokensTitle")}</CardTitle>
+            <p className="text-sm text-muted-foreground">{t("settings.apiTokensDesc")}</p>
+          </CardHeader>
+          <CardContent>
+            <ApiTokens tokens={apiTokens} />
           </CardContent>
         </Card>
       </div>

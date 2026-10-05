@@ -111,6 +111,11 @@ export const en = {
   importFailed: "Import failed ({status})",
   importedDefault: "Imported.",
   importedSignedOut: " You are signed out now - sign back in with your OLD credentials.",
+
+  // API tokens (MCP)
+  apiTokensTitle: "API tokens (MCP)",
+  apiTokensDesc:
+    "Machine tokens that let the MCP server, or any external AI agent, drive CBM over the API. A token carries its own role; the plaintext is shown once at creation.",
 };
 
 export const fr: typeof en = {
@@ -231,4 +236,9 @@ export const fr: typeof en = {
   importFailed: "Échec de l'import ({status})",
   importedDefault: "Importé.",
   importedSignedOut: " Vous êtes maintenant déconnecté - reconnectez-vous avec vos ANCIENS identifiants.",
+
+  // Jetons API (MCP)
+  apiTokensTitle: "Jetons API (MCP)",
+  apiTokensDesc:
+    "Jetons machine qui permettent au serveur MCP, ou à n'importe quel agent IA externe, de piloter CBM via l'API. Un jeton porte son propre rôle ; la valeur en clair n'est affichée qu'une seule fois, à la création.",
 };

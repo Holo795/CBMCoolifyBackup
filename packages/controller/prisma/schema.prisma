@@ -27,6 +27,7 @@ model User {
   updatedAt     DateTime  @updatedAt
   sessions      Session[]
   accounts      Account[]
+  apiTokens     ApiToken[]
 }
 
 model Session {
@@ -83,6 +84,26 @@ model Invitation {
   createdAt   DateTime  @default(now())
 
   @@index([email])
+}
+
+// Machine API tokens for programmatic access: the MCP server and any external AI
+// agent authenticate with `Authorization: Bearer <token>`. The plaintext is shown
+// once at creation; only its sha256 hash is stored. Each token carries its own
+// role (never above its creator's) which gates the `/api/v1` REST surface exactly
+// like a user's role gates the UI.
+model ApiToken {
+  id          String    @id @default(cuid())
+  name        String
+  tokenHash   String    @unique // sha256 of the bearer token
+  tokenHint   String    @default("") // masked display of the token, e.g. cbm_ab12…7f4c
+  role        String    @default("viewer") // viewer | operator | admin
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([createdById])
 }
 
 // ---------------------------------------------------------------------------

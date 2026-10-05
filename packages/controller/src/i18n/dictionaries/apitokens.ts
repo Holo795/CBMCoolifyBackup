@@ -1,0 +1,58 @@
+// apitokens — translations for the API-token manager (MCP / external agents).
+export const en = {
+  revealWarning: "Copy this token now — it won't be shown again.",
+  copy: "Copy",
+  copied: "Copied",
+  dismiss: "Dismiss",
+  none: "No API tokens yet. Create one below to connect the MCP server or an AI agent.",
+  lastUsed: "Last used {when}",
+  never: "Never used",
+  nameLabel: "Name",
+  namePlaceholder: "e.g. Claude Desktop, CI bot",
+  roleLabel: "Role",
+  create: "Create token",
+  creating: "Creating…",
+  createFailed: "Could not create the token.",
+  revoke: "Revoke",
+  revokeTitle: "Revoke this token?",
+  revokeBody: "The token \"{name}\" stops working immediately for anything using it.",
+  role: {
+    viewer: "Viewer",
+    operator: "Operator",
+    admin: "Admin",
+  },
+  roleDesc: {
+    viewer: "Read-only: list instances, resources, snapshots, destinations, agents and jobs.",
+    operator: "Viewer plus triggers: back up a resource, mirror a snapshot, verify a destination.",
+    admin: "Full access, same as an admin user. Grant only when you really need it.",
+  },
+};
+
+export const fr: typeof en = {
+  revealWarning: "Copiez ce jeton maintenant — il ne sera plus affiché.",
+  copy: "Copier",
+  copied: "Copié",
+  dismiss: "Fermer",
+  none: "Aucun jeton API pour l'instant. Créez-en un ci-dessous pour connecter le serveur MCP ou un agent IA.",
+  lastUsed: "Dernière utilisation {when}",
+  never: "Jamais utilisé",
+  nameLabel: "Nom",
+  namePlaceholder: "ex. Claude Desktop, bot CI",
+  roleLabel: "Rôle",
+  create: "Créer le jeton",
+  creating: "Création…",
+  createFailed: "Impossible de créer le jeton.",
+  revoke: "Révoquer",
+  revokeTitle: "Révoquer ce jeton ?",
+  revokeBody: "Le jeton « {name} » cesse de fonctionner immédiatement partout où il est utilisé.",
+  role: {
+    viewer: "Lecture seule",
+    operator: "Opérateur",
+    admin: "Admin",
+  },
+  roleDesc: {
+    viewer: "Lecture seule : lister instances, ressources, snapshots, destinations, agents et tâches.",
+    operator: "Lecture seule plus déclenchements : sauvegarder une ressource, mettre en miroir un snapshot, vérifier une destination.",
+    admin: "Accès complet, comme un utilisateur admin. À n'accorder qu'en cas de réel besoin.",
+  },
+};

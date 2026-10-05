@@ -16,6 +16,7 @@ import * as profile from "./profile";
 import * as schedule from "./schedule";
 import * as components from "./components";
 import * as activity from "./activity";
+import * as apitokens from "./apitokens";
 
 export const dictionaries = {
   en: {
@@ -34,6 +35,7 @@ export const dictionaries = {
     schedule: schedule.en,
     components: components.en,
     activity: activity.en,
+    apitokens: apitokens.en,
   },
   fr: {
     common: common.fr,
@@ -51,6 +53,7 @@ export const dictionaries = {
     schedule: schedule.fr,
     components: components.fr,
     activity: activity.fr,
+    apitokens: apitokens.fr,
   },
 };
 

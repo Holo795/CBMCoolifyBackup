@@ -1008,3 +1008,37 @@ export async function removeUser(userId: string): Promise<{ ok?: boolean; error?
   revalidatePath("/users");
   return { ok: true };
 }
+
+/* ----------------------------- API tokens (MCP) ----------------------------- */
+
+/**
+ * Mint a machine API token for the MCP server / external AI agents. Admin-only;
+ * the token's own role (viewer | operator | admin) gates the /api/v1 surface it
+ * can reach. The plaintext is returned ONCE here and never stored — only its
+ * sha256 hash and a masked hint are kept.
+ */
+export async function createApiToken(
+  fd: FormData,
+): Promise<{ ok?: boolean; error?: string; token?: string; name?: string }> {
+  await requireRole("admin");
+  const name = s(fd, "name");
+  const role = s(fd, "role") || "viewer";
+  if (!name) return { error: "Give the token a name" };
+  if (!isRole(role)) return { error: "Pick a role" };
+
+  const token = "cbm_pat_" + randomToken(24);
+  const hint = `${token.slice(0, 12)}…${token.slice(-4)}`;
+  await prisma.apiToken.create({
+    data: { name, role, tokenHash: sha256Hex(token), tokenHint: hint, createdById: (await requireUser()).id },
+  });
+
+  revalidatePath("/settings");
+  return { ok: true, token, name };
+}
+
+/** Revoke (delete) an API token. Admin-only; the token stops working at once. */
+export async function revokeApiToken(id: string): Promise<void> {
+  await requireRole("admin");
+  await prisma.apiToken.delete({ where: { id } }).catch(() => {});
+  revalidatePath("/settings");
+}
