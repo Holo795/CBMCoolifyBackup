@@ -37,6 +37,15 @@ const SSH_OPTS = (knownHosts: string) => [
   "ConnectTimeout=20",
 ];
 
+/** restic's S3 endpoint: keep the endpoint's scheme (an http:// MinIO/SeaweedFS
+ * must not be dialled over TLS - restic then retries for ~15 min), https when
+ * none is given, AWS when there is no endpoint. */
+export function resticS3Endpoint(endpoint?: string): string {
+  if (!endpoint) return "s3.amazonaws.com";
+  const ep = endpoint.replace(/\/$/, "");
+  return /^https?:\/\//.test(ep) ? ep : `https://${ep}`;
+}
+
 export async function resticContext(dest: ResolvedDestination, password: string): Promise<ResticCtx> {
   const env: NodeJS.ProcessEnv = { ...process.env, RESTIC_PASSWORD: password };
 
@@ -46,9 +55,8 @@ export async function resticContext(dest: ResolvedDestination, password: string)
   }
 
   if (dest.type === "s3") {
-    const ep = dest.endpoint ? dest.endpoint.replace(/^https?:\/\//, "").replace(/\/$/, "") : "s3.amazonaws.com";
     const prefix = dest.prefix ? `${dest.prefix.replace(/^\/|\/$/g, "")}/` : "";
-    env.RESTIC_REPOSITORY = `s3:${dest.endpoint ? `https://${ep}` : ep}/${dest.bucket}/${prefix}restic-repo`;
+    env.RESTIC_REPOSITORY = `s3:${resticS3Endpoint(dest.endpoint)}/${dest.bucket}/${prefix}restic-repo`;
     env.AWS_ACCESS_KEY_ID = dest.accessKeyId;
     env.AWS_SECRET_ACCESS_KEY = dest.secretAccessKey;
     env.AWS_DEFAULT_REGION = dest.region || "us-east-1";
