@@ -97,7 +97,7 @@ async function hookTimeoutCase(image: string, command: string) {
 }
 
 test("a timed-out hook is stopped inside an Alpine (busybox) container", { skip: !DOCKER, timeout: 120_000 }, () =>
-  hookTimeoutCase("alpine:3.20", "sleep 60"),
+  hookTimeoutCase("alpine:3.24", "sleep 60"),
 );
 
 test("a timed-out compound hook is fully stopped in a Debian (coreutils) container", { skip: !DOCKER, timeout: 180_000 }, () =>

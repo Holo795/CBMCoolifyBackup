@@ -191,7 +191,7 @@ export async function tarVolume(volume: string, outFile: string): Promise<void> 
       "--rm",
       "-v",
       `${volume}:/data:ro`,
-      "alpine:3.20",
+      "alpine:3.24",
       "tar",
       "-cf",
       "-",
@@ -213,7 +213,7 @@ export async function restoreVolume(volume: string, inFile: string): Promise<voi
       "-i",
       "-v",
       `${volume}:/data`,
-      "alpine:3.20",
+      "alpine:3.24",
       "sh",
       "-c",
       "rm -rf /data/* /data/..?* /data/.[!.]* 2>/dev/null; tar -xf - -C /data",
@@ -231,7 +231,7 @@ export async function writeFileIntoVolume(volume: string, destName: string, inFi
   if (!/^[a-zA-Z0-9._-]+$/.test(destName)) throw new Error(`Unsafe volume file name: ${destName}`);
   await docker(["volume", "create", volume]);
   await dockerFromFile(
-    ["run", "--rm", "-i", "-v", `${volume}:/data`, "alpine:3.20", "sh", "-c", `cat > /data/${destName}`],
+    ["run", "--rm", "-i", "-v", `${volume}:/data`, "alpine:3.24", "sh", "-c", `cat > /data/${destName}`],
     inFile,
   );
 }
@@ -245,7 +245,7 @@ export async function restoreToPath(hostPath: string, inFile: string): Promise<v
       "-i",
       "-v",
       `${hostPath}:/data`,
-      "alpine:3.20",
+      "alpine:3.24",
       "sh",
       "-c",
       "rm -rf /data/* /data/..?* /data/.[!.]* 2>/dev/null; tar -xf - -C /data",
@@ -259,7 +259,7 @@ export async function restoreToPath(hostPath: string, inFile: string): Promise<v
  * throwaway container - no host-path access needed. Throws if it's corrupt.
  */
 export async function verifyTarOpens(inFile: string): Promise<void> {
-  await dockerFromFile(["run", "--rm", "-i", "alpine:3.20", "tar", "-tf", "-"], inFile);
+  await dockerFromFile(["run", "--rm", "-i", "alpine:3.24", "tar", "-tf", "-"], inFile);
 }
 
 /**
@@ -271,7 +271,7 @@ export async function tarEntryCount(inFile: string): Promise<number> {
   const child = spawn(
     DOCKER,
     // pipefail (supported by busybox ash) so a tar read error fails the pipeline.
-    ["run", "--rm", "-i", "--network", "none", "alpine:3.20", "sh", "-c", "set -o pipefail; tar -tf - | wc -l"],
+    ["run", "--rm", "-i", "--network", "none", "alpine:3.24", "sh", "-c", "set -o pipefail; tar -tf - | wc -l"],
     { stdio: ["pipe", "pipe", "pipe"] },
   );
   let stdout = "";

@@ -100,7 +100,7 @@ test("a container left paused or stopped by a killed agent is resumed at the nex
   const a = `cbm-heldtest-a-${Date.now()}`;
   const b = `cbm-heldtest-b-${Date.now()}`;
   try {
-    for (const n of [a, b]) await docker(["run", "-d", "--name", n, "--network", "none", "alpine:3.20", "sleep", "300"]);
+    for (const n of [a, b]) await docker(["run", "-d", "--name", n, "--network", "none", "alpine:3.24", "sleep", "300"]);
     initHeldContainers(dir);
     await pauseContainer(a); // a backup froze it...
     await stopContainer(b); // ...a restore stopped this one...
