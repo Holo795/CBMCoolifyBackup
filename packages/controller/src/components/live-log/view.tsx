@@ -39,6 +39,8 @@ export function LiveLogView({
           <span className="text-muted-foreground">Waiting for the agent…</span>
         ) : (
           events.map((e, i) => (
+            // Append-only log: an event's position never changes.
+            // eslint-disable-next-line @eslint-react/no-array-index-key
             <div key={i} className="flex gap-2">
               <span className="text-muted-foreground">
                 {new Date(e.ts).toLocaleTimeString("en-GB", { timeZone, hour12: false })}

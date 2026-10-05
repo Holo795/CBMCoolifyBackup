@@ -20,7 +20,7 @@ export function LiveLog({
   const [status, setStatus] = useState(initialStatus);
   const boxRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  const refreshed = useRef(false);
+  const refreshedRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -36,10 +36,10 @@ export function LiveLog({
           if (data.status === "running") {
             // Keep polling only while the job is still running.
             timer = setTimeout(poll, 1500);
-          } else if (!refreshed.current) {
+          } else if (!refreshedRef.current) {
             // Job finished: refresh the server components once so the status
             // badge (server-rendered) flips from "running" without a manual reload.
-            refreshed.current = true;
+            refreshedRef.current = true;
             router.refresh();
           }
           return;

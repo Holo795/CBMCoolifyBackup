@@ -31,6 +31,8 @@ export function ServerMapFormView({
     <div className="flex flex-col gap-2">
       <p className="text-xs text-muted-foreground">{t("instances.serverMap.hint")}</p>
       {rows.map((row, i) => (
+        // Rows are fully controlled (no state of their own), so an index key is safe.
+        // eslint-disable-next-line @eslint-react/no-array-index-key
         <div key={i} className="flex items-center gap-2">
           <Input
             value={row.source}

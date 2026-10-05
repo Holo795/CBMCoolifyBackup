@@ -1,21 +1,21 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import { createContext, use } from "react";
 import { can, type Role } from "@/lib/roles";
 
 /** Current user's role, provided once at the app shell (see app/(app)/layout-view). */
 const RoleContext = createContext<string>("viewer");
 
 export function RoleProvider({ role, children }: { role: string; children: React.ReactNode }) {
-  return <RoleContext.Provider value={role}>{children}</RoleContext.Provider>;
+  return <RoleContext value={role}>{children}</RoleContext>;
 }
 
 export function useRole(): string {
-  return useContext(RoleContext);
+  return use(RoleContext);
 }
 
 export function useCan(min: Role): boolean {
-  return can({ role: useContext(RoleContext) }, min);
+  return can({ role: use(RoleContext) }, min);
 }
 
 /**
@@ -24,5 +24,5 @@ export function useCan(min: Role): boolean {
  * keeps users from seeing controls they can't use.
  */
 export function Gate({ min, children }: { min: Role; children: React.ReactNode }) {
-  return can({ role: useContext(RoleContext) }, min) ? <>{children}</> : null;
+  return can({ role: use(RoleContext) }, min) ? <>{children}</> : null;
 }

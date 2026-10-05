@@ -1,10 +1,16 @@
 import { defineConfig, globalIgnores } from "eslint/config";
-import nextVitals from "eslint-config-next/core-web-vitals";
-import nextTs from "eslint-config-next/typescript";
+import tseslint from "typescript-eslint";
+import nextPlugin from "@next/eslint-plugin-next";
+import reactHooks from "eslint-plugin-react-hooks";
+import eslintReact from "@eslint-react/eslint-plugin";
 
 // Single flat config for the whole npm-workspaces monorepo (run via `npm run lint`).
 // - Next.js + React rules apply only to the controller (the only web/JSX package).
 // - TypeScript rules apply to every package.
+// Composed from the plugins directly (eslint-config-next pulls in plugins that
+// don't support ESLint 10 yet).
+const CONTROLLER = ["packages/controller/**/*.{ts,tsx}"];
+
 export default defineConfig([
   globalIgnores([
     "**/node_modules/**",
@@ -17,14 +23,19 @@ export default defineConfig([
     "packages/controller/src/generated/**",
   ]),
 
-  // Next.js / React rules — controller only.
-  ...nextVitals.map((c) => ({ ...c, files: ["packages/controller/**/*.{ts,tsx}"] })),
-
   // TypeScript rules — all packages.
-  ...nextTs.map((c) => ({ ...c, files: ["**/*.{ts,tsx}"] })),
+  { files: ["**/*.{ts,tsx}"], extends: [tseslint.configs.recommended] },
 
-  // The Next.js plugin lives under packages/controller in this monorepo.
-  { settings: { next: { rootDir: "packages/controller" } } },
+  // Next.js / React rules — controller only.
+  {
+    files: CONTROLLER,
+    plugins: { "@next/next": nextPlugin },
+    rules: { ...nextPlugin.configs.recommended.rules, ...nextPlugin.configs["core-web-vitals"].rules },
+    // The Next.js plugin lives under packages/controller in this monorepo.
+    settings: { next: { rootDir: "packages/controller" } },
+  },
+  { files: CONTROLLER, extends: [reactHooks.configs.flat.recommended] },
+  { files: CONTROLLER, extends: [eslintReact.configs["recommended-typescript"]] },
 
   // Project rule tweaks.
   {
@@ -36,11 +47,12 @@ export default defineConfig([
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
       ],
-      // React Compiler rules (new in react-hooks v6, pulled in by core-web-vitals):
-      // they misfire on server components (`Date.now()` during render) and on the
-      // idiomatic "mounted" effect pattern. Off until we adopt the compiler.
+      // React Compiler rules (react-hooks v6+): they misfire on server components
+      // (`Date.now()` during render) and on the idiomatic "mounted" effect
+      // pattern. Off until we adopt the compiler.
       "react-hooks/purity": "off",
       "react-hooks/set-state-in-effect": "off",
+      "@eslint-react/set-state-in-effect": "off",
     },
   },
 ]);

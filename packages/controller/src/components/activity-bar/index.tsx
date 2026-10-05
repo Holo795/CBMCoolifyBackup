@@ -14,7 +14,7 @@ export function ActivityBar() {
   const router = useRouter();
   const [jobs, setJobs] = useState<ActivityJob[]>([]);
   const [open, setOpen] = useState(false);
-  const prevActive = useRef(0);
+  const prevActiveRef = useRef(0);
 
   useEffect(() => {
     let alive = true;
@@ -28,8 +28,8 @@ export function ActivityBar() {
           setJobs(data.items ?? []);
           const active = (data.items ?? []).filter((j) => j.status === "queued" || j.status === "running").length;
           // When a run just finished, refresh the page data so lists update.
-          if (active === 0 && prevActive.current > 0) router.refresh();
-          prevActive.current = active;
+          if (active === 0 && prevActiveRef.current > 0) router.refresh();
+          prevActiveRef.current = active;
           schedule(active > 0 ? 2500 : 12000);
           return;
         }

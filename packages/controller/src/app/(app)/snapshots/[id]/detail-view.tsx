@@ -160,6 +160,8 @@ export async function SnapshotDetailView({
                   {checks.length > 0 && (
                     <ul className="flex flex-col gap-1 rounded-md border p-3 text-xs">
                       {checks.map((c, i) => (
+                        // A drill's checks are a fixed, read-only list.
+                        // eslint-disable-next-line @eslint-react/no-array-index-key
                         <li key={i} className="flex min-w-0 items-start gap-2">
                           {c.ok ? (
                             <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-success)]" />

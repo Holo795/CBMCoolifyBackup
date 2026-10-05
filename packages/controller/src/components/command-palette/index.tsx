@@ -106,10 +106,12 @@ export function CommandPalette({ role }: { role: string }) {
       return;
     }
     if (index) return;
-    fetch("/api/search-index")
+    const ctrl = new AbortController();
+    fetch("/api/search-index", { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => d && setIndex(d))
       .catch(() => undefined);
+    return () => ctrl.abort();
   }, [open, index]);
 
   // All entries (static + dynamic from the loaded index).
