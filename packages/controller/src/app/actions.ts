@@ -658,15 +658,18 @@ export async function repinDeployment(snapshotId: string): Promise<{ ok?: boolea
 }
 
 /** Retry a failed backup by re-enqueuing its resource. */
-export async function retrySnapshot(snapshotId: string): Promise<void> {
+export async function retrySnapshot(snapshotId: string): Promise<{ error?: string }> {
   await requireRole("operator");
   const snap = await prisma.snapshot.findUniqueOrThrow({ where: { id: snapshotId } });
   try {
     await enqueueBackup(snap.resourceId);
   } catch (e) {
-    console.error("[retry] failed", (e as Error).message);
+    // Shown next to the button (busy resource, no live agent…) instead of a
+    // silent "retried".
+    return { error: (e as Error).message };
   }
   revalidatePath("/snapshots");
+  return {};
 }
 
 /* ------------------------- schedules (inheritance) ------------------------- */

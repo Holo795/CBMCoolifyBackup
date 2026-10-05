@@ -203,7 +203,7 @@ export async function ResourceDetailView({
                   <tr key={s.id} className="border-b last:border-0">
                     <td className="px-4 py-2.5">
                       <Link href={`/snapshots/${s.id}`} className="hover:underline">
-                        {timeAgo(s.startedAt)}
+                        {timeAgo(s.startedAt, t)}
                       </Link>
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground">
@@ -240,7 +240,7 @@ export async function ResourceDetailView({
                 <div key={s.id} className="flex flex-col gap-2 p-4">
                   <div className="flex items-center justify-between gap-2">
                     <Link href={`/snapshots/${s.id}`} className="font-medium hover:underline">
-                      {timeAgo(s.startedAt)}
+                      {timeAgo(s.startedAt, t)}
                     </Link>
                     <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>
                   </div>

@@ -22,13 +22,18 @@ export function formatDateTime(date: Date | string | null | undefined, timeZone?
   return d.toLocaleString("en-GB", { timeZone, hour12: false });
 }
 
-export function timeAgo(date: Date | string | null | undefined): string {
+export function timeAgo(
+  date: Date | string | null | undefined,
+  t?: (key: string, vars?: Record<string, string | number>) => string,
+): string {
   if (!date) return "-";
   const d = typeof date === "string" ? new Date(date) : date;
   const s = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (s < 0) return "in the future";
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+  // Without a translator (e.g. logs), English.
+  const say = (unit: "s" | "m" | "h" | "d", n: number) => (t ? t(`common.ago.${unit}`, { n }) : `${n}${unit} ago`);
+  if (s < 0) return t ? t("common.ago.future") : "in the future";
+  if (s < 60) return say("s", s);
+  if (s < 3600) return say("m", Math.floor(s / 60));
+  if (s < 86400) return say("h", Math.floor(s / 3600));
+  return say("d", Math.floor(s / 86400));
 }

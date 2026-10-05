@@ -38,9 +38,13 @@ function DrillBadge({ s, label }: { s: SnapshotRow; label: (status: string) => s
 export async function SnapshotsView({
   snapshots,
   liveInstanceIds,
+  page,
+  totalPages,
 }: {
   snapshots: SnapshotRow[];
   liveInstanceIds: Set<string | null>;
+  page: number;
+  totalPages: number;
 }) {
   const t = await getT();
   // Row actions, reused by the desktop table and the mobile cards.
@@ -115,7 +119,7 @@ export async function SnapshotsView({
                     </td>
                     <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{s._count.artifacts}</td>
                     <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{formatBytes(s.sizeBytes)}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{timeAgo(s.startedAt)}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">{timeAgo(s.startedAt, t)}</td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center justify-end gap-1.5">
                         <Gate min="operator">{snapshotActions(s, hasAgent)}</Gate>
@@ -149,7 +153,7 @@ export async function SnapshotsView({
                       <span>{s.mode} · {s.captureMode}</span>
                       <span>{t("snapshots.artifactsCount", { count: s._count.artifacts })}</span>
                       <span>{formatBytes(s.sizeBytes)}</span>
-                      <span>{timeAgo(s.startedAt)}</span>
+                      <span>{timeAgo(s.startedAt, t)}</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Gate min="operator">{snapshotActions(s, hasAgent)}</Gate>
@@ -160,6 +164,23 @@ export async function SnapshotsView({
             </div>
           </CardContent>
         </Card>
+      )}
+      {totalPages > 1 && (
+        <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+          <span>{t("resources.pageIndicator", { page, pages: totalPages })}</span>
+          <div className="flex gap-2">
+            {page > 1 && (
+              <a href={`/snapshots?page=${page - 1}`} className="rounded-md border px-3 py-1.5 hover:bg-muted">
+                {t("resources.prev")}
+              </a>
+            )}
+            {page < totalPages && (
+              <a href={`/snapshots?page=${page + 1}`} className="rounded-md border px-3 py-1.5 hover:bg-muted">
+                {t("resources.next")}
+              </a>
+            )}
+          </div>
+        </div>
       )}
     </>
   );

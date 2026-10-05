@@ -12,6 +12,7 @@ import { formatBytes, formatDateTime } from "@/lib/cn";
 import { GitCommitHorizontal, ShieldCheck, Check, X } from "lucide-react";
 import { drillTone } from "@/lib/status";
 import { type DESTINATION_SECRETS } from "@/lib/public-fields";
+import { localizeDrillDetail } from "@/lib/drill-detail";
 
 type DrillCheckRow = { artifact: string; kind: string; engine?: string; ok: boolean; detail: string };
 
@@ -171,7 +172,7 @@ export async function SnapshotDetailView({
                           )}
                           <span className="min-w-0">
                             <span className="font-mono">{c.artifact}</span>
-                            <span className="text-muted-foreground"> - {c.detail}</span>
+                            <span className="text-muted-foreground"> - {localizeDrillDetail(c.detail, t)}</span>
                           </span>
                         </li>
                       ))}

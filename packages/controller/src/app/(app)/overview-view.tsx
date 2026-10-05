@@ -89,7 +89,7 @@ export async function OverviewView({
                         <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>
                       </td>
                       <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{formatBytes(s.sizeBytes)}</td>
-                      <td className="px-4 py-2.5 text-muted-foreground">{timeAgo(s.startedAt)}</td>
+                      <td className="px-4 py-2.5 text-muted-foreground">{timeAgo(s.startedAt, t)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -106,7 +106,7 @@ export async function OverviewView({
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span>{s.mode} · {s.captureMode}</span>
                       <span>{formatBytes(s.sizeBytes)}</span>
-                      <span>{timeAgo(s.startedAt)}</span>
+                      <span>{timeAgo(s.startedAt, t)}</span>
                     </div>
                   </div>
                 ))}

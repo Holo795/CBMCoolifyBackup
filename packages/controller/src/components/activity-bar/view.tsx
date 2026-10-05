@@ -62,7 +62,7 @@ export function ActivityBarView({
                   )}
                   <Badge tone={statusTone(j.status)}>{t(`activity.status.${j.status}`)}</Badge>
                   <span className="hidden w-20 shrink-0 text-right text-xs text-muted-foreground sm:block">
-                    {timeAgo(new Date(j.finishedAt ?? j.createdAt))}
+                    {timeAgo(new Date(j.finishedAt ?? j.createdAt), t)}
                   </span>
                 </li>
               );

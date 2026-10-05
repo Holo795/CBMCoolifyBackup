@@ -76,7 +76,7 @@ export async function AgentsView({ items }: { items: AgentItem[] }) {
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground">{a.dockerVersion ?? "-"}</td>
                     <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{a.containers ?? 0}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{timeAgo(a.lastSeenAt)}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">{timeAgo(a.lastSeenAt, t)}</td>
                     <td className="px-4 py-2.5">
                       <Gate min="admin">
                         <ConfirmDeleteButton
@@ -119,7 +119,7 @@ export async function AgentsView({ items }: { items: AgentItem[] }) {
                     </span>
                     <span>{t("agents.docker")} {a.dockerVersion ?? "-"}</span>
                     <span>{t("agents.containersCount", { count: a.containers ?? 0 })}</span>
-                    <span>{t("agents.seen", { time: timeAgo(a.lastSeenAt) })}</span>
+                    <span>{t("agents.seen", { time: timeAgo(a.lastSeenAt, t) })}</span>
                   </div>
                   <Gate min="admin">
                     <div className="flex items-center justify-between gap-2">

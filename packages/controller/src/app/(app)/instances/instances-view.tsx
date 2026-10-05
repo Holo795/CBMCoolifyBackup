@@ -91,7 +91,7 @@ export async function InstancesView({
         </div>
         {lastRun && (
           <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>{t("instances.schedule.lastRun", { time: timeAgo(lastRun.at) })}</span>
+            <span>{t("instances.schedule.lastRun", { time: timeAgo(lastRun.at, t) })}</span>
             <span className="text-[var(--color-success)]">✓ {lastRun.ok}</span>
             {lastRun.failed > 0 && <span className="text-[var(--color-danger)]">✗ {lastRun.failed}</span>}
             {lastRun.running > 0 && (
@@ -163,7 +163,7 @@ export async function InstancesView({
                             ? `${t(servers.length === 1 ? "instances.summary.serverOne" : "instances.summary.serverMany", { count: servers.length })} · `
                             : ""}
                           {t(liveAgents === 1 ? "instances.summary.agentOne" : "instances.summary.agentMany", { count: liveAgents })} ·{" "}
-                          {t("instances.summary.synced", { time: timeAgo(i.lastSyncedAt) })}
+                          {t("instances.summary.synced", { time: timeAgo(i.lastSyncedAt, t) })}
                         </div>
                       </div>
                       <Gate min="admin">

@@ -5,11 +5,17 @@ import { DESTINATION_SECRETS } from "@/lib/public-fields";
 
 export const dynamic = "force-dynamic";
 
-export default async function SnapshotsPage() {
-  const [snapshots, liveAgents] = await Promise.all([
+const PER_PAGE = 100;
+
+export default async function SnapshotsPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
+  const { page: pageParam } = await searchParams;
+  const page = Math.max(1, Math.floor(Number(pageParam)) || 1);
+  const [total, snapshots, liveAgents] = await Promise.all([
+    prisma.snapshot.count(),
     prisma.snapshot.findMany({
       orderBy: { startedAt: "desc" },
-      take: 100,
+      skip: (page - 1) * PER_PAGE,
+      take: PER_PAGE,
       include: {
         resource: true,
         destination: { omit: DESTINATION_SECRETS },
@@ -25,5 +31,7 @@ export default async function SnapshotsPage() {
   ]);
   const liveInstanceIds = new Set(liveAgents.map((a) => a.instanceId).filter(Boolean));
 
-  return <SnapshotsView snapshots={snapshots} liveInstanceIds={liveInstanceIds} />;
+  const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
+
+  return <SnapshotsView snapshots={snapshots} liveInstanceIds={liveInstanceIds} page={page} totalPages={totalPages} />;
 }

@@ -335,8 +335,8 @@ model RestoreJob {
   @@index([snapshotId])
 }
 
-// Agent-facing job queue (pulled by agents). pg-boss schedules policy runs
-// which insert rows here; agents long-poll for the next queued row.
+// Agent-facing job queue (pulled by agents). The in-process scheduler (and UI,
+// API, alerts…) insert rows here; agents poll for their next queued row.
 model AgentJob {
   id         String     @id @default(cuid())
   agentId    String

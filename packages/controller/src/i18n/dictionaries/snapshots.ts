@@ -84,6 +84,20 @@ export const en = {
   drillStatus: { running: "running", passed: "restore verified", failed: "restore failed", error: "did not run" },
   drillTrigger: { manual: "manual", scheduled: "weekly drill", api: "via API" },
   drillBadge: { passed: "Restore verified", failed: "Test restore failed", error: "Test restore did not run" },
+  drillDetail: {
+    emptyDb: "empty database - the dump loaded cleanly into {image}",
+    tablesOk: "restored {restored}/{declared} tables into a sandbox {image}",
+    tablesPartial: "only {restored}/{declared} tables restored into {image} - the dump did not load completely",
+    collections: "restored {n} collection(s) into a sandbox {image}",
+    rdbBad: "not a valid RDB file (bad header)",
+    rdbHeaderOnly: "RDB header valid (a full load is only drilled for redis)",
+    keys: "loaded {n} key(s) into a sandbox {image}",
+    noSandbox: "no sandbox for engine \"{engine}\" - skipped",
+    emptyArchive: "empty archive (read back fine)",
+    entries: "{n} entries read back",
+    present: "present and readable",
+    emptyFile: "empty file",
+  },
 };
 
 export const fr: typeof en = {
@@ -168,5 +182,19 @@ export const fr: typeof en = {
     passed: "Restauration vérifiée",
     failed: "Test de restauration en échec",
     error: "Test de restauration non exécuté",
+  },
+  drillDetail: {
+    emptyDb: "base vide - le dump s'est chargé sans erreur dans {image}",
+    tablesOk: "{restored}/{declared} tables restaurées dans un bac à sable {image}",
+    tablesPartial: "seulement {restored}/{declared} tables restaurées dans {image} - le dump ne s'est pas chargé entièrement",
+    collections: "{n} collection(s) restaurée(s) dans un bac à sable {image}",
+    rdbBad: "fichier RDB invalide (en-tête incorrect)",
+    rdbHeaderOnly: "en-tête RDB valide (le chargement complet n'est testé que pour redis)",
+    keys: "{n} clé(s) chargée(s) dans un bac à sable {image}",
+    noSandbox: "pas de bac à sable pour le moteur \"{engine}\" - ignoré",
+    emptyArchive: "archive vide (relue sans erreur)",
+    entries: "{n} entrées relues",
+    present: "présent et lisible",
+    emptyFile: "fichier vide",
   },
 };

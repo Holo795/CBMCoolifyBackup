@@ -19,6 +19,7 @@ export const en = {
   toggleTheme: "Toggle theme",
   profile: "Profile",
   back: "Back",
+  ago: { s: "{n}s ago", m: "{n}m ago", h: "{n}h ago", d: "{n}d ago", future: "in the future" },
 };
 
 export const fr: typeof en = {
@@ -41,4 +42,5 @@ export const fr: typeof en = {
   toggleTheme: "Changer de thème",
   profile: "Profil",
   back: "Retour",
+  ago: { s: "il y a {n} s", m: "il y a {n} min", h: "il y a {n} h", d: "il y a {n} j", future: "dans le futur" },
 };
