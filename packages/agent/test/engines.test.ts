@@ -21,3 +21,24 @@ test("engine family helpers", () => {
   assert.equal(isSqlEngine("postgresql"), true);
   assert.equal(isSqlEngine("dragonfly"), false);
 });
+
+test("stripRdbEofMark removes redis-cli's trailing replication mark only", async () => {
+  const { stripRdbEofMark } = await import("../src/dump.js");
+  const { mkdtemp, writeFile, readFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "cbm-rdb-"));
+  try {
+    const rdb = Buffer.concat([Buffer.from("REDIS0012"), Buffer.alloc(30, 7), Buffer.from([0xff]), Buffer.alloc(8, 1)]);
+    const marked = join(dir, "marked.rdb");
+    await writeFile(marked, Buffer.concat([rdb, Buffer.from("5c810ec189f8c5f95ec65ce3e117b4a67d2e2c9b")]));
+    assert.equal(await stripRdbEofMark(marked), true);
+    assert.deepEqual(await readFile(marked), rdb);
+    const clean = join(dir, "clean.rdb");
+    await writeFile(clean, rdb);
+    assert.equal(await stripRdbEofMark(clean), false);
+    assert.deepEqual(await readFile(clean), rdb);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

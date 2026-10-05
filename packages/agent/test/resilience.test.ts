@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, stat, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readdir, stat, rm } from "node:fs/promises";
+import { dumpRedis } from "../src/dump.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JobResult } from "@cbm/shared";
@@ -128,8 +129,9 @@ test("a Redis snapshot restored into a volume is loaded even with AOF on", { ski
     assert.equal((await docker(["run", "-d", "--name", name, "-v", `${vol}:/data`, "redis:7.4-alpine", "redis-server", "--appendonly", "yes"])).code, 0);
     await new Promise((r) => setTimeout(r, 2000));
     for (let i = 0; i < 20; i++) await cli(`SET k${i} v${i}`);
-    assert.equal((await docker(["exec", name, "sh", "-c", "redis-cli --rdb /tmp/s.rdb"])).code, 0);
-    assert.equal((await docker(["cp", `${name}:/tmp/s.rdb`, join(dir, "s.rdb")])).code, 0);
+    // The real backup path (stdout), then the mark a pre-2.1 snapshot still carries.
+    await dumpRedis(name, undefined, join(dir, "s.rdb"));
+    await appendFile(join(dir, "s.rdb"), "5c810ec189f8c5f95ec65ce3e117b4a67d2e2c9b");
     await cli("FLUSHALL");
     await docker(["stop", name]);
     await restoreRdbIntoVolume(vol, join(dir, "s.rdb"));

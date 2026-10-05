@@ -250,6 +250,9 @@ const RDB_PLACE_SCRIPT =
 /** Put a Redis-family RDB snapshot in a data volume so the server loads it at
  * its next start, whatever its persistence mode. */
 export async function restoreRdbIntoVolume(volume: string, inFile: string): Promise<void> {
+  // Snapshots taken before 2.1 may still carry redis-cli's replication EOF mark.
+  const { stripRdbEofMark } = await import("./dump.js");
+  await stripRdbEofMark(inFile);
   await docker(["volume", "create", volume]);
   await dockerFromFile(["run", "--rm", "-i", "-v", `${volume}:/data`, "alpine:3.24", "sh", "-c", RDB_PLACE_SCRIPT], inFile);
 }

@@ -1,4 +1,4 @@
-import { appendFile, open, rm, stat } from "node:fs/promises";
+import { appendFile, open, rm, stat, truncate } from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import type { ResourceType, DbCredentials } from "@cbm/shared";
@@ -175,11 +175,48 @@ export async function dumpRedis(container: string, password: string | undefined,
   // some error paths. Validate the RDB magic so a useless dump can't be treated
   // as success (the caller then falls back to a frozen volume copy).
   if ((await stat(outFile)).size < 9) throw new Error("Redis RDB export is empty");
+  await stripRdbEofMark(outFile);
   const fh = await open(outFile, "r");
   try {
     const buf = Buffer.alloc(5);
     await fh.read(buf, 0, 5, 0);
     if (buf.toString("latin1") !== "REDIS") throw new Error("Redis RDB export has an invalid header");
+  } finally {
+    await fh.close();
+  }
+}
+
+/**
+ * `redis-cli --rdb -` can't truncate stdout, so when the server streams the RDB
+ * with a diskless-replication EOF mark the 40-character mark stays after the
+ * RDB's own end (0xFF + 8-byte checksum). Loading dump.rdb tolerates it; loading
+ * it as an AOF base (Coolify's Redis runs with AOF) refuses the file. Returns
+ * whether a mark was removed.
+ */
+export async function stripRdbEofMark(file: string): Promise<boolean> {
+  const MARK = 40;
+  const size = (await stat(file)).size;
+  if (size < 9 + MARK + 9) return false;
+  const fh = await open(file, "r");
+  const tail = Buffer.alloc(9 + MARK);
+  try {
+    await fh.read(tail, 0, tail.length, size - tail.length);
+  } finally {
+    await fh.close();
+  }
+  const cleanEnd = (await readByte(file, size - 9)) === 0xff;
+  const markEnd = tail[0] === 0xff && /^[0-9a-f]{40}$/i.test(tail.subarray(9).toString("latin1"));
+  if (cleanEnd || !markEnd) return false;
+  await truncate(file, size - MARK);
+  return true;
+}
+
+async function readByte(file: string, pos: number): Promise<number> {
+  const fh = await open(file, "r");
+  try {
+    const b = Buffer.alloc(1);
+    await fh.read(b, 0, 1, pos);
+    return b[0];
   } finally {
     await fh.close();
   }
