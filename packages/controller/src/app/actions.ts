@@ -728,7 +728,7 @@ export async function setInstanceSchedule(instanceId: string, fd: FormData) {
   const invalid = await scheduleError(data);
   if (invalid) return { error: invalid };
   const instance = await prisma.coolifyInstance.findUniqueOrThrow({ where: { id: instanceId } });
-  const existing = await prisma.backupPolicy.findFirst({ where: { instanceId, resourceId: null } });
+  const existing = await prisma.backupPolicy.findFirst({ where: { instanceId, resourceId: null, serverUuid: null } });
   if (existing) {
     await prisma.backupPolicy.update({ where: { id: existing.id }, data });
   } else {
