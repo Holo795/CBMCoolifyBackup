@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import { Languages } from "lucide-react";
 import { setLocale } from "@/app/actions";
 import { LOCALES, LOCALE_LABELS } from "@/lib/i18n-shared";
-import { useLocale } from "@/components/i18n-provider";
+import { useLocale, useT } from "@/components/i18n-provider";
 
 /** Switch the UI language (EN/FR). Writes the locale cookie, then refreshes so
  * both server and client components re-render in the new language. */
 export function LanguageSwitcher() {
   const router = useRouter();
   const current = useLocale();
+  const t = useT();
   const [pending, start] = useTransition();
 
   const onChange = (locale: string) => {
@@ -29,7 +30,7 @@ export function LanguageSwitcher() {
         value={current}
         disabled={pending}
         onChange={(e) => onChange(e.target.value)}
-        aria-label="Language"
+        aria-label={t("components.language")}
         className="cursor-pointer rounded-md bg-transparent py-1 pl-1 pr-5 text-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
       >
         {LOCALES.map((l) => (

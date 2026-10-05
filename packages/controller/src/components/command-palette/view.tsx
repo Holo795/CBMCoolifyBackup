@@ -2,6 +2,7 @@
 
 import { type RefObject } from "react";
 import { Search, CornerDownLeft, type LucideIcon } from "lucide-react";
+import { useT } from "@/components/i18n-provider";
 
 export type Entry = {
   id: string;
@@ -35,6 +36,7 @@ export function CommandPaletteView({
   onKeyNav: (e: React.KeyboardEvent) => void;
   listRef: RefObject<HTMLUListElement | null>;
 }) {
+  const t = useT();
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[12vh]" onClick={onClose}>
       <div
@@ -48,7 +50,8 @@ export function CommandPaletteView({
             autoFocus
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Jump to a page, resource, destination… (try “timezone”)"
+            placeholder={t("components.palette.placeholder")}
+            aria-label={t("components.palette.placeholder")}
             className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
           <kbd className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">ESC</kbd>
@@ -62,7 +65,7 @@ export function CommandPaletteView({
               <li key={e.id}>
                 {showGroup && (
                   <div className="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    {e.group}
+                    {t(`components.palette.groups.${e.group}`)}
                   </div>
                 )}
                 <button
@@ -81,7 +84,7 @@ export function CommandPaletteView({
               </li>
             );
           })}
-          {filtered.length === 0 && <li className="px-3 py-6 text-center text-sm text-muted-foreground">No results</li>}
+          {filtered.length === 0 && <li className="px-3 py-6 text-center text-sm text-muted-foreground">{t("components.palette.noResults")}</li>}
         </ul>
       </div>
     </div>

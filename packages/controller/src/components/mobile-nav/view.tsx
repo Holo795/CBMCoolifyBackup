@@ -25,7 +25,7 @@ export function MobileNavView({
   return (
     <div className="md:hidden">
       <button
-        aria-label="Open menu"
+        aria-label={t("components.openMenu")}
         className="flex h-9 w-9 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground"
         onClick={onOpen}
       >
@@ -39,7 +39,7 @@ export function MobileNavView({
             <div className="flex h-14 items-center justify-between border-b px-4">
               <span className="text-base font-semibold tracking-wide">CBM</span>
               <button
-                aria-label="Close menu"
+                aria-label={t("components.closeMenu")}
                 className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
                 onClick={onClose}
               >
