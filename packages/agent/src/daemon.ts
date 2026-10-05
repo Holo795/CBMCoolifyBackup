@@ -5,11 +5,14 @@ import {
   countContainers,
   detectCoolifyResourceUuids,
   listContainersForDiscovery,
+  recoverHeldContainers,
 } from "./docker.js";
 import { groupContainersByResource, PS_FORMAT } from "./hooks.js";
 import { logger } from "./logger.js";
 import * as client from "./client.js";
 import { runJobForController } from "./runner.js";
+import { initHeldContainers } from "./held.js";
+import { deliverResult, flushPendingResults } from "./outbox.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -40,6 +43,23 @@ export async function startDaemon(): Promise<void> {
     }
   }
 
+  // Containers a previous run left paused/stopped (crash, kill) are resumed now,
+  // and on SIGTERM before exiting (see held.ts).
+  initHeldContainers(cfg.workDir);
+  await recoverHeldContainers((m) => logger.warn(m));
+  let stopping = false;
+  for (const sig of ["SIGTERM", "SIGINT"] as const) {
+    process.on(sig, () => {
+      if (stopping) return;
+      stopping = true;
+      logger.info(`${sig} received - resuming any container paused or stopped by a running job, then exiting`);
+      void recoverHeldContainers((m) => logger.warn(m)).finally(() => process.exit(0));
+    });
+  }
+
+  // Results a previous run couldn't deliver.
+  await flushPendingResults(cfg.workDir, (r) => client.sendResult(cfg, r), (m) => logger.info(m));
+
   // Background heartbeat.
   void heartbeatLoop(cfg);
 
@@ -53,7 +73,7 @@ export async function startDaemon(): Promise<void> {
     logger.info(`Picked up job ${job.id} (${job.type})`);
     const p = (async () => {
       const result = await runJobForController(job, cfg);
-      await client.sendResult(cfg, result).catch((e) => logger.error(`send result failed`, e));
+      await deliverResult(cfg.workDir, result, (r) => client.sendResult(cfg, r), { log: (m) => logger.warn(m) });
       logger.info(`Job ${job.id} finished: ${result.status}`);
     })()
       .catch((e) => logger.error(`job ${job.id} crashed: ${(e as Error).message}`))
@@ -98,6 +118,9 @@ async function heartbeatLoop(cfg: AgentConfig): Promise<void> {
     } catch {
       /* ignore */
     }
+    // Resend results kept while the controller was unreachable. (No periodic
+    // container recovery here: it could unpause a container mid-backup freeze.)
+    await flushPendingResults(cfg.workDir, (r) => client.sendResult(cfg, r), (m) => logger.info(m)).catch(() => undefined);
     await sleep(cfg.heartbeatIntervalMs);
   }
 }

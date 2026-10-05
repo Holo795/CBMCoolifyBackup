@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { pipeline } from "node:stream/promises";
 import { redactSecrets } from "@cbm/shared";
 import { runCapture, type RunResult } from "./proc.js";
+import { holdContainer, releaseContainer, heldContainers } from "./held.js";
 
 let DOCKER = "docker";
 export function setDockerBin(bin: string) {
@@ -108,25 +109,57 @@ export async function isContainerRunning(name: string): Promise<boolean> {
 }
 
 export async function stopContainer(name: string): Promise<void> {
+  holdContainer(name, "stopped"); // before: a kill right after must still restart it
   const r = await docker(["stop", name]);
-  if (r.code !== 0) throw new Error(`docker stop ${name} failed: ${r.stderr}`);
+  if (r.code !== 0) {
+    releaseContainer(name);
+    throw new Error(`docker stop ${name} failed: ${r.stderr}`);
+  }
 }
 
 export async function startContainer(name: string): Promise<void> {
   const r = await docker(["start", name]);
   if (r.code !== 0) throw new Error(`docker start ${name} failed: ${r.stderr}`);
+  releaseContainer(name);
 }
 
 /** Freeze a container's processes in place (no restart, state preserved). */
 export async function pauseContainer(name: string): Promise<void> {
+  holdContainer(name, "paused"); // before: a kill right after must still resume it
   const r = await docker(["pause", name]);
-  if (r.code !== 0) throw new Error(`docker pause ${name} failed: ${r.stderr}`);
+  if (r.code !== 0) {
+    releaseContainer(name);
+    throw new Error(`docker pause ${name} failed: ${r.stderr}`);
+  }
 }
 
 /** Resume a previously frozen container. */
 export async function unpauseContainer(name: string): Promise<void> {
   const r = await docker(["unpause", name]);
-  if (r.code !== 0) throw new Error(`docker unpause ${name} failed: ${r.stderr}`);
+  // "is not paused" means it's already running: nothing left to undo.
+  if (r.code !== 0 && !/not paused/i.test(r.stderr)) throw new Error(`docker unpause ${name} failed: ${r.stderr}`);
+  releaseContainer(name);
+}
+
+/**
+ * Resume every container the agent left paused or stopped (see held.ts): on
+ * startup after a crash, and on SIGTERM. A container that no longer exists is
+ * forgotten; one that can't be resumed stays recorded for the next attempt.
+ */
+export async function recoverHeldContainers(log: (msg: string) => void): Promise<void> {
+  for (const h of heldContainers()) {
+    if (!(await containerExists(h.name))) {
+      releaseContainer(h.name);
+      continue;
+    }
+    try {
+      if (h.action === "paused") await unpauseContainer(h.name);
+      else await startContainer(h.name);
+      log(`Resumed ${h.name} (left ${h.action} by an interrupted job since ${h.since})`);
+    } catch (e) {
+      log(`Could not resume ${h.name}: ${(e as Error).message} - will retry`);
+    }
+  }
 }
 
 /**

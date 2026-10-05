@@ -5,7 +5,17 @@ import {
   type JobResult,
   type HeartbeatRequest,
 } from "@cbm/shared";
+import { readFileSync } from "node:fs";
 import type { AgentConfig } from "./config.js";
+
+/** This agent's real version (was hard-coded to an old one). */
+export const AGENT_VERSION: string = (() => {
+  try {
+    return (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }).version;
+  } catch {
+    return "unknown";
+  }
+})();
 
 async function req(cfg: AgentConfig, path: string, init: RequestInit, auth = true): Promise<Response> {
   const headers: Record<string, string> = {
@@ -25,7 +35,7 @@ export async function register(cfg: AgentConfig): Promise<AgentRegisterResponse>
       body: JSON.stringify({
         enrollmentToken: cfg.enrollmentToken,
         hostname: cfg.hostname,
-        agentVersion: "1.0.2",
+        agentVersion: AGENT_VERSION,
         ...(cfg.serverUuid ? { serverUuid: cfg.serverUuid } : {}),
       }),
     },
@@ -54,7 +64,10 @@ export async function sendResult(cfg: AgentConfig, result: JobResult): Promise<v
     method: "POST",
     body: JSON.stringify(result),
   });
-  if (!res.ok) throw new Error(`result failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    // The status lets the outbox tell "retry later" from "never going to work".
+    throw Object.assign(new Error(`result failed: ${res.status} ${(await res.text()).slice(0, 300)}`), { status: res.status });
+  }
 }
 
 export async function heartbeat(cfg: AgentConfig, data: HeartbeatRequest): Promise<void> {
