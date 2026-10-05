@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Menu, X, Github } from "lucide-react";
+import { Menu, X } from "lucide-react";
+import { GithubIcon } from "@/components/icons/github";
 import { navFor } from "@/components/nav";
 import { useT } from "@/components/i18n-provider";
 import { cn } from "@/lib/cn";
@@ -74,7 +75,7 @@ export function MobileNavView({
                 rel="noreferrer noopener"
                 className="flex items-center gap-1.5 hover:text-foreground"
               >
-                <Github className="h-3.5 w-3.5" />
+                <GithubIcon className="h-3.5 w-3.5" />
                 <span>{t("nav.builtBy")}</span>
               </a>
             </div>

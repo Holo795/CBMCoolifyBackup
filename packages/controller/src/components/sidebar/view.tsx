@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Github } from "lucide-react";
+import { GithubIcon } from "@/components/icons/github";
 import { navFor } from "@/components/nav";
 import { useT } from "@/components/i18n-provider";
 import { cn } from "@/lib/cn";
@@ -42,7 +42,7 @@ export function SidebarView({ pathname, role }: { pathname: string; role: string
           rel="noreferrer noopener"
           className="flex items-center gap-1.5 hover:text-foreground"
         >
-          <Github className="h-3.5 w-3.5" />
+          <GithubIcon className="h-3.5 w-3.5" />
           <span>{t("nav.builtBy")}</span>
         </a>
         <p className="mt-1 text-[10px]">{t("nav.tagline")}</p>

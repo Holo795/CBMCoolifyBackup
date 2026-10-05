@@ -1,7 +1,8 @@
 "use client";
 
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label } from "@/components/ui";
-import { DatabaseBackup, Github } from "lucide-react";
+import { DatabaseBackup } from "lucide-react";
+import { GithubIcon } from "@/components/icons/github";
 import { useT } from "@/components/i18n-provider";
 import { LanguageSwitcher } from "@/components/language-switcher";
 
@@ -111,7 +112,7 @@ export function LoginFormView({
                 <div className="h-px flex-1 bg-border" /> {t("auth.or")} <div className="h-px flex-1 bg-border" />
               </div>
               <Button type="button" variant="outline" onClick={onGithub}>
-                <Github className="h-4 w-4" /> {t("auth.continueWithGithub")}
+                <GithubIcon className="h-4 w-4" /> {t("auth.continueWithGithub")}
               </Button>
             </>
           )}
