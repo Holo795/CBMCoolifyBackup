@@ -35,7 +35,7 @@ export function HooksFormView({
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
 }) {
   const t = useT();
-  const uid = useId();
+  const baseId = useId();
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-5">
       {rows.map((r, i) => {
@@ -54,9 +54,9 @@ export function HooksFormView({
           )}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_7rem]">
             <div className="flex flex-col gap-1">
-              <Label htmlFor={`${uid}-pre-${i}`}>{t("resources.hooks.pre")}</Label>
+              <Label htmlFor={`${baseId}-pre-${i}`}>{t("resources.hooks.pre")}</Label>
               <Input
-                id={`${uid}-pre-${i}`}
+                id={`${baseId}-pre-${i}`}
                 aria-label={`${t("resources.hooks.pre")} - ${target}`}
                 value={r.pre}
                 onChange={(e) => onUpdate(i, "pre", e.target.value)}
@@ -65,9 +65,9 @@ export function HooksFormView({
               />
             </div>
             <div className="flex flex-col gap-1">
-              <Label htmlFor={`${uid}-post-${i}`}>{t("resources.hooks.post")}</Label>
+              <Label htmlFor={`${baseId}-post-${i}`}>{t("resources.hooks.post")}</Label>
               <Input
-                id={`${uid}-post-${i}`}
+                id={`${baseId}-post-${i}`}
                 aria-label={`${t("resources.hooks.post")} - ${target}`}
                 value={r.post}
                 onChange={(e) => onUpdate(i, "post", e.target.value)}
@@ -76,9 +76,9 @@ export function HooksFormView({
               />
             </div>
             <div className="flex flex-col gap-1">
-              <Label htmlFor={`${uid}-timeout-${i}`}>{t("resources.hooks.timeout")}</Label>
+              <Label htmlFor={`${baseId}-timeout-${i}`}>{t("resources.hooks.timeout")}</Label>
               <Input
-                id={`${uid}-timeout-${i}`}
+                id={`${baseId}-timeout-${i}`}
                 aria-label={`${t("resources.hooks.timeout")} - ${target}`}
                 type="number"
                 min={1}

@@ -34,12 +34,12 @@ export function ConfirmDeleteButton({
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   // The element that opened the dialog, to give focus back when it closes.
-  const opener = useRef<HTMLElement | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
   const ok = text.trim() === confirmWord;
 
   const close = () => {
     setOpen(false);
-    opener.current?.focus();
+    openerRef.current?.focus();
   };
 
   const onConfirm = () => {
@@ -72,7 +72,7 @@ export function ConfirmDeleteButton({
       variant={variant}
       size={size}
       onOpenClick={() => {
-        opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         setText("");
         setError(null);
         setOpen(true);
