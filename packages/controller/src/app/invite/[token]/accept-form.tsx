@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
+import { authErrorText } from "@/lib/auth-errors";
+import { useT } from "@/components/i18n-provider";
 import { claimInvitation } from "@/app/actions";
 import { AcceptInviteFormView } from "./accept-form.view";
 
@@ -12,6 +14,7 @@ import { AcceptInviteFormView } from "./accept-form.view";
  * ./accept-form.view.tsx.
  */
 export function AcceptInviteForm({ token, email, role }: { token: string; email: string; role: string }) {
+  const t = useT();
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -23,13 +26,13 @@ export function AcceptInviteForm({ token, email, role }: { token: string; email:
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (password.length < 8) return setError("Password must be at least 8 characters");
-    if (password !== confirm) return setError("Passwords don't match");
+    if (password.length < 8) return setError(t("auth.passwordTooShort"));
+    if (password !== confirm) return setError(t("auth.passwordMismatch"));
     setLoading(true);
     try {
       const claim = await claimInvitation(token);
       if (claim.error || !claim.email) {
-        setError(claim.error ?? "This invitation is no longer valid.");
+        setError(claim.error ?? t("auth.inviteNoLongerValid"));
         return;
       }
       const name = `${firstName} ${lastName}`.trim() || claim.email.split("@")[0];
@@ -37,7 +40,7 @@ export function AcceptInviteForm({ token, email, role }: { token: string; email:
       // them (object literals would trip the excess-property check).
       const signUpBody = { email: claim.email, password, name, firstName, lastName };
       const res = await authClient.signUp.email(signUpBody);
-      if (res.error) setError(res.error.message ?? "Could not create your account");
+      if (res.error) setError(authErrorText(res.error, t, "auth.createAccountFailed"));
       else router.push("/");
     } catch (err) {
       setError((err as Error).message);

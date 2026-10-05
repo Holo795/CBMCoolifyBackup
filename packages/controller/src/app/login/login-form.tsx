@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
+import { authErrorText } from "@/lib/auth-errors";
+import { useT } from "@/components/i18n-provider";
 import { LoginFormView } from "./login-form.view";
 
 /**
@@ -20,6 +22,7 @@ export function LoginForm({
   hasGithub: boolean;
   canReset: boolean;
 }) {
+  const t = useT();
   const router = useRouter();
   const [mode, setMode] = useState<"auth" | "forgot">("auth");
   const [email, setEmail] = useState("");
@@ -38,7 +41,7 @@ export function LoginForm({
     try {
       if (mode === "forgot") {
         await authClient.requestPasswordReset({ email, redirectTo: "/reset-password" });
-        setNotice("If an account exists for that address, a reset link is on its way.");
+        setNotice(t("auth.resetSent"));
         return;
       }
       const name = `${firstName} ${lastName}`.trim() || email.split("@")[0];
@@ -46,7 +49,7 @@ export function LoginForm({
       // them (object literals would trip the excess-property check).
       const signUpBody = { email, password, name, firstName, lastName };
       const res = await (needsSetup ? authClient.signUp.email(signUpBody) : authClient.signIn.email({ email, password }));
-      if (res.error) setError(res.error.message ?? "Authentication failed");
+      if (res.error) setError(authErrorText(res.error, t, "auth.authFailed"));
       else router.push("/");
     } catch (err) {
       setError((err as Error).message);

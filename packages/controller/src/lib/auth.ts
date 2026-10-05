@@ -6,6 +6,7 @@ import { prisma } from "./prisma";
 import { env } from "./env";
 import { sendMail } from "./email";
 import { decideInviteSignup } from "./invitations";
+import { PASSWORD_BREACHED, REGISTRATION_CLOSED } from "./auth-errors";
 
 const socialProviders: Record<string, { clientId: string; clientSecret: string }> = {};
 if (env.oauth.githubClientId && env.oauth.githubClientSecret) {
@@ -129,7 +130,9 @@ export const auth = betterAuth({
       const password = body?.newPassword ?? body?.password;
       if (typeof password !== "string" || !password) return;
       if (await passwordBreached(password)) {
+        // The code lets the sign-up / reset / profile forms translate it.
         throw new APIError("BAD_REQUEST", {
+          code: PASSWORD_BREACHED,
           message: "This password appears in a known data breach - choose another one.",
         });
       }
@@ -173,6 +176,7 @@ export const auth = betterAuth({
           });
           if (!decision.allow) {
             throw new APIError("FORBIDDEN", {
+              code: REGISTRATION_CLOSED,
               message: "Registration is closed - ask an admin for an invite link.",
             });
           }
