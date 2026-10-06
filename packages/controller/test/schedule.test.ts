@@ -34,7 +34,22 @@ test("describeCron describes presets in the UI language and keeps custom crons",
   assert.equal(describeCron(freqToCron("daily"), fr, "Europe/Paris"), "tous les jours à 02:00 Europe/Paris");
   assert.equal(describeCron(freqToCron("hourly"), fr), "toutes les heures");
   assert.equal(describeCron(freqToCron("weekly"), en), "weekly (Mon 02:00)");
-  assert.equal(describeCron("7 3 * * 2", fr, "UTC"), "7 3 * * 2");
+  assert.equal(describeCron(freqToCron("monthly"), en), "monthly (day 1, 02:00)");
+});
+
+test("describeCron spells out any fixed-time schedule and keeps the rest as-is", () => {
+  const en = makeT("en");
+  const fr = makeT("fr");
+  assert.equal(describeCron("0 3 * * *", en, "Europe/Paris"), "daily at 03:00 Europe/Paris");
+  assert.equal(describeCron("30 23 * * *", fr), "tous les jours à 23:30");
+  assert.equal(describeCron("15 * * * *", en), "hourly at :15");
+  assert.equal(describeCron("7 3 * * 2", fr, "UTC"), "chaque semaine (mar. 03:07 UTC)");
+  assert.equal(describeCron("0 4 * * 0", en), "weekly (Sun 04:00)");
+  assert.equal(describeCron("0 4 * * 7", en), "weekly (Sun 04:00)");
+  assert.equal(describeCron("0 5 15 * *", fr), "chaque mois (jour 15, 05:00)");
+  for (const raw of ["*/5 * * * *", "0 2 * * 1-5", "0 2,14 * * *", "0 2 1 1 *", "0 2 1 * 1", "61 2 * * *", "0 2 * *"]) {
+    assert.equal(describeCron(raw, en), raw, raw);
+  }
 });
 
 test("modeLabel and captureLabel translate known tokens and pass others through", () => {
