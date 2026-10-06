@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { authErrorText } from "@/lib/auth-errors";
 import { useT } from "@/components/i18n-provider";
+import type { OAuthProvider } from "@/lib/auth";
 import { LoginFormView } from "./login-form.view";
 
 /**
@@ -15,11 +16,12 @@ import { LoginFormView } from "./login-form.view";
  */
 export function LoginForm({
   needsSetup,
-  hasGithub,
+  providers,
   canReset,
 }: {
   needsSetup: boolean;
-  hasGithub: boolean;
+  /** Social sign-in providers configured on the server. */
+  providers: OAuthProvider[];
   canReset: boolean;
 }) {
   const t = useT();
@@ -61,7 +63,7 @@ export function LoginForm({
   return (
     <LoginFormView
       needsSetup={needsSetup}
-      hasGithub={hasGithub}
+      providers={providers}
       forgot={forgot}
       email={email}
       password={password}
@@ -81,7 +83,7 @@ export function LoginForm({
         setNotice(null);
         setMode(forgot ? "auth" : "forgot");
       }}
-      onGithub={() => authClient.signIn.social({ provider: "github" })}
+      onProvider={(provider) => authClient.signIn.social({ provider })}
     />
   );
 }

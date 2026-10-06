@@ -8,7 +8,7 @@ import { sendMail } from "./email";
 import { decideInviteSignup } from "./invitations";
 import { PASSWORD_BREACHED, REGISTRATION_CLOSED } from "./auth-errors";
 
-const socialProviders: Record<string, { clientId: string; clientSecret: string }> = {};
+const socialProviders: Record<string, { clientId: string; clientSecret: string; issuer?: string }> = {};
 if (env.oauth.githubClientId && env.oauth.githubClientSecret) {
   socialProviders.github = {
     clientId: env.oauth.githubClientId,
@@ -25,8 +25,14 @@ if (env.oauth.gitlabClientId && env.oauth.gitlabClientSecret) {
   socialProviders.gitlab = {
     clientId: env.oauth.gitlabClientId,
     clientSecret: env.oauth.gitlabClientSecret,
+    // Self-managed GitLab; gitlab.com when unset.
+    ...(env.oauth.gitlabIssuer ? { issuer: env.oauth.gitlabIssuer } : {}),
   };
 }
+
+export type OAuthProvider = "github" | "google" | "gitlab";
+/** The social sign-in providers configured by env, in display order. */
+export const OAUTH_PROVIDERS = (["github", "google", "gitlab"] as const).filter((p) => p in socialProviders);
 
 /** Endpoints that set a new password (body.password or body.newPassword). */
 const NEW_PASSWORD_PATHS = new Set(["/sign-up/email", "/change-password", "/reset-password"]);
