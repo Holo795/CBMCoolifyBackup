@@ -3,7 +3,7 @@
 import { useId, useState, useTransition, type ReactElement, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Button, Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui";
+import { Button, Dialog, DialogClose, DialogContent, DialogTrigger, slottable } from "@/components/ui";
 import { useT } from "@/components/i18n-provider";
 import { useOpenRequest } from "@/components/open-request";
 
@@ -73,7 +73,7 @@ export function FormDialog({
         if (v) setError(null);
       }}
     >
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogTrigger asChild>{slottable(trigger)}</DialogTrigger>
       <DialogContent
         side={side}
         title={title}

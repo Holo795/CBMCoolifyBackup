@@ -150,11 +150,21 @@ export function DropdownMenuSeparator({ className, ...props }: React.ComponentPr
 export const TooltipProvider = TooltipPrimitive.Provider;
 
 /** Short hint on hover/focus. Wraps a single focusable child. */
+/**
+ * An `asChild` trigger needs one element it can clone. Children rendered by a
+ * server component can reach a client one as a lazy chunk on a large page
+ * (React streams big payloads in parts), which Radix can't slot onto: wrap
+ * those in a span instead of failing the whole page.
+ */
+export function slottable(child: React.ReactNode): React.ReactElement {
+  return React.isValidElement(child) ? child : <span className="inline-flex">{child}</span>;
+}
+
 export function Tooltip({ content, children, side = "top" }: { content: React.ReactNode; children: React.ReactElement; side?: "top" | "bottom" | "left" | "right" }) {
   if (!content) return children;
   return (
     <TooltipPrimitive.Root delayDuration={300}>
-      <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+      <TooltipPrimitive.Trigger asChild>{slottable(children)}</TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
         <TooltipPrimitive.Content
           side={side}
