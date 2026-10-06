@@ -176,7 +176,14 @@ export const TabsContent = TabsPrimitive.Content;
 export function TabsList({ className, ...props }: React.ComponentProps<typeof TabsPrimitive.List>) {
   return (
     <TabsPrimitive.List
-      className={cn("flex h-10 items-center gap-1 overflow-x-auto border-b", className)}
+      // The baseline is an inset shadow, not a border: a 1px border inside a
+      // fixed height made the (horizontally scrollable) list 1px too short and
+      // showed a vertical scrollbar. The scrollbar itself stays hidden; the
+      // tabs still scroll sideways on narrow screens.
+      className={cn(
+        "flex items-center gap-1 overflow-x-auto shadow-[inset_0_-1px_0_var(--color-border)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        className,
+      )}
       {...props}
     />
   );
@@ -186,7 +193,7 @@ export function TabsTrigger({ className, ...props }: React.ComponentProps<typeof
   return (
     <TabsPrimitive.Trigger
       className={cn(
-        "relative -mb-px inline-flex h-10 shrink-0 items-center gap-2 border-b-2 border-transparent px-2.5 text-[13px] font-medium text-muted-foreground transition-colors",
+        "relative inline-flex h-10 shrink-0 items-center gap-2 border-b-2 border-transparent px-2.5 text-[13px] font-medium text-muted-foreground transition-colors",
         "hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         "data-[state=active]:border-accent data-[state=active]:text-foreground [&_svg]:size-4",
         className,
