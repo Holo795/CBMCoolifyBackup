@@ -11,9 +11,10 @@ import { getT } from "@/lib/i18n";
 import { can, requireUser } from "@/lib/session";
 import { modeLabel, captureLabel } from "@/lib/schedule";
 import { formatBytes, formatDateTime } from "@/lib/cn";
-import { GitCommitHorizontal, ShieldCheck, Check, X, AlertCircle, Boxes, Trash2, FileArchive, Lock, Database } from "lucide-react";
+import { GitCommitHorizontal, Info, ShieldCheck, Check, X, AlertCircle, Boxes, Trash2, FileArchive, Lock, Database } from "lucide-react";
 import { drillTone } from "@/lib/status";
 import { type DESTINATION_SECRETS } from "@/lib/public-fields";
+import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
 import { localizeDrillDetail } from "@/lib/drill-detail";
 
 type DrillCheckRow = { artifact: string; kind: string; engine?: string; ok: boolean; detail: string };
@@ -43,11 +44,14 @@ export async function SnapshotDetailView({
   const isOperator = can(await requireUser(), "operator");
   const manifest = snapshot.manifest as { provenance?: { gitCommitSha?: string; imageDigest?: string } } | null;
   const ok = snapshot.status === "succeeded";
+  // Nothing but the configuration was kept (a running app with no volume or
+  // database): it can be cloned, but not restored in place or test-restored.
+  const configOnly = snapshot.captureMode === CONFIG_ONLY_CAPTURE;
   const canRepin = ok && !agentDown && !!manifest?.provenance?.gitCommitSha && manifest.provenance.gitCommitSha !== "HEAD";
 
   const menu: MenuAction[] = [
     { kind: "link", label: t("snapshots.openResource"), icon: <Boxes />, href: `/resources/${snapshot.resourceId}` },
-    ...(isOperator && ok
+    ...(isOperator && ok && !configOnly
       ? [{ label: t("snapshots.drillNow"), icon: <ShieldCheck />, action: drillSnapshotNow.bind(null, snapshot.id) }]
       : []),
     ...(isOperator && canRepin
@@ -104,6 +108,7 @@ export async function SnapshotDetailView({
                   instances={instances}
                   currentInstanceId={snapshot.resource.instanceId}
                   allowNew={!snapshot.resource.coolifyUuid.startsWith("coolify-self")}
+                  allowInPlace={!configOnly}
                 />
               </Gate>
             )}
@@ -111,6 +116,16 @@ export async function SnapshotDetailView({
           </>
         }
       />
+
+      {configOnly && (
+        <div className="flex items-start gap-3 rounded-xl border bg-card px-4 py-3 text-[13px] shadow-sm">
+          <Info className="mt-0.5 size-4 shrink-0 text-accent" />
+          <div className="min-w-0">
+            <p className="font-medium">{t("snapshots.configOnlyTitle")}</p>
+            <p className="text-muted-foreground">{t("snapshots.configOnlyBody")}</p>
+          </div>
+        </div>
+      )}
 
       {snapshot.error && (
         <div className="flex items-start gap-3 rounded-xl border border-danger/30 bg-danger-soft px-4 py-3 text-[13px]">
@@ -133,7 +148,7 @@ export async function SnapshotDetailView({
             </CardContent>
           </Card>
 
-          {ok && (
+          {ok && !configOnly && (
             <Card>
               <CardHeader
                 actions={

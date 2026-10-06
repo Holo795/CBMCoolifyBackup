@@ -13,7 +13,8 @@ import { RestoreActionsView } from "./view";
  *
  * With several connected instances, the clone dialog offers a target instance
  * (migration). `allowNew={false}` hides cloning (a Coolify control-plane
- * snapshot can only be restored in place).
+ * snapshot can only be restored in place); `allowInPlace={false}` hides the
+ * in-place restore (a configuration-only snapshot has no data to put back).
  */
 export function RestoreActions({
   snapshotId,
@@ -22,10 +23,12 @@ export function RestoreActions({
   instances,
   currentInstanceId,
   allowNew = true,
+  allowInPlace = true,
 }: {
   snapshotId: string;
   hasAgent: boolean;
   allowNew?: boolean;
+  allowInPlace?: boolean;
   size?: "sm" | "md";
   /** Connected instances to offer as "Restore onto" targets (detail page). */
   instances?: { id: string; name: string }[];
@@ -59,6 +62,7 @@ export function RestoreActions({
       size={size}
       hasAgent={hasAgent}
       allowNew={allowNew}
+      allowInPlace={allowInPlace}
       pending={pending}
       dialog={dialog}
       onDialog={setDialog}

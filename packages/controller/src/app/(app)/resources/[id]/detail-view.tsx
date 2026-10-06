@@ -33,6 +33,7 @@ import { HooksForm } from "@/components/hooks-form";
 import { setResourceSchedule, removeResourceOverride, backupNow, deleteSnapshot } from "@/app/actions";
 import { ActionsMenu } from "@/components/actions-menu";
 import { RestoreActions } from "@/components/restore-actions";
+import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
 import { Gate } from "@/components/role-gate";
 import { getT } from "@/lib/i18n";
 import { effectivePolicy, describeCron, cronToFrequency, modeLabel, captureLabel } from "@/lib/schedule";
@@ -227,7 +228,12 @@ export async function ResourceDetailView({
                           <div className="flex items-center justify-end gap-1">
                             <Gate min="operator">
                               {s.status === "succeeded" && (
-                                <RestoreActions snapshotId={s.id} hasAgent={!agentDown} allowNew={!controlPlane} />
+                                <RestoreActions
+                                  snapshotId={s.id}
+                                  hasAgent={!agentDown}
+                                  allowNew={!controlPlane}
+                                  allowInPlace={s.captureMode !== CONFIG_ONLY_CAPTURE}
+                                />
                               )}
                               <ActionsMenu
                                 items={[
@@ -257,7 +263,14 @@ export async function ResourceDetailView({
                       </p>
                     </div>
                     <Gate min="operator">
-                      {s.status === "succeeded" && <RestoreActions snapshotId={s.id} hasAgent={!agentDown} allowNew={!controlPlane} />}
+                      {s.status === "succeeded" && (
+                        <RestoreActions
+                          snapshotId={s.id}
+                          hasAgent={!agentDown}
+                          allowNew={!controlPlane}
+                          allowInPlace={s.captureMode !== CONFIG_ONLY_CAPTURE}
+                        />
+                      )}
                     </Gate>
                   </ListItem>
                 ))}

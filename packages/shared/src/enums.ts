@@ -60,3 +60,10 @@ export type DestinationType = z.infer<typeof DestinationType>;
 
 export const EventLevel = z.enum(["debug", "info", "warn", "error"]);
 export type EventLevel = z.infer<typeof EventLevel>;
+
+/**
+ * Snapshot capture mode of a resource that runs but has nothing to copy (no
+ * volume, bind mount or database): only its configuration is kept, so it can be
+ * recreated with "→ new" but not restored in place or test-restored.
+ */
+export const CONFIG_ONLY_CAPTURE = "config";

@@ -18,6 +18,17 @@ For volumes, the agent briefly **freezes** (`docker pause`) only the running con
 mount the volume **read-write**, copies it, then resumes them. Read-only mounts and resources
 with no volumes are never touched.
 
+### Resources with nothing to copy
+
+- **Running, but no volume, host folder or database** (a stateless app or service): the snapshot
+  keeps the **configuration only** — image or Git commit, environment and Coolify settings —
+  shown as *configuration only*. It can't be restored in place or test-restored (there is no
+  data), but **Clone** recreates the resource from it. If a container has written more than
+  50 MB inside itself (outside any volume), the backup log warns: those files aren't backed up
+  and are lost whenever Coolify redeploys — add a volume if they are data.
+- **No container on the host at all** (never deployed, deleted, or stopped and removed): the run
+  is marked *skipped* — nothing is stored and no alert is sent.
+
 ### Live mode (no freeze)
 Per resource you can opt into **"Copy live, without freezing (at my own risk)"** (resource →
 **Options** tab) — copy volumes with zero interruption, accepting that a file rewritten exactly

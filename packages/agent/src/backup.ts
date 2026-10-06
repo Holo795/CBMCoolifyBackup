@@ -11,6 +11,7 @@ import {
   volumeFileName,
   MANIFEST_FILE,
   CONFIG_FILE,
+  CONFIG_ONLY_CAPTURE,
 } from "@cbm/shared";
 import { dumpDatabase, dumpRedis } from "./dump.js";
 import { REDIS_ENGINES, isRedisEngine, type Engine } from "./engines.js";
@@ -22,6 +23,7 @@ import {
   isContainerRunning,
   verifyTarOpens,
   containerExists,
+  containerWritableBytes,
   execShell,
   inspectContainer,
   type RunResult,
@@ -33,6 +35,7 @@ import { makeTransfer } from "./transfer.js";
 import { resticEnsureRepo, resticBackupDir, withResticCtx } from "./restic.js";
 import { resolveResource, findDbContainers, readDbCredentials, resourceContainers } from "./resolve.js";
 import { assertFreeSpace } from "./disk.js";
+import { backupOutcome, unbackedLayerWarning } from "./outcome.js";
 
 export type Emit = (level: "debug" | "info" | "warn" | "error", message: string, progress?: number) => void;
 
@@ -46,6 +49,12 @@ async function imageMeta(container: string): Promise<Record<string, string>> {
 /** Returned instead of a manifest when the resource has nothing on the host to
  * back up (no container, volume or data) - a clear "ignored" outcome. */
 export type BackupSkipped = { skipped: true; reason: string };
+
+/** Does any container of the resource exist on this host (running or not)? */
+async function anyContainerExists(containers: string[]): Promise<boolean> {
+  for (const c of containers) if (await containerExists(c)) return true;
+  return false;
+}
 
 export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Promise<SnapshotManifest | BackupSkipped> {
   const stage = join(workDir, job.id);
@@ -282,12 +291,22 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
     captureMethod = dumped > 0 ? `dump+${volMethod}` : volMethod;
   }
 
-  // Nothing was captured (no dump, volume or bind mount): the resource has
-  // nothing on the host to back up. Report a clear "ignored" status instead of
-  // storing an empty, misleading snapshot or failing.
-  if (artifacts.length === 0) {
+  // Nothing captured: either the resource doesn't exist on this host (skip it
+  // with a clear "ignored" status rather than an empty snapshot or a failure),
+  // or it runs without any volume, bind mount or database - then keep its
+  // configuration (image/commit, environment) so it can be recreated.
+  const outcome = backupOutcome(artifacts.length, await anyContainerExists(containers));
+  if (outcome === "skip") {
     emit("warn", "Nothing to back up on the host (no container, volume or data) - ignored");
     return { skipped: true, reason: "Ignored: nothing on the host (no container, volume or data)" };
+  }
+  if (outcome === "config") {
+    captureMethod = CONFIG_ONLY_CAPTURE;
+    emit("info", "No volume, bind mount or database: keeping the configuration only (image or commit, environment)", 70);
+    for (const c of containers) {
+      const warning = unbackedLayerWarning(c, await containerWritableBytes(c));
+      if (warning) emit("warn", warning);
+    }
   }
 
   // DB credentials never leave the host: not in the manifest (stored unencrypted)

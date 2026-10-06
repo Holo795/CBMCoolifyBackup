@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
 import { prisma } from "./prisma";
 import { cronMatches } from "./cron";
 import { enqueueBackup, enqueueVerifyDestination, enqueueDrill } from "./jobs";
@@ -66,7 +67,8 @@ async function drillAllResources(): Promise<void> {
   const resources = await prisma.resource.findMany({ where: { backupEnabled: true }, select: { id: true, name: true } });
   for (const r of resources) {
     const latest = await prisma.snapshot.findFirst({
-      where: { resourceId: r.id, status: "succeeded", mirrorOfId: null },
+      // A configuration-only snapshot has nothing to test.
+      where: { resourceId: r.id, status: "succeeded", mirrorOfId: null, captureMode: { not: CONFIG_ONLY_CAPTURE } },
       orderBy: { startedAt: "desc" },
       select: { id: true, drills: { where: { status: { in: ["passed", "failed", "running"] } }, select: { id: true }, take: 1 } },
     });

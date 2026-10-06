@@ -9,6 +9,7 @@ export function RestoreActionsView({
   size,
   hasAgent,
   allowNew,
+  allowInPlace,
   pending,
   dialog,
   onDialog,
@@ -18,6 +19,7 @@ export function RestoreActionsView({
   size: "sm" | "md";
   hasAgent: boolean;
   allowNew: boolean;
+  allowInPlace: boolean;
   pending: boolean;
   dialog: "in_place" | "new_resource" | null;
   onDialog: (d: "in_place" | "new_resource" | null) => void;
@@ -43,15 +45,21 @@ export function RestoreActionsView({
 
   return (
     <span className="inline-flex items-center gap-1.5">
-      {wrap(
-        <Button size={size} disabled={!hasAgent} onClick={() => onDialog("in_place")}>
-          <RotateCcw /> {t("snapshots.restore")}
-        </Button>,
-      )}
+      {allowInPlace &&
+        wrap(
+          <Button size={size} disabled={!hasAgent} onClick={() => onDialog("in_place")}>
+            <RotateCcw /> {t("snapshots.restore")}
+          </Button>,
+        )}
       {allowNew &&
         wrap(
           <Tooltip content={hasAgent ? t("snapshots.cloneTitle") : undefined}>
-            <Button size={size} variant="ghost" disabled={!hasAgent} onClick={() => onDialog("new_resource")}>
+            <Button
+              size={size}
+              variant={allowInPlace ? "ghost" : "secondary"}
+              disabled={!hasAgent}
+              onClick={() => onDialog("new_resource")}
+            >
               <Copy /> {t("snapshots.clone")}
             </Button>
           </Tooltip>,

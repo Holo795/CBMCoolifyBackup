@@ -23,6 +23,10 @@ Overwrites the existing resource's data with the snapshot:
 - **Service-internal databases** are additionally re-loaded from their logical dump after the
   containers are back up (best-effort, on top of the volume restore).
 
+A *configuration only* snapshot (a resource with no volume, host folder or database — see
+[Backups](backups.md#resources-with-nothing-to-copy)) has no data to put back: it offers **Clone**
+only, and isn't test-restored.
+
 ## → new (clone)
 
 **Clone** creates a **brand-new Coolify resource** and restores into it — the original is never touched.

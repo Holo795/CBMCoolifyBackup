@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Prisma } from "@/generated/prisma/client";
+import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
 import { PageHeader } from "@/components/page-header";
 import { Badge, StatusDot, EmptyState, List, Tooltip, buttonClass, statusTone } from "@/components/ui";
 import { retrySnapshot, cancelSnapshot, deleteSnapshot } from "@/app/actions";
@@ -82,6 +83,7 @@ export async function SnapshotsView({
           instances={instances}
           currentInstanceId={s.resource.instanceId}
           allowNew={!s.resource.coolifyUuid.startsWith("coolify-self")}
+          allowInPlace={s.captureMode !== CONFIG_ONLY_CAPTURE}
         />
       )}
       {s.status === "failed" && (

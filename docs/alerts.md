@@ -23,8 +23,8 @@ without saving it.
 Each alert names what it's about — the resource and instance (up to 20 per message for
 missing / overdue / corrupt), the destination, or the self-backup — and links back to the
 snapshot, the snapshots list, the destinations page or **Settings → Disaster recovery**. Links
-are built from `BETTER_AUTH_URL`. A backup that finds nothing to capture is marked *skipped*,
-not failed, and sends no alert.
+are built from `BETTER_AUTH_URL`. A backup of a resource with no container on the host is
+marked *skipped*, not failed, and sends no alert (see [Backups](backups.md#resources-with-nothing-to-copy)).
 
 ## Why so many alerts
 

@@ -36,7 +36,7 @@ export function modeLabel(mode: string, t: T): string {
   return mode === "backup" || mode === "sync" ? t(`schedule.mode.${mode}`) : mode;
 }
 
-const CAPTURES = new Set(["dump", "frozen", "live", "none"]);
+const CAPTURES = new Set(["dump", "frozen", "live", "none", "config"]);
 
 /** A snapshot's capture mode for the UI ("dump+frozen" → each part translated). */
 export function captureLabel(capture: string, t: T): string {

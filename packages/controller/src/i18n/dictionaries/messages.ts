@@ -126,6 +126,8 @@ export const en = {
   serviceCantClone: 'Service "{name}" can\'t be cloned automatically (no compose exposed by the API)',
   drillNeedsSuccess: "Only a successful snapshot can be test-restored",
   noManifestDrill: "Snapshot has no manifest; cannot test-restore",
+  configOnlyNoDrill: "This snapshot holds the configuration only (no data): there is nothing to test-restore",
+  configOnlyNoInPlace: "This snapshot holds the configuration only (no data): use Clone to recreate the resource",
   drillLocalAgentOffline: "The agent that holds this local snapshot is offline - it must run the test restore.",
   drillNoAgent: "No online agent to run the test restore.",
 
@@ -274,6 +276,8 @@ export const fr: typeof en = {
     "Le service « {name} » ne peut pas être cloné automatiquement (aucun compose exposé par l'API)",
   drillNeedsSuccess: "Seul un snapshot réussi peut faire l'objet d'un test de restauration",
   noManifestDrill: "Le snapshot n'a pas de manifeste ; test de restauration impossible",
+  configOnlyNoDrill: "Ce snapshot ne contient que la configuration (aucune donnée) : il n'y a rien à tester",
+  configOnlyNoInPlace: "Ce snapshot ne contient que la configuration (aucune donnée) : utilisez Cloner pour recréer la ressource",
   drillLocalAgentOffline:
     "L'agent qui détient ce snapshot local est hors ligne - c'est lui qui doit lancer le test de restauration.",
   drillNoAgent: "Aucun agent en ligne pour lancer le test de restauration.",

@@ -12,6 +12,7 @@ import {
   type StorageSpec,
   type CapturedConfig,
   snapshotDir,
+  CONFIG_ONLY_CAPTURE,
 } from "@cbm/shared";
 import { randomUUID } from "node:crypto";
 import { prisma } from "./prisma";
@@ -743,6 +744,10 @@ export async function enqueueRestore(
   if (target === "new_resource" && snapshot.resource.coolifyUuid.startsWith("coolify-self")) {
     throw new UserError("messages.controlPlaneNoClone");
   }
+  // A configuration-only snapshot has no data to put back: it can only be cloned.
+  if (target === "in_place" && snapshot.captureMode === CONFIG_ONLY_CAPTURE) {
+    throw new UserError("messages.configOnlyNoInPlace");
+  }
   if (target === "in_place") await assertResourceIdle(snapshot.resource.id, snapshot.resource.name);
 
   const migrating =
@@ -1094,6 +1099,7 @@ export async function enqueueDrill(
   });
   if (snapshot.status !== "succeeded") throw new UserError("messages.drillNeedsSuccess");
   if (!snapshot.manifest) throw new UserError("messages.noManifestDrill");
+  if (snapshot.captureMode === CONFIG_ONLY_CAPTURE) throw new UserError("messages.configOnlyNoDrill");
 
   const producer = await agentById(snapshot.agentId);
   const producerOnline = producer?.status === "online" ? producer : null;

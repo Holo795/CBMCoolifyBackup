@@ -103,6 +103,13 @@ export async function containerExists(name: string): Promise<boolean> {
   return r.code === 0;
 }
 
+/** Bytes written in a container's own (writable) layer, or null if unknown. */
+export async function containerWritableBytes(name: string): Promise<number | null> {
+  const r = await docker(["container", "inspect", "--size", "-f", "{{.SizeRw}}", name]);
+  const n = Number(r.stdout.trim());
+  return r.code === 0 && Number.isFinite(n) ? n : null;
+}
+
 export async function isContainerRunning(name: string): Promise<boolean> {
   const r = await docker(["inspect", "-f", "{{.State.Running}}", name]);
   return r.code === 0 && r.stdout.trim() === "true";
