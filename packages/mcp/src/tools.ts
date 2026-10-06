@@ -113,7 +113,7 @@ export function registerTools(server: McpServer, client: CbmClient): void {
     "cbm_list_jobs",
     {
       title: "List jobs",
-      description: "Recent agent jobs (backup | restore | prune | mirror | verify-destination) with progress.",
+      description: "Recent agent jobs (backup | restore | prune | mirror | verify-destination | restore-drill) with progress.",
       inputSchema: {
         type: JOB_TYPE.optional().describe("Only jobs of this type"),
         status: JOB_STATUS.optional().describe("Only jobs in this state"),

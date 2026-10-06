@@ -27,7 +27,7 @@ export const en = {
   },
   roleDesc: {
     viewer: "Read-only: list instances, resources, snapshots, destinations, agents and jobs.",
-    operator: "Viewer plus triggers: back up a resource, mirror a snapshot, verify a destination.",
+    operator: "Viewer plus triggers: back up a resource, mirror a snapshot, run a test restore, verify a destination.",
     admin: "Full access, same as an admin user. Grant only when you really need it.",
   },
 };
@@ -60,7 +60,7 @@ export const fr: typeof en = {
   },
   roleDesc: {
     viewer: "Lecture seule : lister instances, ressources, snapshots, destinations, agents et tâches.",
-    operator: "Lecture seule plus déclenchements : sauvegarder une ressource, mettre en miroir un snapshot, vérifier une destination.",
+    operator: "Lecture seule plus déclenchements : sauvegarder une ressource, mettre en miroir un snapshot, lancer un test de restauration, vérifier une destination.",
     admin: "Accès complet, comme un utilisateur admin. À n'accorder qu'en cas de réel besoin.",
   },
 };

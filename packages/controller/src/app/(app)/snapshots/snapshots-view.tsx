@@ -28,6 +28,7 @@ type SnapshotRow = Prisma.SnapshotGetPayload<{
 export async function SnapshotsView({
   snapshots,
   liveInstanceIds,
+  instances,
   page,
   totalPages,
   total,
@@ -37,6 +38,8 @@ export async function SnapshotsView({
 }: {
   snapshots: SnapshotRow[];
   liveInstanceIds: Set<string | null>;
+  /** Connected instances, offered as "Restore onto" targets (migration). */
+  instances: { id: string; name: string }[];
   page: number;
   totalPages: number;
   total: number;
@@ -73,7 +76,13 @@ export async function SnapshotsView({
   const actions = (s: SnapshotRow, hasAgent: boolean) => (
     <Gate min="operator">
       {s.status === "succeeded" && (
-        <RestoreActions snapshotId={s.id} hasAgent={hasAgent} allowNew={!s.resource.coolifyUuid.startsWith("coolify-self")} />
+        <RestoreActions
+          snapshotId={s.id}
+          hasAgent={hasAgent}
+          instances={instances}
+          currentInstanceId={s.resource.instanceId}
+          allowNew={!s.resource.coolifyUuid.startsWith("coolify-self")}
+        />
       )}
       {s.status === "failed" && (
         <ActionButton
@@ -169,7 +178,7 @@ export async function SnapshotsView({
                           {s.status === "succeeded" && <> · {formatBytes(s.sizeBytes)}</>}
                         </p>
                       </div>
-                      <span className="tabular w-12 shrink-0 text-right text-xs text-muted-foreground">
+                      <span className="tabular min-w-12 shrink-0 whitespace-nowrap text-right text-xs text-muted-foreground">
                         {s.startedAt ? time(s.startedAt) : "-"}
                       </span>
                       <div className="flex shrink-0 items-center justify-end gap-1">{actions(s, hasAgent)}</div>

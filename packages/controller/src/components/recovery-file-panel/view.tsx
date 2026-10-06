@@ -103,7 +103,13 @@ export function RecoveryFilePanelView({
           </span>
         }
       >
-        <div className="flex flex-col gap-4">
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (importConfirm === "IMPORT") onImport();
+          }}
+        >
           <p className="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2.5 text-[13px] text-danger">
             <strong>{t("settings.importWarnDestructive")}</strong>
             {t("settings.importWarnBody1")}
@@ -152,11 +158,11 @@ export function RecoveryFilePanelView({
             onCheckedChange={onImportOverrideChange}
           />
           <div className="flex justify-end">
-            <Button variant="danger" loading={busy === "import"} disabled={busy !== null || importConfirm !== "IMPORT"} onClick={onImport}>
+            <Button type="submit" variant="danger" loading={busy === "import"} disabled={busy !== null || importConfirm !== "IMPORT"}>
               {t("settings.importOverwrite")}
             </Button>
           </div>
-        </div>
+        </form>
       </Disclosure>
     </div>
   );

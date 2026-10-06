@@ -20,7 +20,7 @@ export default async function SnapshotsPage({
     ...(q ? { resource: { name: { contains: q, mode: "insensitive" as const } } } : {}),
     ...(status && STATUSES.includes(status) ? { status } : {}),
   };
-  const [total, snapshots, liveAgents, tz] = await Promise.all([
+  const [total, snapshots, liveAgents, tz, instances] = await Promise.all([
     prisma.snapshot.count({ where }),
     prisma.snapshot.findMany({
       where,
@@ -40,6 +40,8 @@ export default async function SnapshotsPage({
       select: { instanceId: true },
     }),
     getTimezone(),
+    // Offered as "Restore onto" targets by Clone when several instances are connected.
+    prisma.coolifyInstance.findMany({ orderBy: { createdAt: "asc" }, select: { id: true, name: true } }),
   ]);
   const liveInstanceIds = new Set(liveAgents.map((a) => a.instanceId).filter(Boolean));
 
@@ -49,6 +51,7 @@ export default async function SnapshotsPage({
     <SnapshotsView
       snapshots={snapshots}
       liveInstanceIds={liveInstanceIds}
+      instances={instances}
       page={page}
       totalPages={totalPages}
       total={total}
