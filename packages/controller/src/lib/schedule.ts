@@ -52,12 +52,13 @@ export type PolicyWithDest = BackupPolicy & { destination: Destination };
  * Resolve the schedule that governs a resource (most specific wins):
  *  - its own override policy, else
  *  - the policy for its server (instanceId + matching serverUuid), else
- *  - its instance's policy (instanceId, no server scope), else
- *  - any global policy (instanceId & resourceId both null).
+ *  - its instance's policy (instanceId, no server scope).
+ * A policy with neither a resource nor an instance (old "global" schedule) is
+ * ignored, as the scheduler ignores it: it must not look like it covers anything.
  */
 export async function effectivePolicy(resourceId: string): Promise<{
   policy: PolicyWithDest | null;
-  source: "resource" | "server" | "instance" | "global" | "none";
+  source: "resource" | "server" | "instance" | "none";
 }> {
   const resource = await prisma.resource.findUnique({ where: { id: resourceId } });
   if (!resource) return { policy: null, source: "none" };
@@ -81,12 +82,6 @@ export async function effectivePolicy(resourceId: string): Promise<{
     include: { destination: true },
   });
   if (instancePolicy) return { policy: instancePolicy, source: "instance" };
-
-  const global = await prisma.backupPolicy.findFirst({
-    where: { instanceId: null, resourceId: null, enabled: true },
-    include: { destination: true },
-  });
-  if (global) return { policy: global, source: "global" };
 
   return { policy: null, source: "none" };
 }

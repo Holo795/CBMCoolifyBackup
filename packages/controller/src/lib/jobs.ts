@@ -162,7 +162,7 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
     : null;
 
   // For a manual "Backup now", fall back to the resource's effective schedule
-  // (resource override -> instance -> global) to pick destination + mode.
+  // (resource override -> server -> instance) to pick destination + mode.
   if (!policy) {
     const eff = await effectivePolicy(resource.id);
     policy = eff.policy ?? null;

@@ -78,9 +78,7 @@ export async function ResourceDetailView({
       ? t("resources.scheduleFromServer", { name: resource.serverName ?? resource.serverUuid ?? "" })
       : eff.source === "instance"
         ? t("resources.scheduleFromInstance", { name: resource.instance.name })
-        : eff.source === "global"
-          ? t("resources.scheduleFromGlobal")
-          : null;
+        : null;
   const active = override ?? (inheritedFrom ? eff.policy : null);
   const succeeded = snapshots.filter((s) => s.status === "succeeded");
   const last = snapshots[0];
