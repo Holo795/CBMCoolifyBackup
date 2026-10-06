@@ -14,12 +14,17 @@ export default async function OverviewPage() {
   // One extra day of margin so the oldest bucket is complete in any timezone.
   const since = new Date(now.getTime() - (TREND_DAYS + 1) * 86_400_000);
 
-  const [instances, resources, enabled, snapshots, agentsOnline, recent, byDest, windowRows, dests] = await Promise.all([
+  const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
+  const [instances, resources, enabled, snapshots, agentsOnline, agentsTotal, failed, missing, corrupt, recent, byDest, windowRows, dests] = await Promise.all([
     prisma.coolifyInstance.count(),
     prisma.resource.count(),
     prisma.resource.count({ where: { backupEnabled: true } }),
     prisma.snapshot.count({ where: { status: "succeeded" } }),
     prisma.agent.count({ where: { status: "online" } }),
+    prisma.agent.count(),
+    prisma.snapshot.count({ where: { status: "failed", startedAt: { gte: weekAgo } } }),
+    prisma.snapshot.count({ where: { status: "missing" } }),
+    prisma.snapshot.count({ where: { status: "corrupt" } }),
     prisma.snapshot.findMany({
       orderBy: { startedAt: "desc" },
       take: 8,
@@ -56,7 +61,8 @@ export default async function OverviewPage() {
 
   return (
     <OverviewView
-      counts={{ instances, resources, enabled, snapshots, agentsOnline }}
+      counts={{ instances, resources, enabled, snapshots, agentsOnline, agentsTotal }}
+      issues={{ failed, missing, corrupt, agentsOffline: agentsTotal - agentsOnline }}
       recent={recent}
       storage={storage}
     />

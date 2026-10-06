@@ -10,6 +10,19 @@ export const en = {
   settings: "Settings",
   builtBy: "Built by Holo795",
   tagline: "CBM · Coolify Backup Manager · Apache-2.0",
+  product: "Backup Manager",
+  groups: { monitor: "Backups", infrastructure: "Infrastructure", admin: "Administration" },
+  user: {
+    menu: "Account menu",
+    profile: "Profile",
+    theme: "Theme",
+    themeSystem: "System",
+    themeLight: "Light",
+    themeDark: "Dark",
+    language: "Language",
+    source: "Source code",
+    signOut: "Sign out",
+  },
 };
 
 export const fr: typeof en = {
@@ -23,4 +36,17 @@ export const fr: typeof en = {
   settings: "Paramètres",
   builtBy: "Développé par Holo795",
   tagline: "CBM · Coolify Backup Manager · Apache-2.0",
+  product: "Backup Manager",
+  groups: { monitor: "Sauvegardes", infrastructure: "Infrastructure", admin: "Administration" },
+  user: {
+    menu: "Menu du compte",
+    profile: "Profil",
+    theme: "Thème",
+    themeSystem: "Système",
+    themeLight: "Clair",
+    themeDark: "Sombre",
+    language: "Langue",
+    source: "Code source",
+    signOut: "Se déconnecter",
+  },
 };

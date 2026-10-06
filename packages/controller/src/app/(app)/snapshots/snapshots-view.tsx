@@ -1,17 +1,18 @@
 import Link from "next/link";
 import type { Prisma } from "@/generated/prisma/client";
 import { PageHeader } from "@/components/page-header";
-import { Card, CardContent, Badge, Button, statusTone, EmptyState } from "@/components/ui";
+import { Badge, StatusDot, EmptyState, List, Tooltip, buttonClass, statusTone } from "@/components/ui";
 import { retrySnapshot, cancelSnapshot, deleteSnapshot } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
-import { ConfirmDeleteButton } from "@/components/confirm-delete";
+import { ActionsMenu } from "@/components/actions-menu";
 import { RestoreActions } from "@/components/restore-actions";
+import { FilterBar } from "@/components/filter-bar";
 import { Gate } from "@/components/role-gate";
-import { getT } from "@/lib/i18n";
-import { formatBytes, timeAgo } from "@/lib/cn";
+import { getT, getLocale } from "@/lib/i18n";
+import { formatBytes } from "@/lib/cn";
 import { drillTone } from "@/lib/status";
 import { modeLabel, captureLabel } from "@/lib/schedule";
-import { Archive, RefreshCw, X, ShieldCheck } from "lucide-react";
+import { Archive, RefreshCw, X, ShieldCheck, Trash2, ExternalLink, Boxes, ChevronLeft, ChevronRight } from "lucide-react";
 import { type DESTINATION_SECRETS } from "@/lib/public-fields";
 
 type SnapshotRow = Prisma.SnapshotGetPayload<{
@@ -23,172 +24,184 @@ type SnapshotRow = Prisma.SnapshotGetPayload<{
   };
 }>;
 
-/** The latest finished test-restore of a snapshot, as a small badge. */
-function DrillBadge({ s, label }: { s: SnapshotRow; label: (status: string) => string }) {
-  const d = s.drills[0];
-  if (!d || d.status === "running") return null;
-  return (
-    <Badge tone={drillTone(d.status)} title={label(d.status)}>
-      <ShieldCheck className="h-3 w-3" />
-      <span className="sr-only">{label(d.status)}</span>
-    </Badge>
-  );
-}
-
-/** Presentation only: the Snapshots list markup. Data is fetched in ./page.tsx. */
+/** Presentation only: the Snapshots list, grouped by day. Data is fetched in ./page.tsx. */
 export async function SnapshotsView({
   snapshots,
   liveInstanceIds,
   page,
   totalPages,
+  total,
+  tz,
+  statuses,
+  query,
 }: {
   snapshots: SnapshotRow[];
   liveInstanceIds: Set<string | null>;
   page: number;
   totalPages: number;
+  total: number;
+  tz: string;
+  statuses: string[];
+  query: { q?: string; status?: string };
 }) {
   const t = await getT();
-  // Row actions, reused by the desktop table and the mobile cards.
-  const snapshotActions = (s: SnapshotRow, hasAgent: boolean) => (
-    <>
+  const locale = await getLocale();
+  const dayKey = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(d);
+  const today = dayKey(new Date());
+  const yesterday = dayKey(new Date(Date.now() - 86_400_000));
+  const dayLabel = (key: string, d: Date) =>
+    key === today
+      ? t("snapshots.today")
+      : key === yesterday
+        ? t("snapshots.yesterday")
+        : new Intl.DateTimeFormat(locale, { timeZone: tz, weekday: "long", day: "numeric", month: "long" }).format(d);
+  const time = (d: Date) => new Intl.DateTimeFormat(locale, { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(d);
+
+  // Group consecutive rows by local day (rows are newest first).
+  const groups: { key: string; label: string; rows: SnapshotRow[] }[] = [];
+  for (const s of snapshots) {
+    const at = s.startedAt ?? new Date(0);
+    const key = dayKey(at);
+    const last = groups[groups.length - 1];
+    if (last?.key === key) last.rows.push(s);
+    else groups.push({ key, label: dayLabel(key, at), rows: [s] });
+  }
+
+  const qs = (p: number) =>
+    `/snapshots?${new URLSearchParams({ ...(query.q ? { q: query.q } : {}), ...(query.status ? { status: query.status } : {}), page: String(p) })}`;
+
+  const actions = (s: SnapshotRow, hasAgent: boolean) => (
+    <Gate min="operator">
       {s.status === "succeeded" && (
-        <RestoreActions
-          snapshotId={s.id}
-          hasAgent={hasAgent}
-          allowNew={!s.resource.coolifyUuid.startsWith("coolify-self")}
-        />
+        <RestoreActions snapshotId={s.id} hasAgent={hasAgent} allowNew={!s.resource.coolifyUuid.startsWith("coolify-self")} />
       )}
-      {s.status === "failed" &&
-        (hasAgent ? (
-          <ActionButton action={retrySnapshot.bind(null, s.id)} variant="outline" size="sm" successMsg={t("snapshots.retried")}>
-            <RefreshCw className="h-3.5 w-3.5" /> {t("snapshots.retry")}
-          </ActionButton>
-        ) : (
-          <Button variant="outline" size="sm" disabled title={t("snapshots.noLiveAgent")}>
-            <RefreshCw className="h-3.5 w-3.5" /> {t("snapshots.retry")}
-          </Button>
-        ))}
-      {s.status === "running" && (
-        <ActionButton action={cancelSnapshot.bind(null, s.id)} variant="ghost" size="sm" successMsg={t("snapshots.cancelled")}>
-          <X className="h-3.5 w-3.5" /> {t("common.cancel")}
+      {s.status === "failed" && (
+        <ActionButton
+          action={retrySnapshot.bind(null, s.id)}
+          size="sm"
+          successMsg={t("snapshots.retried")}
+          disabled={!hasAgent}
+          title={hasAgent ? undefined : t("snapshots.noLiveAgent")}
+        >
+          <RefreshCw /> {t("snapshots.retry")}
         </ActionButton>
       )}
-      <ConfirmDeleteButton
-        action={deleteSnapshot.bind(null, s.id)}
-        confirmWord="DELETE"
-        title={t("snapshots.deleteTitle")}
-        body={
-          <>{t("snapshots.deleteBodyBefore")} <b>{s.resource.name}</b> {t("snapshots.deleteBodyAfterName", { size: formatBytes(s.sizeBytes) })} <b>{t("snapshots.deleteBodyFiles")}</b> {t("snapshots.deleteBodyEnd")}</>
-        }
+      {s.status === "running" && (
+        <ActionButton action={cancelSnapshot.bind(null, s.id)} variant="ghost" size="sm" successMsg={t("snapshots.cancelled")}>
+          <X /> {t("common.cancel")}
+        </ActionButton>
+      )}
+      <ActionsMenu
+        items={[
+          { kind: "link", label: t("snapshots.openSnapshot"), icon: <ExternalLink />, href: `/snapshots/${s.id}` },
+          { kind: "link", label: t("snapshots.openResource"), icon: <Boxes />, href: `/resources/${s.resourceId}` },
+          { kind: "separator" },
+          {
+            kind: "delete",
+            label: t("common.delete"),
+            icon: <Trash2 />,
+            action: deleteSnapshot.bind(null, s.id),
+            confirmWord: "DELETE",
+            title: t("snapshots.deleteTitle"),
+            body: (
+              <>
+                {t("snapshots.deleteBodyBefore")} <b className="text-foreground">{s.resource.name}</b>{" "}
+                {t("snapshots.deleteBodyAfterName", { size: formatBytes(s.sizeBytes) })}{" "}
+                <b className="text-foreground">{t("snapshots.deleteBodyFiles")}</b> {t("snapshots.deleteBodyEnd")}
+              </>
+            ),
+          },
+        ]}
       />
-    </>
+    </Gate>
   );
 
   return (
-    <>
+    <div className="flex flex-col gap-6">
       <PageHeader title={t("snapshots.title")} description={t("snapshots.description")} />
+
+      <FilterBar
+        placeholder={t("snapshots.searchPlaceholder")}
+        select={{
+          param: "status",
+          label: t("snapshots.colStatus"),
+          allLabel: t("snapshots.allStatuses"),
+          options: statuses.map((st) => ({ value: st, label: t(`snapshots.status.${st}`) })),
+        }}
+      />
+
       {snapshots.length === 0 ? (
-        <EmptyState icon={<Archive className="h-6 w-6" />} title={t("snapshots.emptyTitle")} hint={t("snapshots.emptyHint")} />
+        <EmptyState icon={<Archive />} title={t("snapshots.emptyTitle")} hint={t("snapshots.emptyHint")} />
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <table className="hidden w-full text-sm md:table">
-              <thead className="border-b text-left text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-2.5 font-medium">{t("snapshots.colResource")}</th>
-                  <th className="px-4 py-2.5 font-medium">{t("snapshots.colMode")}</th>
-                  <th className="px-4 py-2.5 font-medium">{t("snapshots.colStatus")}</th>
-                  <th className="px-4 py-2.5 font-medium">{t("snapshots.colArtifacts")}</th>
-                  <th className="px-4 py-2.5 font-medium">{t("snapshots.colSize")}</th>
-                  <th className="px-4 py-2.5 font-medium">{t("snapshots.colWhen")}</th>
-                  <th className="px-4 py-2.5"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {snapshots.map((s) => {
+        <div className="flex flex-col gap-6">
+          {groups.map((g) => (
+            <section key={g.key} className="flex flex-col gap-2">
+              <h2 className="px-1 text-xs font-medium uppercase tracking-wider text-subtle-foreground">{g.label}</h2>
+              <List>
+                {g.rows.map((s) => {
                   const hasAgent = liveInstanceIds.has(s.resource.instanceId);
+                  const drill = s.drills[0];
                   return (
-                  <tr key={s.id} className="border-b last:border-0">
-                    <td className="px-4 py-2.5">
-                      <Link href={`/snapshots/${s.id}`} className="font-medium hover:underline">
-                        {s.resource.name}
-                      </Link>
-                      <div className="text-xs text-muted-foreground">{s.destination.name}</div>
-                    </td>
-                    <td className="px-4 py-2.5 text-muted-foreground">
-                      {modeLabel(s.mode, t)} · {captureLabel(s.captureMode, t)}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span className="inline-flex items-center gap-1">
-                        <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>
-                        <DrillBadge s={s} label={(st) => t(`snapshots.drillBadge.${st}`)} />
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{s._count.artifacts}</td>
-                    <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{formatBytes(s.sizeBytes)}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{timeAgo(s.startedAt, t)}</td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <Gate min="operator">{snapshotActions(s, hasAgent)}</Gate>
+                    <li
+                      key={s.id}
+                      className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 transition-colors hover:bg-surface sm:px-5"
+                    >
+                      <StatusDot tone={statusTone(s.status)} pulse={s.status === "running"} />
+                      <div className="min-w-0 flex-1 basis-48">
+                        <div className="flex items-center gap-2">
+                          <Link href={`/snapshots/${s.id}`} className="truncate font-medium hover:underline">
+                            {s.resource.name}
+                          </Link>
+                          {s.status !== "succeeded" && <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>}
+                          {drill && drill.status !== "running" && (
+                            <Tooltip content={t(`snapshots.drillBadge.${drill.status}`)}>
+                              <span tabIndex={0} className="inline-flex">
+                                <Badge tone={drillTone(drill.status)}>
+                                  <ShieldCheck />
+                                  <span className="sr-only">{t(`snapshots.drillBadge.${drill.status}`)}</span>
+                                </Badge>
+                              </span>
+                            </Tooltip>
+                          )}
+                        </div>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {modeLabel(s.mode, t)} · {captureLabel(s.captureMode, t)} · {s.destination.name}
+                          {s.status === "succeeded" && <> · {formatBytes(s.sizeBytes)}</>}
+                        </p>
                       </div>
-                    </td>
-                  </tr>
+                      <span className="tabular w-12 shrink-0 text-right text-xs text-muted-foreground">
+                        {s.startedAt ? time(s.startedAt) : "-"}
+                      </span>
+                      <div className="flex shrink-0 items-center justify-end gap-1">{actions(s, hasAgent)}</div>
+                    </li>
                   );
                 })}
-              </tbody>
-            </table>
-
-            {/* Mobile: one card per snapshot. */}
-            <div className="divide-y md:hidden">
-              {snapshots.map((s) => {
-                const hasAgent = liveInstanceIds.has(s.resource.instanceId);
-                return (
-                  <div key={s.id} className="flex flex-col gap-2 p-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <Link href={`/snapshots/${s.id}`} className="font-medium hover:underline">
-                          {s.resource.name}
-                        </Link>
-                        <div className="truncate text-xs text-muted-foreground">{s.destination.name}</div>
-                      </div>
-                      <span className="inline-flex shrink-0 items-center gap-1">
-                        <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>
-                        <DrillBadge s={s} label={(st) => t(`snapshots.drillBadge.${st}`)} />
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <span>{modeLabel(s.mode, t)} · {captureLabel(s.captureMode, t)}</span>
-                      <span>{t("snapshots.artifactsCount", { count: s._count.artifacts })}</span>
-                      <span>{formatBytes(s.sizeBytes)}</span>
-                      <span>{timeAgo(s.startedAt, t)}</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <Gate min="operator">{snapshotActions(s, hasAgent)}</Gate>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-      {totalPages > 1 && (
-        <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-          <span>{t("resources.pageIndicator", { page, pages: totalPages })}</span>
-          <div className="flex gap-2">
-            {page > 1 && (
-              <a href={`/snapshots?page=${page - 1}`} className="rounded-md border px-3 py-1.5 hover:bg-muted">
-                {t("resources.prev")}
-              </a>
-            )}
-            {page < totalPages && (
-              <a href={`/snapshots?page=${page + 1}`} className="rounded-md border px-3 py-1.5 hover:bg-muted">
-                {t("resources.next")}
-              </a>
-            )}
-          </div>
+              </List>
+            </section>
+          ))}
         </div>
       )}
-    </>
+
+      <div className="flex items-center justify-between gap-3 text-[13px] text-muted-foreground">
+        <span className="tabular">
+          {t(total === 1 ? "snapshots.countOne" : "snapshots.countOther", { count: total })}
+          {totalPages > 1 && <> · {t("resources.pageIndicator", { page, pages: totalPages })}</>}
+        </span>
+        {totalPages > 1 && (
+          <div className="flex gap-2">
+            {page > 1 && (
+              <Link href={qs(page - 1)} className={buttonClass("secondary", "sm")}>
+                <ChevronLeft /> {t("resources.prev")}
+              </Link>
+            )}
+            {page < totalPages && (
+              <Link href={qs(page + 1)} className={buttonClass("secondary", "sm")}>
+                {t("resources.next")} <ChevronRight />
+              </Link>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

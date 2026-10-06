@@ -1,43 +1,46 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { Button } from "@/components/ui";
+import { Button, Tooltip, type ButtonSize, type ButtonVariant } from "@/components/ui";
 
-/** Presentation only: a button + its inline result message. Logic in ./index.tsx. */
+/** Presentation only: the action button. Logic (and the result toast) in ./index.tsx. */
 export function ActionButtonView({
   variant,
   size,
   title,
   disabled,
   pending,
-  msg,
   onClick,
+  className,
   children,
 }: {
-  variant: "primary" | "secondary" | "ghost" | "danger" | "outline";
-  size: "sm" | "md" | "icon";
+  variant: ButtonVariant;
+  size: ButtonSize;
   title?: string;
   disabled: boolean;
   pending: boolean;
-  msg: { ok: boolean; text: string } | null;
   onClick: () => void;
+  className?: string;
   children: ReactNode;
 }) {
+  const button = (
+    <Button
+      variant={variant}
+      size={size}
+      loading={pending}
+      disabled={disabled}
+      onClick={onClick}
+      className={className}
+      aria-label={size.startsWith("icon") ? title : undefined}
+    >
+      {children}
+    </Button>
+  );
+  // A disabled button gets no pointer events: wrap it so its reason still shows.
+  if (!title) return button;
   return (
-    <span className="relative inline-flex items-center">
-      <Button type="button" variant={variant} size={size} title={title} disabled={pending || disabled} onClick={onClick}>
-        {pending ? "…" : children}
-      </Button>
-      {/* Floats out of flow so the result never shifts the surrounding layout. */}
-      {msg && (
-        <span
-          className={`pointer-events-none absolute left-1/2 top-full z-10 mt-1 -translate-x-1/2 whitespace-nowrap rounded-md border bg-card px-2 py-0.5 text-xs shadow-sm ${
-            msg.ok ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"
-          }`}
-        >
-          {msg.text}
-        </span>
-      )}
-    </span>
+    <Tooltip content={title}>
+      {disabled ? <span tabIndex={0} className="inline-flex">{button}</span> : button}
+    </Tooltip>
   );
 }

@@ -2,6 +2,7 @@
 
 import { type RefObject } from "react";
 import { useT } from "@/components/i18n-provider";
+import { cn } from "@/lib/cn";
 
 export type LogEvent = { ts: string; level: string; message: string; progress: number | null };
 
@@ -23,44 +24,50 @@ export function LiveLogView({
   // Job statuses share the snapshot labels; an unknown one shows as sent.
   const statusKey = `snapshots.status.${status}`;
   const statusText = t(statusKey) === statusKey ? status : t(statusKey);
+  const progress = [...events].reverse().find((e) => e.progress != null)?.progress ?? null;
+
   return (
-    <div>
-      <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+    <div className="overflow-hidden rounded-lg border bg-[#0f1013] text-[#d6d7dc] dark:bg-[#09090b]">
+      <div className="flex items-center justify-between gap-3 border-b border-white/10 px-3 py-2 text-xs text-[#9b9ca6]">
         {live ? (
-          <span className="flex items-center gap-1.5 text-[var(--color-accent)]">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+          <span className="flex items-center gap-1.5 text-[#a5a5f4]">
+            <span className="relative flex size-2">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-[#7b7bea] opacity-75" />
+              <span className="relative inline-flex size-2 rounded-full bg-[#7b7bea]" />
             </span>
             {t("components.liveLog.live")}
           </span>
         ) : (
           <span>{t("components.liveLog.finished", { status: statusText })}</span>
         )}
-        <span>· {t("components.liveLog.events", { count: events.length })}</span>
+        <span className="tabular">{t("components.liveLog.events", { count: events.length })}</span>
       </div>
-      <div ref={boxRef} className="max-h-80 overflow-auto whitespace-nowrap rounded-md bg-muted/40 p-3 font-mono text-xs">
+      {live && progress != null && (
+        <div className="h-0.5 bg-white/5" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+          <div className="h-full bg-[#7b7bea] transition-[width] duration-500" style={{ width: `${progress}%` }} />
+        </div>
+      )}
+      <div ref={boxRef} className="max-h-96 overflow-y-auto p-3 font-mono text-[12px] leading-5">
         {events.length === 0 ? (
-          <span className="text-muted-foreground">{t("components.liveLog.waiting")}</span>
+          <span className="text-[#6c6d77]">{t("components.liveLog.waiting")}</span>
         ) : (
           events.map((e, i) => (
             // Append-only log: an event's position never changes.
             // eslint-disable-next-line @eslint-react/no-array-index-key
-            <div key={i} className="flex gap-2">
-              <span className="text-muted-foreground">
+            <div key={i} className="flex gap-3">
+              <span className="shrink-0 select-none text-[#6c6d77]">
                 {new Date(e.ts).toLocaleTimeString("en-GB", { timeZone, hour12: false })}
               </span>
               <span
-                className={
-                  e.level === "error"
-                    ? "text-[var(--color-danger)]"
-                    : e.level === "warn"
-                      ? "text-[var(--color-warning)]"
-                      : ""
-                }
+                className={cn(
+                  "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
+                  e.level === "error" && "text-[#ff8589]",
+                  e.level === "warn" && "text-[#ffc46b]",
+                  e.level === "debug" && "text-[#8b8c96]",
+                )}
               >
                 {e.message}
-                {e.progress != null ? ` (${e.progress}%)` : ""}
+                {e.progress != null && <span className="text-[#6c6d77]"> ({e.progress}%)</span>}
               </span>
             </div>
           ))

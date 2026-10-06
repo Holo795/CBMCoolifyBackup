@@ -1,13 +1,16 @@
+import Link from "next/link";
 import type { Prisma } from "@/generated/prisma/client";
 import { PageHeader } from "@/components/page-header";
-import { Card, CardContent, Badge, Button, Input, statusTone, EmptyState } from "@/components/ui";
+import { Badge, StatusDot, EmptyState, Table, THead, TH, TR, TD, List, ListItem, Disclosure, Tooltip, buttonClass, statusTone } from "@/components/ui";
 import { backupNow } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { ResourceToggles } from "@/components/resource-toggles";
+import { ResourceIcon } from "@/components/resource-icon";
+import { FilterBar } from "@/components/filter-bar";
 import { Gate } from "@/components/role-gate";
 import { getT } from "@/lib/i18n";
 import { resourceStatusLabel } from "@/lib/status";
-import { Boxes, Play, Unplug, Pin } from "lucide-react";
+import { Boxes, Play, Unplug, ChevronLeft, ChevronRight } from "lucide-react";
 import { type INSTANCE_SECRETS } from "@/lib/public-fields";
 
 type ResourceRow = Prisma.ResourceGetPayload<{ include: { instance: { omit: typeof INSTANCE_SECRETS } } }>;
@@ -25,6 +28,7 @@ export async function ResourcesView({
   totalPages,
   q,
   type,
+  types,
 }: {
   rows: ResourceRow[];
   orphaned: OrphanedRow[];
@@ -34,234 +38,194 @@ export async function ResourcesView({
   totalPages: number;
   q?: string;
   type?: string;
+  types: string[];
 }) {
   const t = await getT();
   const qs = (p: number) =>
     `/resources?${new URLSearchParams({ ...(q ? { q } : {}), ...(type ? { type } : {}), page: String(p) }).toString()}`;
 
+  const subtitle = (r: ResourceRow) =>
+    [r.projectName || null, r.environment && r.environment !== "production" ? r.environment : null, r.instance.name]
+      .filter(Boolean)
+      .join(" · ");
+
+  const backupButton = (r: ResourceRow, agentDown: boolean) => (
+    <Gate min="operator">
+      <ActionButton
+        action={backupNow.bind(null, r.id)}
+        variant="secondary"
+        size="sm"
+        successMsg={t("resources.queued")}
+        disabled={agentDown}
+        title={agentDown ? t("resources.agentUnavailableRow") : undefined}
+      >
+        <Play /> {t("resources.backup")}
+      </ActionButton>
+    </Gate>
+  );
+
   return (
-    <>
+    <div className="flex flex-col gap-6">
       <PageHeader title={t("resources.title")} description={t("resources.description")} />
 
-      <form className="mb-4 flex gap-2" action="/resources" method="get">
-        <Input name="q" defaultValue={q ?? ""} placeholder={t("resources.searchPlaceholder")} className="max-w-xs" />
-        <Input name="type" defaultValue={type ?? ""} placeholder={t("resources.filterTypePlaceholder")} className="max-w-xs" />
-        <Button type="submit" variant="outline">
-          {t("resources.filter")}
-        </Button>
-      </form>
+      <FilterBar
+        placeholder={t("resources.searchPlaceholder")}
+        select={{
+          param: "type",
+          label: t("resources.colType"),
+          allLabel: t("resources.allTypes"),
+          options: types.map((v) => ({ value: v, label: v })),
+        }}
+      />
 
       {rows.length === 0 ? (
-        <EmptyState icon={<Boxes className="h-6 w-6" />} title={t("resources.emptyTitle")} hint={t("resources.emptyHint")} />
+        <EmptyState icon={<Boxes />} title={t("resources.emptyTitle")} hint={t("resources.emptyHint")} />
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <table className="hidden w-full text-sm md:table">
-              <thead className="border-b text-left text-xs text-muted-foreground">
+        <>
+          <div className="hidden md:block">
+            <Table>
+              <THead>
                 <tr>
-                  <th className="px-4 py-2.5 font-medium">{t("resources.colName")}</th>
-                  <th className="px-4 py-2.5 font-medium">{t("resources.colType")}</th>
-                  <th className="px-4 py-2.5 font-medium">{t("resources.colProject")}</th>
-                  <th className="px-4 py-2.5 font-medium">{t("resources.colStatus")}</th>
-                  <th className="px-4 py-2.5 font-medium">{t("resources.colBackupSettings")}</th>
-                  <th className="px-4 py-2.5"></th>
+                  <TH>{t("resources.colName")}</TH>
+                  <TH>{t("resources.colType")}</TH>
+                  <TH>{t("resources.colStatus")}</TH>
+                  <TH className="text-center">{t("resources.colScheduled")}</TH>
+                  <TH className="w-px" />
                 </tr>
-              </thead>
+              </THead>
               <tbody>
                 {rows.map((r) => {
                   const agentDown = !liveInstanceIds.has(r.instanceId);
                   const isControlPlane = r.coolifyUuid.startsWith("coolify-self");
-
-                  // No live agent -> the whole row is blurred and non-interactive,
-                  // with a centered "Agent unavailable" overlay.
-                  if (agentDown) {
-                    return (
-                      <tr key={r.id} className="border-b last:border-0">
-                        <td colSpan={6} className="p-0">
-                          <div className="relative">
-                            <div className="pointer-events-none flex select-none flex-wrap items-center gap-3 px-4 py-3 blur-[2px]">
-                              <span className="font-medium">{r.name}</span>
-                              <Badge>{r.type}</Badge>
-                              <span className="text-xs text-muted-foreground">{r.projectName || "-"}</span>
-                              <Badge tone={statusTone(r.status)}>{resourceStatusLabel(t, r.status)}</Badge>
-                            </div>
-                            <div className="absolute inset-0 flex items-center justify-center px-4">
-                              <span className="flex items-center gap-1.5 text-sm font-medium text-[var(--color-warning)]">
-                                <Unplug className="h-4 w-4 shrink-0" /> {t("resources.agentUnavailableRow")}
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  }
-
                   return (
-                    <tr key={r.id} className={`border-b align-middle last:border-0 ${isControlPlane ? "bg-muted/30" : ""}`}>
-                      <td className="px-4 py-2.5 font-medium">
-                        <a href={`/resources/${r.id}`} className="hover:underline">
-                          {r.name}
-                        </a>
-                        {isControlPlane && (
-                          <Badge tone="accent" className="ml-2">
-                            <Pin className="h-3 w-3" /> {t("resources.controlPlane")}
-                          </Badge>
+                    <TR key={r.id} className={agentDown ? "text-muted-foreground" : undefined}>
+                      <TD>
+                        <div className="flex items-center gap-3">
+                          <ResourceIcon type={r.type} controlPlane={isControlPlane} />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <Link href={`/resources/${r.id}`} className="truncate font-medium text-foreground hover:underline">
+                                {r.name}
+                              </Link>
+                              {isControlPlane && <Badge tone="accent">{t("resources.controlPlane")}</Badge>}
+                            </div>
+                            <p className="truncate text-xs text-muted-foreground">{subtitle(r)}</p>
+                          </div>
+                        </div>
+                      </TD>
+                      <TD>
+                        <span className="font-mono text-xs text-muted-foreground">{r.type}</span>
+                      </TD>
+                      <TD>
+                        {agentDown ? (
+                          <Tooltip content={t("resources.agentUnavailableRow")}>
+                            <span tabIndex={0}>
+                              <Badge tone="warning">
+                                <Unplug /> {t("resources.agentUnavailable")}
+                              </Badge>
+                            </span>
+                          </Tooltip>
+                        ) : (
+                          <span className="inline-flex items-center gap-2 text-[13px]">
+                            <StatusDot tone={statusTone(r.status)} />
+                            {resourceStatusLabel(t, r.status)}
+                          </span>
                         )}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <Badge>{r.type}</Badge>
-                      </td>
-                      <td className="px-4 py-2.5 text-muted-foreground">{r.projectName || "-"}</td>
-                      <td className="px-4 py-2.5">
-                        <Badge tone={statusTone(r.status)}>{resourceStatusLabel(t, r.status)}</Badge>
-                      </td>
-                      <td className="px-4 py-2.5">
+                      </TD>
+                      <TD className="text-center">
                         <Gate min="operator">
                           <ResourceToggles id={r.id} backupEnabled={r.backupEnabled} liveBackup={r.liveBackup} />
                         </Gate>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <Gate min="operator">
-                          <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg={t("resources.queued")}>
-                            <Play className="h-3.5 w-3.5" /> {t("resources.backup")}
-                          </ActionButton>
-                        </Gate>
-                      </td>
-                    </tr>
+                      </TD>
+                      <TD className="text-right">{backupButton(r, agentDown)}</TD>
+                    </TR>
                   );
                 })}
               </tbody>
-            </table>
+            </Table>
+          </div>
 
-            {/* Mobile: one card per resource. */}
-            <div className="divide-y md:hidden">
-              {rows.map((r) => {
-                const agentDown = !liveInstanceIds.has(r.instanceId);
-                const isControlPlane = r.coolifyUuid.startsWith("coolify-self");
-                if (agentDown) {
-                  return (
-                    <div key={r.id} className="flex flex-col gap-2 p-4 opacity-60">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium">{r.name}</span>
-                        <Badge>{r.type}</Badge>
-                      </div>
-                      <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-warning)]">
-                        <Unplug className="h-3.5 w-3.5 shrink-0" /> {t("resources.agentUnavailable")}
-                      </span>
-                    </div>
-                  );
-                }
-                return (
-                  <div key={r.id} className={`flex flex-col gap-3 p-4 ${isControlPlane ? "bg-muted/30" : ""}`}>
-                    <div className="flex items-start justify-between gap-2">
-                      <a href={`/resources/${r.id}`} className="font-medium hover:underline">
-                        {r.name}
-                      </a>
-                      {isControlPlane && (
-                        <Badge tone="accent">
-                          <Pin className="h-3 w-3" /> {t("resources.controlPlane")}
-                        </Badge>
+          {/* Mobile: one row per resource. */}
+          <List className="md:hidden">
+            {rows.map((r) => {
+              const agentDown = !liveInstanceIds.has(r.instanceId);
+              const isControlPlane = r.coolifyUuid.startsWith("coolify-self");
+              return (
+                <ListItem key={r.id} className="flex-wrap">
+                  <ResourceIcon type={r.type} controlPlane={isControlPlane} />
+                  <div className="min-w-0 flex-1">
+                    <Link href={`/resources/${r.id}`} className="block truncate font-medium hover:underline">
+                      {r.name}
+                    </Link>
+                    <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                      {agentDown ? (
+                        <>
+                          <Unplug className="size-3 text-warning" /> {t("resources.agentUnavailable")}
+                        </>
+                      ) : (
+                        <>
+                          <StatusDot tone={statusTone(r.status)} /> {r.type}
+                        </>
                       )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <Badge>{r.type}</Badge>
-                      <Badge tone={statusTone(r.status)}>{resourceStatusLabel(t, r.status)}</Badge>
-                      <span className="text-muted-foreground">{r.projectName || "-"}</span>
-                    </div>
-                    <Gate min="operator">
-                      <ResourceToggles id={r.id} backupEnabled={r.backupEnabled} liveBackup={r.liveBackup} />
-                      <ActionButton action={backupNow.bind(null, r.id)} variant="primary" size="sm" successMsg={t("resources.queued")}>
-                        <Play className="h-3.5 w-3.5" /> {t("resources.backup")}
-                      </ActionButton>
-                    </Gate>
+                    </p>
                   </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
+                  <Gate min="operator">
+                    <ResourceToggles id={r.id} backupEnabled={r.backupEnabled} liveBackup={r.liveBackup} />
+                  </Gate>
+                </ListItem>
+              );
+            })}
+          </List>
+        </>
       )}
-      <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-        <span>
-          {t(total === 1 ? "resources.resourceCountOne" : "resources.resourceCountOther", { count: total })} ·{" "}
-          {t("resources.pageIndicator", { page, pages: totalPages })}
+
+      <div className="flex items-center justify-between gap-3 text-[13px] text-muted-foreground">
+        <span className="tabular">
+          {t(total === 1 ? "resources.resourceCountOne" : "resources.resourceCountOther", { count: total })}
+          {totalPages > 1 && <> · {t("resources.pageIndicator", { page, pages: totalPages })}</>}
         </span>
-        <div className="flex gap-2">
-          {page > 1 && (
-            <a href={qs(page - 1)} className="rounded-md border px-3 py-1.5 hover:bg-muted">
-              {t("resources.prev")}
-            </a>
-          )}
-          {page < totalPages && (
-            <a href={qs(page + 1)} className="rounded-md border px-3 py-1.5 hover:bg-muted">
-              {t("resources.next")}
-            </a>
-          )}
-        </div>
+        {totalPages > 1 && (
+          <div className="flex gap-2">
+            {page > 1 ? (
+              <Link href={qs(page - 1)} className={buttonClass("secondary", "sm")}>
+                <ChevronLeft /> {t("resources.prev")}
+              </Link>
+            ) : null}
+            {page < totalPages ? (
+              <Link href={qs(page + 1)} className={buttonClass("secondary", "sm")}>
+                {t("resources.next")} <ChevronRight />
+              </Link>
+            ) : null}
+          </div>
+        )}
       </div>
 
       {orphaned.length > 0 && (
-        <details className="mt-8">
-          <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
-            {t("resources.removedSummary", { count: orphaned.length })}
-          </summary>
-          <Card className="mt-3">
-            <CardContent className="p-0">
-              <table className="hidden w-full text-sm md:table">
-                <thead className="border-b text-left text-xs text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-2.5 font-medium">{t("resources.colName")}</th>
-                    <th className="px-4 py-2.5 font-medium">{t("resources.colType")}</th>
-                    <th className="px-4 py-2.5 font-medium">{t("resources.colProject")}</th>
-                    <th className="px-4 py-2.5 font-medium">{t("resources.colSnapshots")}</th>
-                    <th className="px-4 py-2.5"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orphaned.map((r) => (
-                    <tr key={r.id} className="border-b last:border-0">
-                      <td className="px-4 py-2.5 font-medium">
-                        <a href={`/resources/${r.id}`} className="hover:underline">
-                          {r.name}
-                        </a>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <Badge>{r.type}</Badge>
-                      </td>
-                      <td className="px-4 py-2.5 text-muted-foreground">{r.projectName || "-"}</td>
-                      <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{r._count.snapshots}</td>
-                      <td className="px-4 py-2.5 text-right">
-                        <a href={`/resources/${r.id}`} className="text-xs text-accent hover:underline">
-                          {t("resources.viewRestore")}
-                        </a>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {/* Mobile: cards. */}
-              <div className="divide-y md:hidden">
-                {orphaned.map((r) => (
-                  <a key={r.id} href={`/resources/${r.id}`} className="flex items-center justify-between gap-2 p-4">
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">{r.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {r.type} ·{" "}
-                        {t(r._count.snapshots === 1 ? "resources.snapshotCountOne" : "resources.snapshotCountOther", {
-                          count: r._count.snapshots,
-                        })}
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-xs text-accent">{t("resources.view")}</span>
-                  </a>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-          <p className="mt-2 text-xs text-muted-foreground">{t("resources.orphanedNote")}</p>
-        </details>
+        <Disclosure summary={t("resources.removedSummary", { count: orphaned.length })}>
+          <p className="mb-3 text-xs text-muted-foreground">{t("resources.orphanedNote")}</p>
+          <List>
+            {orphaned.map((r) => (
+              <ListItem key={r.id}>
+                <ResourceIcon type={r.type} />
+                <div className="min-w-0 flex-1">
+                  <Link href={`/resources/${r.id}`} className="block truncate font-medium hover:underline">
+                    {r.name}
+                  </Link>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {r.type} ·{" "}
+                    {t(r._count.snapshots === 1 ? "resources.snapshotCountOne" : "resources.snapshotCountOther", {
+                      count: r._count.snapshots,
+                    })}
+                  </p>
+                </div>
+                <Link href={`/resources/${r.id}`} className={buttonClass("ghost", "sm")}>
+                  {t("resources.viewRestore")} <ChevronRight />
+                </Link>
+              </ListItem>
+            ))}
+          </List>
+        </Disclosure>
       )}
-    </>
+    </div>
   );
 }

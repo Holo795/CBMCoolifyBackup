@@ -2,6 +2,8 @@
 export const en = {
   working: "Working…",
   deleting: "Deleting…",
+  deleted: "Deleted",
+  moreActions: "More actions",
   // "Type <word> to confirm:" - the word is styled, so the text is split.
   typeBefore: "Type",
   typeAfter: "to confirm:",
@@ -34,6 +36,8 @@ export const en = {
 export const fr: typeof en = {
   working: "En cours…",
   deleting: "Suppression…",
+  deleted: "Supprimé",
+  moreActions: "Plus d'actions",
   typeBefore: "Tapez",
   typeAfter: "pour confirmer :",
   palette: {

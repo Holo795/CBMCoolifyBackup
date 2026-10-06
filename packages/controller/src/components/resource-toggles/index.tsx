@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import { updateResourceSettings } from "@/app/actions";
+import { useT } from "@/components/i18n-provider";
 import { ResourceTogglesView } from "./view";
 
 /**
@@ -14,25 +16,30 @@ export function ResourceToggles({
   backupEnabled,
   liveBackup,
   verbose = false,
+  disabled,
 }: {
   id: string;
   backupEnabled: boolean;
   liveBackup: boolean;
   verbose?: boolean;
+  disabled?: boolean;
 }) {
+  const t = useT();
   const [enabled, setEnabled] = useState(backupEnabled);
   const [live, setLive] = useState(liveBackup);
   const [pending, start] = useTransition();
-  const [saved, setSaved] = useState(false);
 
-  const save = (next: { enabled: boolean; live: boolean }) => {
+  const save = (next: { enabled: boolean; live: boolean }, revert: () => void) => {
     const fd = new FormData();
     if (next.enabled) fd.set("backupEnabled", "on");
     if (next.live) fd.set("liveBackup", "on");
     start(async () => {
-      await updateResourceSettings(id, fd);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
+      try {
+        await updateResourceSettings(id, fd);
+      } catch (e) {
+        revert();
+        toast.error((e as Error).message || t("common.error"));
+      }
     });
   };
 
@@ -41,15 +48,14 @@ export function ResourceToggles({
       verbose={verbose}
       enabled={enabled}
       live={live}
-      pending={pending}
-      saved={saved}
+      disabled={disabled || pending}
       onEnabledChange={(v) => {
         setEnabled(v);
-        save({ enabled: v, live });
+        save({ enabled: v, live }, () => setEnabled(!v));
       }}
       onLiveChange={(v) => {
         setLive(v);
-        save({ enabled, live: v });
+        save({ enabled, live: v }, () => setLive(!v));
       }}
     />
   );

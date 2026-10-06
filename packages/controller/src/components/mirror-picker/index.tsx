@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { setDestinationMirror } from "@/app/actions";
 import { MirrorPickerView } from "./view";
 
@@ -22,7 +23,6 @@ export function MirrorPicker({
   const router = useRouter();
   const [value, setValue] = useState(current ?? "");
   const [pending, start] = useTransition();
-  const [msg, setMsg] = useState<string | null>(null);
 
   const onChange = (next: string) => {
     const prev = value;
@@ -31,13 +31,12 @@ export function MirrorPicker({
       const r = await setDestinationMirror(id, next || null);
       if (r?.error) {
         setValue(prev); // revert
-        setMsg(r.error);
-        setTimeout(() => setMsg(null), 5000);
+        toast.error(r.error);
       } else {
         router.refresh();
       }
     });
   };
 
-  return <MirrorPickerView value={value} pending={pending} msg={msg} candidates={candidates} onChange={onChange} />;
+  return <MirrorPickerView value={value} pending={pending} candidates={candidates} onChange={onChange} />;
 }

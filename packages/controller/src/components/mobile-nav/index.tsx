@@ -2,15 +2,21 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
+import { openSearch } from "@/components/sidebar";
 import { MobileNavView } from "./view";
 
-/** Hamburger menu + slide-out navigation drawer, shown only below `md` (the
- * fixed sidebar takes over at `md` and up). */
-export function MobileNav({ role }: { role: string }) {
+/** Mobile header + navigation drawer, shown below `md` (the sidebar takes over above). */
+export function MobileNav({ role, name, email }: { role: string; name: string; email?: string }) {
   const [open, setOpen] = useState(false);
-  const pathname = usePathname();
-
   return (
-    <MobileNavView open={open} onOpen={() => setOpen(true)} onClose={() => setOpen(false)} pathname={pathname} role={role} />
+    <MobileNavView
+      open={open}
+      onOpenChange={setOpen}
+      pathname={usePathname()}
+      role={role}
+      name={name}
+      email={email}
+      onSearch={openSearch}
+    />
   );
 }

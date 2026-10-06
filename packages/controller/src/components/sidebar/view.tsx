@@ -1,51 +1,51 @@
 "use client";
 
 import Link from "next/link";
-import { GithubIcon } from "@/components/icons/github";
-import { navFor } from "@/components/nav";
+import { Search } from "lucide-react";
+import { Brand } from "@/components/brand";
+import { UserMenu } from "@/components/user-menu";
+import { Kbd } from "@/components/ui";
 import { useT } from "@/components/i18n-provider";
-import { cn } from "@/lib/cn";
+import { NavLinks } from "./nav-links";
 
-/** Presentation only: the fixed sidebar. Logic in ./index.tsx. */
-export function SidebarView({ pathname, role }: { pathname: string; role: string }) {
+/** Presentation only: the desktop sidebar. Logic in ./index.tsx. */
+export function SidebarView({
+  pathname,
+  role,
+  name,
+  email,
+  onSearch,
+}: {
+  pathname: string;
+  role: string;
+  name: string;
+  email?: string;
+  onSearch: () => void;
+}) {
   const t = useT();
   return (
-    <aside className="hidden w-60 shrink-0 flex-col border-r bg-card/40 md:flex">
-      <div className="flex h-14 items-center justify-center border-b px-5">
-        <span className="text-base font-semibold tracking-wide">CBM</span>
+    <aside className="hidden w-64 shrink-0 flex-col border-r bg-surface md:flex">
+      <div className="flex h-16 items-center px-4">
+        <Link href="/" className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <Brand />
+        </Link>
       </div>
-      <nav className="flex flex-1 flex-col gap-0.5 p-3">
-        {navFor(role).map((item) => {
-          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
-                active
-                  ? "bg-muted font-medium text-foreground"
-                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-              )}
-            >
-              <Icon className="h-4 w-4" />
-              {t(item.labelKey)}
-            </Link>
-          );
-        })}
-      </nav>
-      <div className="border-t p-3 text-xs text-muted-foreground">
-        <a
-          href="https://github.com/Holo795/CBMCoolifyBackup"
-          target="_blank"
-          rel="noreferrer noopener"
-          className="flex items-center gap-1.5 hover:text-foreground"
+      <div className="px-3 pb-3">
+        <button
+          type="button"
+          onClick={onSearch}
+          className="flex h-8 w-full items-center gap-2 rounded-md border bg-card px-2.5 text-[13px] text-muted-foreground shadow-sm transition-colors hover:border-border-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <GithubIcon className="h-3.5 w-3.5" />
-          <span>{t("nav.builtBy")}</span>
-        </a>
-        <p className="mt-1 text-[10px]">{t("nav.tagline")}</p>
+          <Search className="size-3.5" />
+          <span className="flex-1 text-left">{t("common.search")}</span>
+          <Kbd>⌘K</Kbd>
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto px-3 py-2">
+        <NavLinks pathname={pathname} role={role} />
+      </div>
+      <div className="border-t p-2">
+        <UserMenu name={name} email={email} role={role} />
       </div>
     </aside>
   );

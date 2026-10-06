@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { updateResourceHooks } from "@/app/actions";
 import { useT } from "@/components/i18n-provider";
+import { toast } from "sonner";
 import { HooksFormView, type HookRow } from "./view";
 
 type Hook = { container: string; pre?: string; post?: string; timeoutSec?: number };
@@ -40,20 +41,19 @@ export function HooksForm({ resourceId, containers, hooks }: { resourceId: strin
     })),
   );
   const [pending, start] = useTransition();
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const onUpdate = (i: number, field: "pre" | "post" | "timeoutSec", val: string) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, [field]: val } : r)));
 
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setMsg(null);
     start(async () => {
       const r = await updateResourceHooks(
         resourceId,
         rows.map((x) => ({ container: x.target, pre: x.pre, post: x.post, timeoutSec: x.timeoutSec })),
       );
-      setMsg(r?.error ? { ok: false, text: r.error } : { ok: true, text: t("resources.hooks.saved") });
+      if (r?.error) toast.error(r.error);
+      else toast.success(t("resources.hooks.saved"));
     });
   };
 
@@ -63,7 +63,6 @@ export function HooksForm({ resourceId, containers, hooks }: { resourceId: strin
       multi={rows.length > 1}
       noneDiscovered={containers.length === 0}
       pending={pending}
-      msg={msg}
       onUpdate={onUpdate}
       onSubmit={onSubmit}
     />

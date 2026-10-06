@@ -42,6 +42,19 @@ export const en = {
   backupOptionsInfo:
     "Backups never restart this resource. Databases are exported live; for files, the agent briefly freezes (pauses) only the containers that write to them for a few seconds, then resumes them - with no restart at all. Settings are saved automatically.",
   backupHooks: "Backup hooks",
+  allTypes: "All types",
+  tabs: { snapshots: "Snapshots", schedule: "Schedule", options: "Options" },
+  lastBackup: "Last backup",
+  never: "Never",
+  storedTotal: "Stored",
+  storedHint: "{count} successful snapshot(s)",
+  effectiveSchedule: "Schedule",
+  noScheduleShort: "None",
+  hooksTitle: "Backup hooks",
+  hooksDesc: "Commands run in the containers before and after each backup.",
+  optionsTitle: "Backup options",
+  viewSnapshot: "Open",
+  colScheduled: "Scheduled",
   toggles: {
     enabledLabel: "Include in scheduled backups",
     enabledDesc:
@@ -152,6 +165,19 @@ export const fr: typeof en = {
   backupOptionsInfo:
     "Les sauvegardes ne redémarrent jamais cette ressource. Les bases de données sont exportées à chaud ; pour les fichiers, l'agent gèle brièvement (met en pause) uniquement les conteneurs qui y écrivent pendant quelques secondes, puis les relance - sans aucun redémarrage. Les réglages sont enregistrés automatiquement.",
   backupHooks: "Hooks de sauvegarde",
+  allTypes: "Tous les types",
+  tabs: { snapshots: "Snapshots", schedule: "Planification", options: "Options" },
+  lastBackup: "Dernière sauvegarde",
+  never: "Jamais",
+  storedTotal: "Stocké",
+  storedHint: "{count} snapshot(s) réussi(s)",
+  effectiveSchedule: "Planification",
+  noScheduleShort: "Aucune",
+  hooksTitle: "Hooks de sauvegarde",
+  hooksDesc: "Commandes exécutées dans les conteneurs avant et après chaque sauvegarde.",
+  optionsTitle: "Options de sauvegarde",
+  viewSnapshot: "Ouvrir",
+  colScheduled: "Planifiée",
   toggles: {
     enabledLabel: "Inclure dans les sauvegardes planifiées",
     enabledDesc:

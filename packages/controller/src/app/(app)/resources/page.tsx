@@ -21,7 +21,7 @@ export default async function ResourcesPage({
     ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}),
     ...(type ? { type } : {}),
   };
-  const [total, controlPlanes, resources, orphaned] = await Promise.all([
+  const [total, controlPlanes, resources, orphaned, typeRows] = await Promise.all([
     prisma.resource.count({ where }),
     // Control planes: always shown, pinned at the top of every page.
     prisma.resource.findMany({
@@ -42,6 +42,8 @@ export default async function ResourcesPage({
       orderBy: [{ projectName: "asc" }, { name: "asc" }],
       include: { instance: { omit: INSTANCE_SECRETS }, _count: { select: { snapshots: true } } },
     }),
+    // Distinct types, for the filter.
+    prisma.resource.groupBy({ by: ["type"], where: { status: { not: "deleted" } }, orderBy: { type: "asc" } }),
   ]);
   // Which instances have a live agent (recent heartbeat)? Resources whose
   // instance has none can't be backed up, so we grey them out + disable backup.
@@ -66,6 +68,7 @@ export default async function ResourcesPage({
       totalPages={totalPages}
       q={q}
       type={type}
+      types={typeRows.map((r) => r.type)}
     />
   );
 }

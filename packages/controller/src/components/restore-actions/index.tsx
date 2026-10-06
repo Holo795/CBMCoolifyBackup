@@ -2,19 +2,18 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { restoreSnapshot } from "@/app/actions";
-import { useT } from "@/components/i18n-provider";
 import { RestoreActionsView } from "./view";
 
 /**
- * Restore (in place) and "→ new" (clone to a new Coolify resource) buttons.
- * Both need a live agent. On trigger we navigate to the snapshot's page so the
- * operator watches the restore log live (instead of a stale "queued" toast).
+ * Restore (in place) and clone ("→ new" a new Coolify resource) buttons, each
+ * confirmed in a dialog. Both need a live agent. On trigger we navigate to the
+ * snapshot's page so the operator watches the restore log live.
  *
- * When `instances` (>1) is provided, "→ new" opens a target-instance picker so
- * a backup can be restored onto a DIFFERENT connected Coolify (migration).
- * `allowNew={false}` hides "→ new" (a Coolify control-plane snapshot can only be
- * restored in place).
+ * With several connected instances, the clone dialog offers a target instance
+ * (migration). `allowNew={false}` hides cloning (a Coolify control-plane
+ * snapshot can only be restored in place).
  */
 export function RestoreActions({
   snapshotId,
@@ -32,43 +31,27 @@ export function RestoreActions({
   instances?: { id: string; name: string }[];
   currentInstanceId?: string;
 }) {
-  const t = useT();
   const router = useRouter();
   const [pending, start] = useTransition();
-  const [busy, setBusy] = useState<"in_place" | "new_resource" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [dialog, setDialog] = useState<"in_place" | "new_resource" | null>(null);
   const [targetId, setTargetId] = useState(currentInstanceId ?? "");
   const canPickTarget = (instances?.length ?? 0) > 1 && !!currentInstanceId;
 
-  const run = (target: "in_place" | "new_resource", targetInstanceId?: string) => {
+  const run = (target: "in_place" | "new_resource") => {
     if (!hasAgent || pending) return;
-    if (target === "in_place" && !window.confirm(t("snapshots.restoreInPlaceConfirm"))) return;
-    setError(null);
-    setBusy(target);
     start(async () => {
       const r = await restoreSnapshot(
         snapshotId,
         target,
-        targetInstanceId && targetInstanceId !== currentInstanceId ? targetInstanceId : undefined,
+        target === "new_resource" && targetId && targetId !== currentInstanceId ? targetId : undefined,
       );
       if (r?.error) {
-        setError(r.error);
-        setBusy(null);
-      } else {
-        setPickerOpen(false);
-        router.push(`/snapshots/${snapshotId}`);
+        toast.error(r.error);
+        return;
       }
+      setDialog(null);
+      router.push(`/snapshots/${snapshotId}`);
     });
-  };
-
-  const onRun = (target: "in_place" | "new_resource") => {
-    // With several instances connected, "→ new" first opens the target picker.
-    if (target === "new_resource" && canPickTarget) {
-      setPickerOpen((v) => !v);
-      return;
-    }
-    run(target);
   };
 
   return (
@@ -77,21 +60,10 @@ export function RestoreActions({
       hasAgent={hasAgent}
       allowNew={allowNew}
       pending={pending}
-      busy={busy}
-      error={error}
-      onRun={onRun}
-      picker={
-        canPickTarget
-          ? {
-              open: pickerOpen,
-              instances: instances!,
-              targetId,
-              onTargetChange: setTargetId,
-              onGo: () => run("new_resource", targetId),
-              onClose: () => setPickerOpen(false),
-            }
-          : undefined
-      }
+      dialog={dialog}
+      onDialog={setDialog}
+      onConfirm={run}
+      picker={canPickTarget ? { instances: instances!, targetId, onTargetChange: setTargetId } : undefined}
     />
   );
 }

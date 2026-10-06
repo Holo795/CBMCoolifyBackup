@@ -1,29 +1,32 @@
 "use client";
 
-import { Select } from "@/components/ui";
-import { useT } from "@/components/i18n-provider";
+import { useId } from "react";
 import { Copy } from "lucide-react";
+import { Select, Tooltip } from "@/components/ui";
+import { useT } from "@/components/i18n-provider";
 
 /** Presentation only: the mirror-target picker. Logic in ./index.tsx. */
 export function MirrorPickerView({
   value,
   pending,
-  msg,
   candidates,
   onChange,
 }: {
   value: string;
   pending: boolean;
-  msg: string | null;
   candidates: { id: string; name: string }[];
   onChange: (next: string) => void;
 }) {
   const t = useT();
+  const id = useId();
   return (
-    <label className="flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground" title={t("destinations.mirror.title")}>
-      <Copy className="h-3.5 w-3.5" />
-      {t("destinations.mirror.label")}
-      <Select value={value} disabled={pending} onChange={(e) => onChange(e.target.value)} className="h-7 max-w-40 py-0 text-xs" aria-label={t("destinations.mirror.aria")}>
+    <div className="flex items-center gap-2">
+      <Tooltip content={t("destinations.mirror.title")}>
+        <label htmlFor={id} className="flex shrink-0 items-center gap-1.5 text-[13px] text-muted-foreground">
+          <Copy className="size-3.5" /> {t("destinations.mirror.row")}
+        </label>
+      </Tooltip>
+      <Select id={id} value={value} disabled={pending} onChange={(e) => onChange(e.target.value)} className="w-40 [&_select]:h-8 [&_select]:text-[13px]">
         <option value="">{t("common.none")}</option>
         {candidates.map((c) => (
           <option key={c.id} value={c.id}>
@@ -31,7 +34,6 @@ export function MirrorPickerView({
           </option>
         ))}
       </Select>
-      {msg && <span className="text-[var(--color-danger)]">{msg}</span>}
-    </label>
+    </div>
   );
 }

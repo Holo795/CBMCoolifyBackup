@@ -3,17 +3,42 @@ import type { Prisma } from "@/generated/prisma/client";
 import { PageHeader } from "@/components/page-header";
 import { ScheduleForm } from "@/components/schedule-form";
 import { ActionButton } from "@/components/action-button";
-import { Card, CardContent, CardHeader, CardTitle, Badge, statusTone } from "@/components/ui";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  Badge,
+  StatusDot,
+  Stat,
+  EmptyState,
+  Disclosure,
+  Table,
+  THead,
+  TH,
+  TR,
+  TD,
+  List,
+  ListItem,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+  statusTone,
+} from "@/components/ui";
 import { ResourceToggles } from "@/components/resource-toggles";
+import { ResourceIcon } from "@/components/resource-icon";
 import { HooksForm } from "@/components/hooks-form";
 import { setResourceSchedule, removeResourceOverride, backupNow, deleteSnapshot } from "@/app/actions";
-import { ConfirmDeleteButton } from "@/components/confirm-delete";
+import { ActionsMenu } from "@/components/actions-menu";
 import { RestoreActions } from "@/components/restore-actions";
 import { Gate } from "@/components/role-gate";
 import { getT } from "@/lib/i18n";
 import { effectivePolicy, describeCron, cronToFrequency, modeLabel, captureLabel } from "@/lib/schedule";
-import { formatBytes, timeAgo } from "@/lib/cn";
-import { Play, ArrowLeft, Unplug } from "lucide-react";
+import { resourceStatusLabel } from "@/lib/status";
+import { formatBytes, formatDateTime, timeAgo } from "@/lib/cn";
+import { Play, Unplug, Archive, CalendarClock, HardDrive, Clock, Trash2, ExternalLink, Undo2, Trash } from "lucide-react";
 import { type DESTINATION_SECRETS, type INSTANCE_SECRETS, type PublicDestination } from "@/lib/public-fields";
 
 type ResourceRow = Prisma.ResourceGetPayload<{ include: { instance: { omit: typeof INSTANCE_SECRETS } } }>;
@@ -56,19 +81,47 @@ export async function ResourceDetailView({
         : eff.source === "global"
           ? t("resources.scheduleFromGlobal")
           : null;
+  const active = override ?? (inheritedFrom ? eff.policy : null);
+  const succeeded = snapshots.filter((s) => s.status === "succeeded");
+  const last = snapshots[0];
+  const stored = succeeded.reduce((n, s) => n + Number(s.sizeBytes), 0);
+  const deleteItem = (s: SnapshotRow) => ({
+    kind: "delete" as const,
+    label: t("common.delete"),
+    icon: <Trash2 />,
+    action: deleteSnapshot.bind(null, s.id),
+    confirmWord: t("resources.deleteConfirmWord"),
+    title: t("resources.deleteSnapshotTitle"),
+    body: (
+      <>
+        {t("resources.deleteSnapshotBodyPre", { size: formatBytes(s.sizeBytes) })}
+        <b className="text-foreground">{t("resources.deleteSnapshotBodyBold")}</b>
+        {t("resources.deleteSnapshotBodyPost")}
+      </>
+    ),
+  });
+
   return (
-    <>
-      <Link href="/resources" className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-3.5 w-3.5" /> {t("resources.title")}
-      </Link>
+    <div className="flex flex-col gap-6">
       <PageHeader
-        title={resource.name}
-        description={`${resource.type} · ${resource.instance.name}${resource.projectName ? " · " + resource.projectName : ""}`}
+        back={{ href: "/resources", label: t("resources.title") }}
+        title={
+          <span className="flex items-center gap-3">
+            <ResourceIcon type={resource.type} controlPlane={controlPlane} className="size-9" />
+            {resource.name}
+          </span>
+        }
+        badges={
+          <span className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground">
+            <StatusDot tone={statusTone(resource.status)} /> {resourceStatusLabel(t, resource.status)}
+          </span>
+        }
+        description={[resource.type, resource.instance.name, resource.projectName, resource.serverName].filter(Boolean).join(" · ")}
         action={
           agentDown || removed ? undefined : (
             <Gate min="operator">
               <ActionButton action={backupNow.bind(null, resource.id)} variant="primary" size="md" successMsg={t("resources.backupQueued")}>
-                <Play className="h-4 w-4" /> {t("resources.backUpNow")}
+                <Play /> {t("resources.backUpNow")}
               </ActionButton>
             </Gate>
           )
@@ -76,227 +129,258 @@ export async function ResourceDetailView({
       />
 
       {removed && (
-        <div className="mb-4 flex items-center gap-2 rounded-md border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-3 py-2 text-sm text-[var(--color-danger)]">
-          {t("resources.removedBanner")}
+        <div className="flex items-start gap-3 rounded-xl border border-danger/30 bg-danger-soft px-4 py-3 text-[13px] text-danger">
+          <Trash className="mt-0.5 size-4 shrink-0" /> {t("resources.removedBanner")}
+        </div>
+      )}
+      {agentDown && (
+        <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning-soft px-4 py-3 text-[13px]">
+          <Unplug className="mt-0.5 size-4 shrink-0 text-warning" />
+          <div>
+            <p className="font-semibold text-warning">{t("resources.agentUnavailable")}</p>
+            <p className="text-muted-foreground">
+              {t("resources.agentUnavailableDetailPre")} <span className="text-foreground">{resource.instance.name}</span>
+              {t("resources.agentUnavailableDetailPost")}
+            </p>
+          </div>
         </div>
       )}
 
-      <div className="relative">
-        <div
-          className={agentDown ? "pointer-events-none select-none blur-[3px]" : ""}
-          aria-hidden={agentDown || undefined}
-        >
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Gate min="operator">
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("resources.backupOptions")}</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-              {t("resources.backupOptionsInfo")}
-            </p>
-            <ResourceToggles id={resource.id} backupEnabled={resource.backupEnabled} liveBackup={resource.liveBackup} verbose />
-          </CardContent>
-        </Card>
-        </Gate>
-
-        {/* Hooks run arbitrary commands inside containers: configuration, admin-only.
-            Decided here (server) rather than by <Gate> alone, whose children
-            would still reach the browser. */}
-        {isAdmin && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("resources.backupHooks")}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <HooksForm
-              resourceId={resource.id}
-              containers={
-                Array.isArray(resource.containers)
-                  ? (resource.containers as { name: string; service?: string }[])
-                  : resource.containerNames.map((name) => ({ name }))
-              }
-              hooks={
-                Array.isArray(resource.hooks)
-                  ? (resource.hooks as { container: string; pre?: string; post?: string; timeoutSec?: number }[])
-                  : []
-              }
-            />
-          </CardContent>
-        </Card>
-        )}
-
-        <Gate min="admin">
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("resources.schedule")}</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              {override ? (
-                <>{t("resources.scheduleOverrideDesc")}</>
-              ) : inheritedFrom && eff.policy ? (
-                <>
-                  {inheritedFrom}{" "}
-                  <span className="text-foreground">{describeCron(eff.policy.cron, t, tz)}</span> →{" "}
-                  {eff.policy.destination.name} · {modeLabel(eff.policy.mode, t)}
-                </>
-              ) : (
-                <span className="text-[var(--color-warning)]">{t("resources.scheduleNone")}</span>
-              )}
-            </p>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {override && (
-              <div className="flex items-center gap-2 text-xs">
-                <Badge tone="accent">{t("resources.overrideBadge")}</Badge>
-                <span>
-                  {describeCron(override.cron, t, tz)} → {override.destination.name} · {modeLabel(override.mode, t)}
-                </span>
-                <form action={removeResourceOverride.bind(null, resource.id)}>
-                  <button type="submit" className="text-[var(--color-danger)] hover:underline">
-                    {t("resources.revertToInherited")}
-                  </button>
-                </form>
-              </div>
-            )}
-            <details className="text-sm">
-              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                {override ? t("resources.editOverride") : t("resources.overrideSchedule")}
-              </summary>
-              <div className="mt-3">
-                <ScheduleForm
-                  action={setResourceSchedule.bind(null, resource.id)}
-                  destinations={destinations}
-                  submitLabel={override ? t("resources.updateOverride") : t("resources.createOverride")}
-                  defaults={
-                    override
-                      ? {
-                          frequency: cronToFrequency(override.cron),
-                          customCron: override.cron,
-                          destinationId: override.destinationId,
-                          mode: override.mode,
-                          retentionDaily: override.retentionDaily,
-                          retentionWeekly: override.retentionWeekly,
-                          retentionMonthly: override.retentionMonthly,
-                        }
-                      : undefined
-                  }
-                />
-              </div>
-            </details>
-          </CardContent>
-        </Card>
-        </Gate>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Stat
+          label={t("resources.lastBackup")}
+          icon={<Clock />}
+          value={last ? timeAgo(last.startedAt, t) : t("resources.never")}
+          hint={
+            last ? (
+              <span className="inline-flex items-center gap-1.5">
+                <StatusDot tone={statusTone(last.status)} /> {t(`snapshots.status.${last.status}`)} · {formatDateTime(last.startedAt, tz)}
+              </span>
+            ) : undefined
+          }
+          className="[&_.tabular]:text-xl"
+        />
+        <Stat
+          label={t("resources.effectiveSchedule")}
+          icon={<CalendarClock />}
+          value={active ? describeCron(active.cron, t, tz) : t("resources.noScheduleShort")}
+          tone={active ? undefined : "warning"}
+          hint={active ? `${active.destination.name} · ${modeLabel(active.mode, t)}` : t("resources.scheduleNone")}
+          className="[&_.tabular]:text-xl"
+        />
+        <Stat
+          label={t("resources.storedTotal")}
+          icon={<HardDrive />}
+          value={formatBytes(stored)}
+          hint={t("resources.storedHint", { count: succeeded.length })}
+          className="[&_.tabular]:text-xl"
+        />
       </div>
 
-      <h2 className="mb-3 mt-8 text-sm font-medium text-muted-foreground">{t("resources.snapshotsHeading")}</h2>
-      {snapshots.length === 0 ? (
-        <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-          {t("resources.noSnapshots")}
-        </p>
-      ) : (
-        <Card>
-          <CardContent className="p-0">
-            <table className="hidden w-full text-sm md:table">
-              <thead className="border-b text-left text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-2.5 font-medium">{t("resources.colWhen")}</th>
-                  <th className="px-4 py-2.5 font-medium">{t("resources.colMode")}</th>
-                  <th className="px-4 py-2.5 font-medium">{t("resources.colStatus")}</th>
-                  <th className="px-4 py-2.5 font-medium">{t("resources.colSize")}</th>
-                  <th className="px-4 py-2.5 font-medium">{t("resources.colDestination")}</th>
-                  <th className="px-4 py-2.5"></th>
-                </tr>
-              </thead>
-              <tbody>
+      <Tabs defaultValue="snapshots">
+        <TabsList>
+          <TabsTrigger value="snapshots">
+            <Archive /> {t("resources.tabs.snapshots")}
+            <Badge>{snapshots.length}</Badge>
+          </TabsTrigger>
+          <TabsTrigger value="schedule">
+            <CalendarClock /> {t("resources.tabs.schedule")}
+          </TabsTrigger>
+          <TabsTrigger value="options">{t("resources.tabs.options")}</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="snapshots" className="pt-5 focus-visible:outline-none">
+          {snapshots.length === 0 ? (
+            <EmptyState icon={<Archive />} title={t("resources.noSnapshots")} />
+          ) : (
+            <>
+              <div className="hidden md:block">
+                <Table>
+                  <THead>
+                    <tr>
+                      <TH>{t("resources.colWhen")}</TH>
+                      <TH>{t("resources.colMode")}</TH>
+                      <TH>{t("resources.colStatus")}</TH>
+                      <TH className="text-right">{t("resources.colSize")}</TH>
+                      <TH>{t("resources.colDestination")}</TH>
+                      <TH className="w-px" />
+                    </tr>
+                  </THead>
+                  <tbody>
+                    {snapshots.map((s) => (
+                      <TR key={s.id}>
+                        <TD>
+                          <Link href={`/snapshots/${s.id}`} className="font-medium hover:underline">
+                            {timeAgo(s.startedAt, t)}
+                          </Link>
+                          <p className="text-xs text-muted-foreground">{formatDateTime(s.startedAt, tz)}</p>
+                        </TD>
+                        <TD className="text-[13px] text-muted-foreground">
+                          {modeLabel(s.mode, t)} · {captureLabel(s.captureMode, t)}
+                        </TD>
+                        <TD>
+                          <Badge tone={statusTone(s.status)} dot>
+                            {t(`snapshots.status.${s.status}`)}
+                          </Badge>
+                        </TD>
+                        <TD className="tabular text-right text-[13px] text-muted-foreground">{formatBytes(s.sizeBytes)}</TD>
+                        <TD className="text-[13px] text-muted-foreground">{s.destination.name}</TD>
+                        <TD>
+                          <div className="flex items-center justify-end gap-1">
+                            <Gate min="operator">
+                              {s.status === "succeeded" && (
+                                <RestoreActions snapshotId={s.id} hasAgent={!agentDown} allowNew={!controlPlane} />
+                              )}
+                              <ActionsMenu
+                                items={[
+                                  { kind: "link", label: t("resources.viewSnapshot"), icon: <ExternalLink />, href: `/snapshots/${s.id}` },
+                                  { kind: "separator" },
+                                  deleteItem(s),
+                                ]}
+                              />
+                            </Gate>
+                          </div>
+                        </TD>
+                      </TR>
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
+              <List className="md:hidden">
                 {snapshots.map((s) => (
-                  <tr key={s.id} className="border-b last:border-0">
-                    <td className="px-4 py-2.5">
-                      <Link href={`/snapshots/${s.id}`} className="hover:underline">
+                  <ListItem key={s.id} className="flex-wrap">
+                    <StatusDot tone={statusTone(s.status)} />
+                    <div className="min-w-0 flex-1">
+                      <Link href={`/snapshots/${s.id}`} className="block font-medium hover:underline">
                         {timeAgo(s.startedAt, t)}
                       </Link>
-                    </td>
-                    <td className="px-4 py-2.5 text-muted-foreground">
-                      {modeLabel(s.mode, t)} · {captureLabel(s.captureMode, t)}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>
-                    </td>
-                    <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{formatBytes(s.sizeBytes)}</td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{s.destination.name}</td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <Gate min="operator">
-                          {s.status === "succeeded" && (
-                            <RestoreActions snapshotId={s.id} hasAgent={!agentDown} allowNew={!controlPlane} />
-                          )}
-                          <ConfirmDeleteButton
-                            action={deleteSnapshot.bind(null, s.id)}
-                            confirmWord={t("resources.deleteConfirmWord")}
-                            title={t("resources.deleteSnapshotTitle")}
-                            body={
-                              <>{t("resources.deleteSnapshotBodyPre", { size: formatBytes(s.sizeBytes) })}<b>{t("resources.deleteSnapshotBodyBold")}</b>{t("resources.deleteSnapshotBodyPost")}</>
-                            }
-                          />
-                        </Gate>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {/* Mobile: one card per snapshot. */}
-            <div className="divide-y md:hidden">
-              {snapshots.map((s) => (
-                <div key={s.id} className="flex flex-col gap-2 p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <Link href={`/snapshots/${s.id}`} className="font-medium hover:underline">
-                      {timeAgo(s.startedAt, t)}
-                    </Link>
-                    <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    <span>{modeLabel(s.mode, t)} · {captureLabel(s.captureMode, t)}</span>
-                    <span>{formatBytes(s.sizeBytes)}</span>
-                    <span>{s.destination.name}</span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
+                      <p className="truncate text-xs text-muted-foreground">
+                        {modeLabel(s.mode, t)} · {formatBytes(s.sizeBytes)} · {s.destination.name}
+                      </p>
+                    </div>
                     <Gate min="operator">
-                      {s.status === "succeeded" && (
-                            <RestoreActions snapshotId={s.id} hasAgent={!agentDown} allowNew={!controlPlane} />
-                          )}
-                      <ConfirmDeleteButton
-                        action={deleteSnapshot.bind(null, s.id)}
-                        confirmWord={t("resources.deleteConfirmWord")}
-                        title={t("resources.deleteSnapshotTitle")}
-                        body={
-                          <>{t("resources.deleteSnapshotBodyPre", { size: formatBytes(s.sizeBytes) })}<b>{t("resources.deleteSnapshotBodyBold")}</b>{t("resources.deleteSnapshotBodyPost")}</>
-                        }
-                      />
+                      {s.status === "succeeded" && <RestoreActions snapshotId={s.id} hasAgent={!agentDown} allowNew={!controlPlane} />}
                     </Gate>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-        </div>
-        {agentDown && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
-            <div className="flex max-w-sm flex-col items-center gap-2 rounded-xl border bg-card/80 px-6 py-5 text-center shadow-lg backdrop-blur-sm">
-              <Unplug className="h-6 w-6 text-[var(--color-warning)]" />
-              <div className="font-medium">{t("resources.agentUnavailable")}</div>
-              <p className="text-sm text-muted-foreground">
-                {t("resources.agentUnavailableDetailPre")}{" "}
-                <span className="text-foreground">{resource.instance.name}</span>
-                {t("resources.agentUnavailableDetailPost")}
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
-    </>
+                  </ListItem>
+                ))}
+              </List>
+            </>
+          )}
+        </TabsContent>
+
+        <TabsContent value="schedule" className="pt-5 focus-visible:outline-none">
+          <Card>
+            <CardHeader
+              actions={
+                override ? (
+                  <Gate min="admin">
+                    <form action={removeResourceOverride.bind(null, resource.id)}>
+                      <button
+                        type="submit"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        <Undo2 className="size-3.5" /> {t("resources.revertToInherited")}
+                      </button>
+                    </form>
+                  </Gate>
+                ) : undefined
+              }
+            >
+              <CardTitle className="flex items-center gap-2">
+                {t("resources.schedule")}
+                {override && <Badge tone="accent">{t("resources.overrideBadge")}</Badge>}
+              </CardTitle>
+              <CardDescription>
+                {override ? (
+                  <>
+                    {t("resources.scheduleOverrideDesc")}{" "}
+                    <span className="text-foreground">{describeCron(override.cron, t, tz)}</span> → {override.destination.name} ·{" "}
+                    {modeLabel(override.mode, t)}
+                  </>
+                ) : inheritedFrom && eff.policy ? (
+                  <>
+                    {inheritedFrom} <span className="text-foreground">{describeCron(eff.policy.cron, t, tz)}</span> →{" "}
+                    {eff.policy.destination.name} · {modeLabel(eff.policy.mode, t)}
+                  </>
+                ) : (
+                  <span className="text-warning">{t("resources.scheduleNone")}</span>
+                )}
+              </CardDescription>
+            </CardHeader>
+            <Gate min="admin">
+              <CardContent>
+                <Disclosure summary={override ? t("resources.editOverride") : t("resources.overrideSchedule")}>
+                  <ScheduleForm
+                    action={setResourceSchedule.bind(null, resource.id)}
+                    destinations={destinations}
+                    submitLabel={override ? t("resources.updateOverride") : t("resources.createOverride")}
+                    defaults={
+                      override
+                        ? {
+                            frequency: cronToFrequency(override.cron),
+                            customCron: override.cron,
+                            destinationId: override.destinationId,
+                            mode: override.mode,
+                            retentionDaily: override.retentionDaily,
+                            retentionWeekly: override.retentionWeekly,
+                            retentionMonthly: override.retentionMonthly,
+                          }
+                        : undefined
+                    }
+                  />
+                </Disclosure>
+              </CardContent>
+            </Gate>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="options" className="flex flex-col gap-6 pt-5 focus-visible:outline-none">
+          <Gate min="operator">
+            <Card>
+              <CardHeader>
+                <CardTitle>{t("resources.optionsTitle")}</CardTitle>
+                <CardDescription>{t("resources.backupOptionsInfo")}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResourceToggles
+                  id={resource.id}
+                  backupEnabled={resource.backupEnabled}
+                  liveBackup={resource.liveBackup}
+                  verbose
+                  disabled={removed}
+                />
+              </CardContent>
+            </Card>
+          </Gate>
+
+          {/* Hooks run arbitrary commands inside containers: configuration, admin-only.
+              Decided here (server) rather than by <Gate> alone, whose children
+              would still reach the browser. */}
+          {isAdmin && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{t("resources.hooksTitle")}</CardTitle>
+                <CardDescription>{t("resources.hooksDesc")}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <HooksForm
+                  resourceId={resource.id}
+                  containers={
+                    Array.isArray(resource.containers)
+                      ? (resource.containers as { name: string; service?: string }[])
+                      : resource.containerNames.map((name) => ({ name }))
+                  }
+                  hooks={
+                    Array.isArray(resource.hooks)
+                      ? (resource.hooks as { container: string; pre?: string; post?: string; timeoutSec?: number }[])
+                      : []
+                  }
+                />
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+      </Tabs>
+    </div>
   );
 }

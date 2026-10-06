@@ -1,49 +1,50 @@
 "use client";
 
-import { useRef, useState, useTransition, type ReactNode } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ConfirmDeleteView } from "./view";
+import { toast } from "sonner";
+import { Trash2 } from "lucide-react";
+import { Button, Tooltip, type ButtonSize, type ButtonVariant } from "@/components/ui";
+import { useT } from "@/components/i18n-provider";
+import { ConfirmDeleteDialogView } from "./view";
 
-/**
- * Destructive delete gated by a typed confirmation. The operator must type
- * `confirmWord` (e.g. the resource name, or "DELETE") before the action fires.
- */
-export function ConfirmDeleteButton({
+export type ConfirmDeleteProps = {
+  action: () => Promise<unknown>;
+  /** What the operator must type before the action fires (a name, or "DELETE"). */
+  confirmWord: string;
+  title: string;
+  body: ReactNode;
+  /** Navigate here after a successful delete (e.g. the page of the deleted item). */
+  redirectTo?: string;
+};
+
+/** Controlled typed-confirmation dialog (open it from a menu, a button…). */
+export function ConfirmDeleteDialog({
+  open,
+  onOpenChange,
   action,
   confirmWord,
   title,
   body,
-  label,
-  variant = "danger",
-  size = "sm",
   redirectTo,
-}: {
-  action: () => Promise<unknown>;
-  confirmWord: string;
-  title: string;
-  body: ReactNode;
-  label?: string;
-  variant?: "danger" | "ghost" | "outline";
-  size?: "sm" | "md" | "icon";
-  /** Navigate here after a successful delete (e.g. when the current page is the deleted item). */
-  redirectTo?: string;
-}) {
-  const [open, setOpen] = useState(false);
+}: ConfirmDeleteProps & { open: boolean; onOpenChange: (v: boolean) => void }) {
+  const t = useT();
+  const router = useRouter();
   const [text, setText] = useState("");
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
-  // The element that opened the dialog, to give focus back when it closes.
-  const openerRef = useRef<HTMLElement | null>(null);
   const ok = text.trim() === confirmWord;
 
-  const close = () => {
-    setOpen(false);
-    openerRef.current?.focus();
+  const onOpen = (v: boolean) => {
+    if (v) {
+      setText("");
+      setError(null);
+    }
+    onOpenChange(v);
   };
 
   const onConfirm = () => {
-    if (!ok) return;
+    if (!ok || pending) return;
     setError(null);
     start(async () => {
       const r = await action();
@@ -52,15 +53,17 @@ export function ConfirmDeleteButton({
         setError(String((r as { error?: string }).error));
         return;
       }
-      setOpen(false);
+      onOpenChange(false);
+      toast.success(t("components.deleted"));
       if (redirectTo) router.push(redirectTo);
       else router.refresh();
     });
   };
 
   return (
-    <ConfirmDeleteView
+    <ConfirmDeleteDialogView
       open={open}
+      onOpenChange={onOpen}
       text={text}
       onTextChange={setText}
       pending={pending}
@@ -68,18 +71,38 @@ export function ConfirmDeleteButton({
       confirmWord={confirmWord}
       title={title}
       body={body}
-      label={label}
-      variant={variant}
-      size={size}
-      onOpenClick={() => {
-        openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-        setText("");
-        setError(null);
-        setOpen(true);
-      }}
-      onClose={close}
       onConfirm={onConfirm}
       error={error}
     />
+  );
+}
+
+/** A delete button that asks for a typed confirmation first. */
+export function ConfirmDeleteButton({
+  label,
+  variant = "danger-ghost",
+  size = "icon-sm",
+  ...props
+}: ConfirmDeleteProps & { label?: string; variant?: ButtonVariant | "danger" | "ghost" | "outline"; size?: ButtonSize | "sm" | "md" | "icon" }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const iconOnly = !label;
+  const button = (
+    <Button
+      size={iconOnly ? (size === "sm" || size === "md" ? "icon-sm" : size) : size}
+      variant={variant === "danger" && iconOnly ? "danger-ghost" : variant}
+      aria-label={iconOnly ? t("common.delete") : undefined}
+      aria-haspopup="dialog"
+      onClick={() => setOpen(true)}
+    >
+      <Trash2 aria-hidden />
+      {label}
+    </Button>
+  );
+  return (
+    <>
+      {iconOnly ? <Tooltip content={props.title}>{button}</Tooltip> : button}
+      <ConfirmDeleteDialog open={open} onOpenChange={setOpen} {...props} />
+    </>
   );
 }
