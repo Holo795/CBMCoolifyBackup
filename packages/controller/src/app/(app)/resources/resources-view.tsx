@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Prisma } from "@/generated/prisma/client";
 import { PageHeader } from "@/components/page-header";
-import { Badge, StatusDot, EmptyState, Table, THead, TH, TR, TD, List, ListItem, Disclosure, Tooltip, buttonClass, statusTone } from "@/components/ui";
+import { Badge, StatusDot, EmptyState, Table, THead, TH, TR, TD, List, ListItem, Disclosure, Tooltip, buttonClass } from "@/components/ui";
 import { backupNow } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
 import { ResourceToggles } from "@/components/resource-toggles";
@@ -9,7 +9,7 @@ import { ResourceIcon } from "@/components/resource-icon";
 import { FilterBar } from "@/components/filter-bar";
 import { Gate } from "@/components/role-gate";
 import { getT } from "@/lib/i18n";
-import { resourceStatusLabel } from "@/lib/status";
+import { resourceStatusLabel, resourceStatusTone } from "@/lib/status";
 import { Boxes, Play, Unplug, ChevronLeft, ChevronRight } from "lucide-react";
 import { type INSTANCE_SECRETS } from "@/lib/public-fields";
 
@@ -127,7 +127,7 @@ export async function ResourcesView({
                           </Tooltip>
                         ) : (
                           <span className="inline-flex items-center gap-2 text-[13px]">
-                            <StatusDot tone={statusTone(r.status)} />
+                            <StatusDot tone={resourceStatusTone(r.status)} />
                             {resourceStatusLabel(t, r.status)}
                           </span>
                         )}
@@ -164,7 +164,7 @@ export async function ResourcesView({
                         </>
                       ) : (
                         <>
-                          <StatusDot tone={statusTone(r.status)} /> {r.type}
+                          <StatusDot tone={resourceStatusTone(r.status)} /> {r.type}
                         </>
                       )}
                     </p>

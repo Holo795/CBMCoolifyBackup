@@ -52,8 +52,9 @@ export function StatusDot({ tone = "neutral", pulse, className }: { tone?: Tone;
 }
 
 export function statusTone(status: string): Tone {
-  if (/heal|online|succ|passed|running:heal/i.test(status)) return "success";
+  // Failures first: "unhealthy" also contains "heal".
   if (/fail|error|unhealthy|offline|exited|delet|removed|missing|corrupt/i.test(status)) return "danger";
+  if (/heal|online|succ|passed/i.test(status)) return "success";
   if (/skip|ignor|unknown/i.test(status)) return "neutral";
   if (/run|progress|queue|pend/i.test(status)) return "accent";
   return "neutral";

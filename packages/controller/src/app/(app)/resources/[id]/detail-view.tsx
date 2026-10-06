@@ -37,7 +37,7 @@ import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
 import { Gate } from "@/components/role-gate";
 import { getT } from "@/lib/i18n";
 import { effectivePolicy, describeCron, cronToFrequency, modeLabel, captureLabel } from "@/lib/schedule";
-import { resourceStatusLabel } from "@/lib/status";
+import { resourceStatusLabel, resourceStatusTone } from "@/lib/status";
 import { formatBytes, formatDateTime, timeAgo } from "@/lib/cn";
 import { Play, Unplug, Archive, CalendarClock, HardDrive, Clock, Trash2, ExternalLink, Undo2, Trash } from "lucide-react";
 import { type DESTINATION_SECRETS, type INSTANCE_SECRETS, type PublicDestination } from "@/lib/public-fields";
@@ -112,7 +112,7 @@ export async function ResourceDetailView({
         }
         badges={
           <span className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground">
-            <StatusDot tone={statusTone(resource.status)} /> {resourceStatusLabel(t, resource.status)}
+            <StatusDot tone={resourceStatusTone(resource.status)} /> {resourceStatusLabel(t, resource.status)}
           </span>
         }
         description={[resource.type, resource.instance.name, resource.projectName, resource.serverName].filter(Boolean).join(" · ")}

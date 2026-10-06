@@ -118,6 +118,8 @@ export const en = {
     created: "created",
     removing: "removing",
     dead: "dead",
+    noHealthcheck: "no healthcheck",
+    healthFailing: "healthcheck failing",
   },
 };
 
@@ -239,6 +241,8 @@ export const fr: typeof en = {
     unknown: "inconnu",
     created: "créé",
     removing: "suppression",
+    noHealthcheck: "sans healthcheck",
+    healthFailing: "healthcheck en échec",
     dead: "mort",
   },
 };
