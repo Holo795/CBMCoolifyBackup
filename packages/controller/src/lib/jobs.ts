@@ -13,6 +13,7 @@ import {
   type CapturedConfig,
   snapshotDir,
   CONFIG_ONLY_CAPTURE,
+  redactSecrets,
 } from "@cbm/shared";
 import { randomUUID } from "node:crypto";
 import { prisma } from "./prisma";
@@ -194,10 +195,18 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
   // (authoritative) rather than relying on the container's env at backup time.
   const db = await dbCredsFor(resource);
   // Capture env vars (apps/services) into the snapshot so it's self-contained.
-  const envEnc = await envEncFor(resource);
+  const env = await envEncFor(resource);
+  const envEnc = env.envEnc;
   // Capture the full resource definition so the snapshot can be rebuilt on a
   // fresh Coolify even after the source instance is gone (DR / migration).
-  const capturedConfig = await capturedConfigFor(resource);
+  const config = await capturedConfigFor(resource);
+  const capturedConfig = config.config;
+  // A Coolify read that failed is reported to the agent (logged, and fatal for
+  // a configuration-only backup) instead of producing a quietly partial snapshot.
+  const captureErrors = [env.error, config.error].filter((e): e is string => !!e);
+  const configCaptureError = captureErrors.length
+    ? redactSecrets(`Coolify API: ${captureErrors.join("; ")}`).slice(0, 300)
+    : undefined;
 
   const snapshot = await prisma.snapshot.create({
     data: {
@@ -223,6 +232,7 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
     liveBackup,
     envEnc,
     capturedConfig,
+    configCaptureError,
     resource: {
       coolifyUuid: resource.coolifyUuid,
       name: resource.name,
@@ -474,15 +484,24 @@ async function dbCredsFor(resource: {
 }
 
 /** Capture an app/service's env vars from Coolify, master-key-encrypted, so the
- * snapshot is self-contained. undefined for other types, coolify-self, or none. */
-async function envEncFor(resource: { type: string; coolifyUuid: string; instanceId: string }): Promise<string | undefined> {
+ * snapshot is self-contained. No `envEnc` for other types, coolify-self, or none;
+ * `error` when Coolify couldn't be read (never silently: see configCaptureError). */
+async function envEncFor(resource: {
+  type: string;
+  coolifyUuid: string;
+  instanceId: string;
+}): Promise<{ envEnc?: string; error?: string }> {
   const kind = resource.type === "application" ? "applications" : resource.type === "service" ? "services" : null;
-  if (!kind || resource.coolifyUuid.startsWith("coolify-self")) return undefined;
+  if (!kind || resource.coolifyUuid.startsWith("coolify-self")) return {};
   const instance = await prisma.coolifyInstance.findUnique({ where: { id: resource.instanceId } });
-  if (!instance) return undefined;
+  if (!instance) return {};
   const client = new CoolifyClient(instance.baseUrl, decryptSecret(instance.apiTokenEnc));
-  const envs = await client.getEnvVars(kind, resource.coolifyUuid).catch(() => []);
-  return envs.length ? encryptSecret(JSON.stringify(envs)) : undefined;
+  try {
+    const envs = await client.getEnvVars(kind, resource.coolifyUuid);
+    return envs.length ? { envEnc: encryptSecret(JSON.stringify(envs)) } : {};
+  } catch (e) {
+    return { error: `environment variables: ${(e as Error).message}` };
+  }
 }
 
 /* --------------------- captured config (disaster recovery) --------------------- */
@@ -542,9 +561,21 @@ function pick(src: Record<string, unknown>, keys: readonly string[]): Record<str
 /**
  * Capture the full Coolify resource definition into the snapshot, so a restore
  * can rebuild it on a fresh Coolify with the source instance gone (DR /
- * migration). Best-effort: returns undefined rather than failing the backup.
+ * migration). Never fails the backup itself: a failed read comes back as
+ * `error` (see configCaptureError).
  */
-async function capturedConfigFor(resource: {
+async function capturedConfigFor(resource: Parameters<typeof readCapturedConfig>[0]): Promise<{
+  config?: CapturedConfig;
+  error?: string;
+}> {
+  try {
+    return { config: await readCapturedConfig(resource) };
+  } catch (e) {
+    return { error: `resource definition: ${(e as Error).message}` };
+  }
+}
+
+async function readCapturedConfig(resource: {
   type: string;
   name: string;
   coolifyUuid: string;
@@ -569,60 +600,56 @@ async function capturedConfigFor(resource: {
     cbmVersion: CBM_VERSION,
   };
 
-  try {
-    if (resource.type === "application") {
-      const src = await client.getApplication(resource.coolifyUuid);
-      const cfg: CapturedConfig = {
-        ...base,
-        kind: "application",
-        fqdn: typeof src.fqdn === "string" ? src.fqdn : undefined,
-        // + its named volumes, which the clone must recreate (not part of the app object).
-        raw: { ...pick(src, APP_CONFIG_FIELDS), volumes: await client.getAppVolumes(resource.coolifyUuid) },
-        dbCredsEnc: undefined,
-        composeEnc: undefined,
-        gitSourceName: undefined,
-        privateKeyName: undefined,
-      };
-      // Portable git-auth hints (numeric ids don't travel to a new Coolify).
-      if (typeof src.source_id === "number") cfg.gitSourceName = await client.getSourceNameById(src.source_id);
-      else if (typeof src.private_key_id === "number")
-        cfg.privateKeyName = await client.getPrivateKeyNameById(src.private_key_id);
-      return cfg;
-    }
-
-    if (resource.type === "service") {
-      const src = await client.getService(resource.coolifyUuid);
-      const compose = src.docker_compose_raw ?? src.docker_compose ?? src.docker_compose_yaml;
-      return {
-        ...base,
-        kind: "service",
-        fqdn: undefined,
-        raw: pick(src, ["name", "service_type"]),
-        dbCredsEnc: undefined,
-        // Compose may inline secrets (environment: blocks) - store encrypted.
-        composeEnc: compose ? encryptSecret(String(compose)) : undefined,
-        gitSourceName: undefined,
-        privateKeyName: undefined,
-      };
-    }
-
-    // Everything else: try it as a standalone database (postgresql, mysql,
-    // redis, ...). Unknown types simply fail the read and return undefined.
-    const src = (await client.getDatabase(resource.coolifyUuid)) as Record<string, unknown>;
-    const creds = pick(src, DB_CRED_FIELDS);
-    return {
+  if (resource.type === "application") {
+    const src = await client.getApplication(resource.coolifyUuid);
+    const cfg: CapturedConfig = {
       ...base,
-      kind: "database",
-      fqdn: undefined,
-      raw: pick(src, ["name", "image"]),
-      dbCredsEnc: Object.keys(creds).length ? encryptSecret(JSON.stringify(creds)) : undefined,
+      kind: "application",
+      fqdn: typeof src.fqdn === "string" ? src.fqdn : undefined,
+      // + its named volumes, which the clone must recreate (not part of the app object).
+      raw: { ...pick(src, APP_CONFIG_FIELDS), volumes: await client.getAppVolumes(resource.coolifyUuid) },
+      dbCredsEnc: undefined,
       composeEnc: undefined,
       gitSourceName: undefined,
       privateKeyName: undefined,
     };
-  } catch {
-    return undefined;
+    // Portable git-auth hints (numeric ids don't travel to a new Coolify).
+    if (typeof src.source_id === "number") cfg.gitSourceName = await client.getSourceNameById(src.source_id);
+    else if (typeof src.private_key_id === "number")
+      cfg.privateKeyName = await client.getPrivateKeyNameById(src.private_key_id);
+    return cfg;
   }
+
+  if (resource.type === "service") {
+    const src = await client.getService(resource.coolifyUuid);
+    const compose = src.docker_compose_raw ?? src.docker_compose ?? src.docker_compose_yaml;
+    return {
+      ...base,
+      kind: "service",
+      fqdn: undefined,
+      raw: pick(src, ["name", "service_type"]),
+      dbCredsEnc: undefined,
+      // Compose may inline secrets (environment: blocks) - store encrypted.
+      composeEnc: compose ? encryptSecret(String(compose)) : undefined,
+      gitSourceName: undefined,
+      privateKeyName: undefined,
+    };
+  }
+
+  // Everything else: try it as a standalone database (postgresql, mysql,
+  // redis, ...). Any other type fails the read, which is reported as a capture error.
+  const src = (await client.getDatabase(resource.coolifyUuid)) as Record<string, unknown>;
+  const creds = pick(src, DB_CRED_FIELDS);
+  return {
+    ...base,
+    kind: "database",
+    fqdn: undefined,
+    raw: pick(src, ["name", "image"]),
+    dbCredsEnc: Object.keys(creds).length ? encryptSecret(JSON.stringify(creds)) : undefined,
+    composeEnc: undefined,
+    gitSourceName: undefined,
+    privateKeyName: undefined,
+  };
 }
 
 /** Dump/restore credentials from the snapshot's captured config (survives the

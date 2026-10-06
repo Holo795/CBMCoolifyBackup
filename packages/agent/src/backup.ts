@@ -35,7 +35,7 @@ import { makeTransfer } from "./transfer.js";
 import { resticEnsureRepo, resticBackupDir, withResticCtx } from "./restic.js";
 import { resolveResource, findDbContainers, readDbCredentials, resourceContainers } from "./resolve.js";
 import { assertFreeSpace } from "./disk.js";
-import { backupOutcome, unbackedLayerWarning } from "./outcome.js";
+import { backupOutcome, unbackedLayerWarning, captureErrorWarning, configOnlyFailure } from "./outcome.js";
 
 export type Emit = (level: "debug" | "info" | "warn" | "error", message: string, progress?: number) => void;
 
@@ -73,6 +73,8 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
   let captureMethod = "none";
 
   emit("info", `Starting ${job.mode} of ${resource.name} [${resource.type}]`, 2);
+  const captureWarning = captureErrorWarning(job.configCaptureError);
+  if (captureWarning) emit("warn", captureWarning);
 
   // Provenance (best-effort) from the primary container.
   let provenance: Provenance = {};
@@ -300,6 +302,8 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
     emit("warn", "Nothing to back up on the host (no container, volume or data) - ignored");
     return { skipped: true, reason: "Ignored: nothing on the host (no container, volume or data)" };
   }
+  const failure = configOnlyFailure(outcome, job.configCaptureError);
+  if (failure) throw new Error(failure);
   if (outcome === "config") {
     captureMethod = CONFIG_ONLY_CAPTURE;
     emit("info", "No volume, bind mount or database: keeping the configuration only (image or commit, environment)", 70);

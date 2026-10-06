@@ -23,9 +23,12 @@ with no volumes are never touched.
 - **Running, but no volume, host folder or database** (a stateless app or service): the snapshot
   keeps the **configuration only** — image or Git commit, environment and Coolify settings —
   shown as *configuration only*. It can't be restored in place or test-restored (there is no
-  data), but **Clone** recreates the resource from it. If a container has written more than
-  50 MB inside itself (outside any volume), the backup log warns: those files aren't backed up
-  and are lost whenever Coolify redeploys — add a volume if they are data.
+  data), but **Clone** recreates the resource from it. If Coolify can't be read when the backup
+  starts (API down, token revoked…), that configuration would be missing: the run then **fails**
+  and alerts instead of storing an empty snapshot. (A backup *with* data keeps its data and only
+  logs a warning.) If a container has written more than 50 MB inside itself (outside any
+  volume), the backup log warns: those files aren't backed up and are lost whenever Coolify
+  redeploys — add a volume if they are data.
 - **No container on the host at all** (never deployed, deleted, or stopped and removed): the run
   is marked *skipped* — nothing is stored and no alert is sent.
 

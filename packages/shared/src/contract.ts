@@ -202,6 +202,10 @@ export const BackupJob = z.object({
   /** Full resource definition captured by the controller (see CapturedConfig).
    * The agent stores it verbatim in the manifest. */
   capturedConfig: CapturedConfig.optional(),
+  /** Set when the controller couldn't read the resource's environment or
+   * definition from Coolify: the snapshot then can't recreate them. The agent
+   * logs it, and fails a configuration-only backup (that is all it would keep). */
+  configCaptureError: z.string().optional(),
   resource: ResourceDescriptor,
   destination: ResolvedDestination,
   encryption: EncryptionSpec,

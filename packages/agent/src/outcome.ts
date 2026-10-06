@@ -26,3 +26,18 @@ export function unbackedLayerWarning(container: string, writableBytes: number | 
     `it is not backed up and is lost when Coolify redeploys (add a volume if it is data)`
   );
 }
+
+/** Log line when the controller couldn't read the resource's config from Coolify. */
+export function captureErrorWarning(configCaptureError: string | undefined): string | null {
+  if (!configCaptureError) return null;
+  return `Could not read this resource's configuration from Coolify (${configCaptureError}): this snapshot can't recreate its environment or settings`;
+}
+
+/**
+ * A configuration-only snapshot keeps nothing but that configuration: when its
+ * capture failed, the run must fail (and alert) rather than store an empty one.
+ */
+export function configOnlyFailure(outcome: "data" | "config" | "skip", configCaptureError: string | undefined): string | null {
+  if (outcome !== "config" || !configCaptureError) return null;
+  return `Configuration-only backup failed: ${configCaptureError}`;
+}
