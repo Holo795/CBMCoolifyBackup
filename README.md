@@ -105,8 +105,11 @@ needs to actually come back to life isn't covered. CBM backs up the whole resour
   **present**; an opt‑in weekly **integrity** check re‑reads the stored data to catch **silent
   corruption** (`restic check` / tar re‑checksum); and a destination can **mirror** every backup
   to a second destination for a redundant, independently‑restorable copy.
-- **Parallelism & hooks** — agents run several jobs at once (`AGENT_CONCURRENCY`), and you can
-  set **per‑container pre/post‑backup commands** (e.g. quiesce an app, flush a cache).
+- **Parallelism & hooks** — agents run several jobs at once, and you can set **per‑container
+  pre/post‑backup commands** (e.g. quiesce an app, flush a cache).
+- **Agents managed from CBM.** Concurrency, free space kept, copy mode and log level are set
+  from the UI, for all agents or per host — no reinstall. A volume too big for the host's disk
+  is **sent straight to the destination** instead of failing (or refused cleanly, your choice).
 - **Scheduling** with grandfather‑father‑son retention, in a **configurable timezone**.
 - **Team access with roles.** Invite people as **admin / operator / viewer** via one‑time
   invitation links (copy‑paste or emailed). Operators run backups/restores; only admins

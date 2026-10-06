@@ -106,4 +106,31 @@ Coolify** (the control plane's own database + data) is on the instance card.
 
 After capture, artifacts are stored via the destination's engine — one file each (**tar**) or in
 an incremental, deduplicated, encrypted repository (**restic**). See [Destinations](destinations.md).
-The agent runs up to `AGENT_CONCURRENCY` backups at once (default 2).
+The agent runs up to `AGENT_CONCURRENCY` backups at once (default 2) — editable from CBM, see
+[Agent settings](#agent-settings).
+
+### Disk space on the agent host
+Before copying a volume or host folder, the agent measures it and compares it with the free space
+on its work dir (minus `AGENT_MIN_FREE_MB`, kept free on top). What happens next depends on the
+agent's **copy mode** (`AGENT_STAGING_MODE`, default `auto`):
+
+| Mode | Fits | Doesn't fit |
+| --- | --- | --- |
+| **auto** | Copied to the work dir, then uploaded | **Sent straight to the destination** |
+| **local** | Copied to the work dir, then uploaded | The backup fails with the sizes involved |
+| **direct** | Always sent straight to the destination | — |
+
+A copy made on the host ends the freeze as soon as it's written; a **direct** send keeps the
+containers frozen until the upload finishes (the backup log warns when that happens), so it
+trades a longer pause for no local space. Encryption is applied while copying, so an encrypted
+backup needs no more room than a plain one. Database dumps always go through the work dir.
+
+The **restic** engine backs up a local folder: it always needs the copy on the host, so with
+too little room the backup fails with the sizes involved, whatever the mode.
+
+### Agent settings
+Admins can set the agents' concurrency, free space kept, copy mode and log level from CBM:
+**Agents** → **Default settings** for all agents, or the gear on an agent's row to override
+them for that host (leave a field empty to keep the default). Changes apply on the agent's next
+heartbeat. A value set by environment variable on the host wins: the field is locked and shows
+the host's value. See [Configuration](configuration.md#agent-environment-variables).

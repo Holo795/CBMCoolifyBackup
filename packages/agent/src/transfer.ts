@@ -2,6 +2,7 @@ import { copyFile, mkdir } from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
 import { dirname, join, posix } from "node:path";
 import { pipeline } from "node:stream/promises";
+import type { Readable } from "node:stream";
 import type { ResolvedDestination } from "@cbm/shared";
 
 /** Above this an S3 upload goes multipart (a single PUT is capped at 5 GiB). */
@@ -10,6 +11,11 @@ const MULTIPART_THRESHOLD = 64 * 1024 * 1024;
 export interface Transfer {
   /** Upload a local file to the destination under relPath. */
   put(localFile: string, relPath: string): Promise<void>;
+  /**
+   * Upload a stream of unknown length under relPath (a volume sent without a
+   * local copy). `sizeHint` (bytes, an estimate) sizes S3 multipart parts.
+   */
+  putStream(body: Readable, relPath: string, sizeHint?: number): Promise<void>;
   /** Download relPath from the destination into a local file. */
   get(relPath: string, localFile: string): Promise<void>;
   /** List relative file paths under a relative directory prefix. */
@@ -39,6 +45,11 @@ function localTransfer(basePath: string): Transfer {
       const target = abs(relPath);
       await mkdir(dirname(target), { recursive: true });
       await copyFile(localFile, target);
+    },
+    async putStream(body, relPath) {
+      const target = abs(relPath);
+      await mkdir(dirname(target), { recursive: true });
+      await pipeline(body, createWriteStream(target));
     },
     async get(relPath, localFile) {
       await mkdir(dirname(localFile), { recursive: true });
@@ -115,6 +126,11 @@ function sshTransfer(dest: Extract<ResolvedDestination, { type: "ssh" }>): Promi
         const target = abs(relPath);
         await client.mkdir(posix.dirname(target), true).catch(() => undefined);
         await client.fastPut(localFile, target);
+      },
+      async putStream(body, relPath) {
+        const target = abs(relPath);
+        await client.mkdir(posix.dirname(target), true).catch(() => undefined);
+        await client.put(body, target);
       },
       async get(relPath, localFile) {
         await mkdir(dirname(localFile), { recursive: true });
@@ -217,6 +233,19 @@ function s3Transfer(dest: Extract<ResolvedDestination, { type: "s3" }>): Promise
         await new Upload({
           client,
           params: { Bucket: dest.bucket, Key: key(relPath), Body: createReadStream(localFile) },
+          partSize,
+          queueSize: 2,
+          leavePartsOnError: false,
+        }).done();
+      },
+      async putStream(body, relPath, sizeHint) {
+        // Unknown length: always multipart. Parts are sized from the estimate so
+        // the archive stays under S3's 10,000-part limit (+10% margin).
+        const { Upload } = await import("@aws-sdk/lib-storage");
+        const partSize = Math.max(16 * 1024 * 1024, Math.ceil(((sizeHint ?? 0) * 1.1) / 9000));
+        await new Upload({
+          client,
+          params: { Bucket: dest.bucket, Key: key(relPath), Body: body },
           partSize,
           queueSize: 2,
           leavePartsOnError: false,

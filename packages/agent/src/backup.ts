@@ -1,5 +1,8 @@
 import { mkdir, rm, writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { createWriteStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
+import type { Readable } from "node:stream";
 import {
   type Artifact,
   type BackupJob,
@@ -21,9 +24,9 @@ import {
   unpauseContainer,
   runningRwContainersForVolume,
   isContainerRunning,
-  verifyTarOpens,
   containerExists,
   containerWritableBytes,
+  pathSizeBytes,
   execShell,
   inspectContainer,
   type RunResult,
@@ -31,10 +34,13 @@ import {
 import { matchHookTargets, DEFAULT_HOOK_TIMEOUT_SEC } from "./hooks.js";
 import { captureProvenance } from "./provenance.js";
 import { encryptFile, sha256File } from "./crypto.js";
-import { makeTransfer } from "./transfer.js";
+import { makeTransfer, type Transfer } from "./transfer.js";
 import { resticEnsureRepo, resticBackupDir, withResticCtx } from "./restic.js";
 import { resolveResource, findDbContainers, readDbCredentials, resourceContainers } from "./resolve.js";
-import { assertFreeSpace } from "./disk.js";
+import { assertFreeSpace, freeBytes, minFreeBytes } from "./disk.js";
+import { getSettings } from "./settings.js";
+import { chooseStaging } from "./staging.js";
+import { captureTar } from "./capture.js";
 import { backupOutcome, unbackedLayerWarning, captureErrorWarning, configOnlyFailure } from "./outcome.js";
 
 export type Emit = (level: "debug" | "info" | "warn" | "error", message: string, progress?: number) => void;
@@ -57,8 +63,20 @@ async function anyContainerExists(containers: string[]): Promise<boolean> {
 }
 
 export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Promise<SnapshotManifest | BackupSkipped> {
+  try {
+    return await backupInStage(job, workDir, emit);
+  } catch (e) {
+    // Whatever failed (even before the backup's own cleanup is in place), don't
+    // leave its staging behind on the host.
+    await rm(join(workDir, job.id), { recursive: true, force: true }).catch(() => undefined);
+    throw e;
+  }
+}
+
+async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promise<SnapshotManifest | BackupSkipped> {
   const stage = join(workDir, job.id);
   await mkdir(stage, { recursive: true });
+  // The space kept free is a floor for any backup (dumps, the manifest…).
   await assertFreeSpace(stage);
 
   // Always resolve concrete docker facts from the UUID: it fills in what the
@@ -67,6 +85,12 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
   const resource = await resolveResource(job.resource);
   const liveBackup = job.liveBackup;
   const artifacts: Artifact[] = [];
+  // Opened on first use: a volume sent straight to the destination needs it
+  // before the end-of-backup upload.
+  let transfer: Transfer | undefined;
+  const transferFor = async () => (transfer ??= await makeTransfer(job.destination));
+  // Artifacts already at the destination (sent without a local copy).
+  const sentDirect = new Set<string>();
   const isDb = DUMPABLE_DB_TYPES.includes(resource.type);
   const containers = resourceContainers(resource);
   // What the agent actually did, recorded in the manifest for display.
@@ -127,8 +151,29 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
     for (const t of targets) {
       i++;
       // Before freezing anything: never pause an app only to fail on a full disk.
-      await assertFreeSpace(stage);
+      // chooseStaging checks the room a local copy needs; a direct send needs none.
+      const { stagingMode } = getSettings();
+      const needBytes = await pathSizeBytes(t.source);
+      const choice = chooseStaging({
+        mode: stagingMode,
+        engine: job.storage.engine,
+        label: t.label,
+        needBytes,
+        freeBytes: await freeBytes(stage),
+        minFreeBytes: minFreeBytes(),
+      });
+      if ("error" in choice) throw new Error(choice.error);
       const owners = liveBackup ? [] : await t.freezeContainers();
+      if (choice.where === "direct") {
+        emit(
+          choice.because === "no-room" ? "warn" : "info",
+          `${choice.because === "no-room" ? "Not enough room on the agent host" : "Copy mode is direct"}: ` +
+            `sending ${t.label} straight to the destination` +
+            (owners.length ? ` - its containers stay frozen until the upload ends` : ""),
+        );
+      }
+      if (job.encryption.enabled && !job.encryption.key) throw new Error("Encryption enabled but no key provided");
+      const filename = job.encryption.enabled ? `${t.fileName}.enc` : t.fileName;
       const paused: string[] = [];
       try {
         for (const c of owners) {
@@ -138,10 +183,23 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
         }
         if (liveBackup) emit("warn", `Live copy of ${t.source} without freezing (at your own risk) - may be inconsistent`);
         emit("info", `Archiving ${t.label} (${i}/${total})`, 20 + (50 * i) / Math.max(1, total));
-        const path = join(stage, t.fileName);
-        await tarVolume(t.source, path);
-        await verifyTarOpens(path);
-        artifacts.push(await finalizeArtifact("volume", t.fileName, path, t.meta, job, stage, emit));
+        // One pass: tar -> read-back check -> sha256 -> (encrypt) -> local file or
+        // the destination. An encrypted copy no longer needs twice the room.
+        const target = choice.where === "local" ? join(stage, filename) : `${job.destinationDir}/${filename}`;
+        const sink =
+          choice.where === "local"
+            ? (body: Readable) => pipeline(body, createWriteStream(target))
+            : async (body: Readable) => (await transferFor()).putStream(body, target, needBytes ?? undefined);
+        const res = await captureTar(t.source, sink, job.encryption.enabled ? job.encryption.key : undefined);
+        artifacts.push({
+          kind: "volume",
+          filename,
+          sizeBytes: res.storedBytes,
+          sha256: res.sha256,
+          encrypted: job.encryption.enabled,
+          meta: t.meta,
+        });
+        if (choice.where === "direct") sentDirect.add(filename);
       } finally {
         for (const c of paused.reverse()) {
           emit("info", `Resuming ${c}`);
@@ -358,24 +416,21 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
   } else {
     // tar engine: one file per artifact at the destination.
     emit("info", "Uploading to destination", 80);
-    const transfer = await makeTransfer(job.destination);
-    try {
-      for (const a of artifacts) {
-        const local = join(stage, a.filename);
-        await transfer.put(local, `${job.destinationDir}/${a.filename}`);
-      }
-      await transfer.put(manifestPath, `${job.destinationDir}/${MANIFEST_FILE}`);
-
-      // Verify every artifact actually landed (catches a truncated upload).
-      emit("info", "Verifying backup at the destination", 95);
-      const present = new Set(await transfer.list(job.destinationDir).catch(() => []));
-      const missing = [...artifacts.map((a) => a.filename), MANIFEST_FILE].filter(
-        (f) => !present.has(`${job.destinationDir}/${f}`),
-      );
-      if (missing.length) throw new Error(`Backup verification failed: missing at destination: ${missing.join(", ")}`);
-    } finally {
-      await transfer.close();
+    const transfer = await transferFor();
+    for (const a of artifacts) {
+      if (sentDirect.has(a.filename)) continue;
+      const local = join(stage, a.filename);
+      await transfer.put(local, `${job.destinationDir}/${a.filename}`);
     }
+    await transfer.put(manifestPath, `${job.destinationDir}/${MANIFEST_FILE}`);
+
+    // Verify every artifact actually landed (catches a truncated upload).
+    emit("info", "Verifying backup at the destination", 95);
+    const present = new Set(await transfer.list(job.destinationDir).catch(() => []));
+    const missing = [...artifacts.map((a) => a.filename), MANIFEST_FILE].filter(
+      (f) => !present.has(`${job.destinationDir}/${f}`),
+    );
+    if (missing.length) throw new Error(`Backup verification failed: missing at destination: ${missing.join(", ")}`);
   }
 
   emit("info", "Backup complete", 100);
@@ -388,6 +443,7 @@ export async function runBackup(job: BackupJob, workDir: string, emit: Emit): Pr
       if (!h.post) continue;
       await runHook("post", h.container, h.post, h.timeoutSec).catch((e) => emit("warn", (e as Error).message));
     }
+    await transfer?.close().catch(() => undefined);
     await rm(stage, { recursive: true, force: true }).catch(() => undefined);
   }
 }

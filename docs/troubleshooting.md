@@ -27,6 +27,18 @@ removed them; the database record stays so you can see the loss.
 The backup's files are gone from the destination (or, for a local destination, the producing
 agent's host is down). Check the destination and run **Verify** from its **…** menu.
 
+### "Not enough free space on the agent host"
+A volume didn't fit in the agent's work dir (minus `AGENT_MIN_FREE_MB`). The message gives the
+size needed and the space usable. Free some space on the host, lower **Free space kept**, or —
+for a **tar** destination — set the agent's **copy mode** to `auto` or `direct` (**Agents** →
+gear on the agent's row) so large volumes go straight to the destination. A **restic**
+destination always needs the local copy. See
+[Backups → Disk space on the agent host](backups.md#disk-space-on-the-agent-host).
+
+### A setting is greyed out in an agent's settings
+That setting is set by an environment variable on the host (e.g. `AGENT_CONCURRENCY`), which
+wins over CBM. Remove the variable from the agent container to manage it from CBM.
+
 ### restic over SSH/SFTP fails to connect
 restic's SFTP backend needs a working SSH connection from the **agent's host**:
 - key auth is most reliable; password auth uses `sshpass`;

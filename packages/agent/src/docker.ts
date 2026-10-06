@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess, type StdioOptions } from "node:child_process";
 import { createWriteStream, createReadStream } from "node:fs";
 import { once } from "node:events";
 import { pipeline } from "node:stream/promises";
@@ -210,6 +210,23 @@ export async function tarVolume(volume: string, outFile: string): Promise<void> 
   );
 }
 
+/**
+ * Size in bytes of a volume (by name) or a host folder (absolute path), read in
+ * a throwaway container; null when it can't be measured (the copy then falls
+ * back to the running free-space checks).
+ */
+export async function pathSizeBytes(source: string): Promise<number | null> {
+  const r = await docker(["run", "--rm", "--network", "none", "-v", `${source}:/data:ro`, "alpine:3.24", "du", "-sk", "/data"]);
+  if (r.code !== 0) return null;
+  const kib = Number(r.stdout.trim().split(/\s+/)[0]);
+  return Number.isFinite(kib) ? kib * 1024 : null;
+}
+
+/** Spawn a docker command whose streams the caller wires (see capture.ts). */
+export function spawnDocker(args: string[], stdio: StdioOptions): ChildProcess {
+  return spawn(DOCKER, args, { stdio, env: childEnv() });
+}
+
 /** Restore a tarball into a docker volume (creates it if missing). */
 export async function restoreVolume(volume: string, inFile: string): Promise<void> {
   await docker(["volume", "create", volume]);
@@ -280,14 +297,6 @@ export async function restoreToPath(hostPath: string, inFile: string): Promise<v
     ],
     inFile,
   );
-}
-
-/**
- * Verify a tarball opens (lists without error) by streaming it through a
- * throwaway container - no host-path access needed. Throws if it's corrupt.
- */
-export async function verifyTarOpens(inFile: string): Promise<void> {
-  await dockerFromFile(["run", "--rm", "-i", "alpine:3.24", "tar", "-tf", "-"], inFile);
 }
 
 /**
