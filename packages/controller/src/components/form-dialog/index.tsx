@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button, Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui";
 import { useT } from "@/components/i18n-provider";
+import { useOpenRequest } from "@/components/open-request";
 
 type Result = { ok?: boolean; error?: string; warning?: string; detail?: string } | void;
 
@@ -21,6 +22,7 @@ export function FormDialog({
   action,
   submitLabel,
   successMsg,
+  openKey,
   children,
 }: {
   /** A single button element (opens the dialog). */
@@ -31,6 +33,8 @@ export function FormDialog({
   action: (fd: FormData) => Promise<Result>;
   submitLabel: string;
   successMsg?: string;
+  /** Lets the command palette open this dialog (see useOpenRequest). */
+  openKey?: string;
   children: ReactNode;
 }) {
   const t = useT();
@@ -39,6 +43,10 @@ export function FormDialog({
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  useOpenRequest(openKey, () => {
+    setError(null);
+    setOpen(true);
+  });
 
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

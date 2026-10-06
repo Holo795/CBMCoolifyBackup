@@ -8,6 +8,7 @@ import { Copy, Check, AlertTriangle, UserPlus } from "lucide-react";
 import { createInvitation } from "@/app/actions";
 import { ROLES } from "@/lib/roles";
 import { useT } from "@/components/i18n-provider";
+import { useOpenRequest } from "@/components/open-request";
 
 export type PendingInvite = { id: string; email: string; role: string; expires: string };
 
@@ -57,6 +58,7 @@ export function InviteButton({ canEmail }: { canEmail: boolean }) {
       setSendEmail(false);
     }
   };
+  useOpenRequest("invite-user", () => onOpenChange(true));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

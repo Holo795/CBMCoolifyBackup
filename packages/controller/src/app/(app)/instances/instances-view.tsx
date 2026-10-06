@@ -62,6 +62,7 @@ export async function InstancesView({
 
   const connectButton = (
     <FormDialog
+      openKey="connect-instance"
       trigger={
         <Button variant="primary">
           <Plus /> {t("instances.connectTitle")}

@@ -117,9 +117,11 @@ needs to actually come back to life isn't covered. CBM backs up the whole resour
 - **MCP server.** An [MCP](https://modelcontextprotocol.io) server lets any AI agent (Claude
   Desktop, Claude Code, Cursor, Cline…) inspect your fleet and trigger backups over a
   token‑authenticated API, with the same role model as the UI. See [docs/mcp.md](docs/mcp.md).
-- **Web panel.** Sidebar navigation with a **⌘K / Ctrl+K** command palette, light/dark theme,
-  English and French, and a mobile layout. Secondary actions sit in each card's **…** menu;
-  results show up as toasts.
+- **Web panel.** Sidebar navigation, light/dark theme, English and French, and a mobile layout.
+  The **⌘K / Ctrl+K** palette finds any page, settings section, resource, recent snapshot,
+  destination, instance, agent, user or API token, and runs actions (connect an instance, add a
+  destination, invite someone, create an MCP token, switch theme or language). Secondary actions
+  sit in each card's **…** menu; results show up as toasts.
 
 ---
 

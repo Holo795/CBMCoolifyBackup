@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import { Button, Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui";
 import { useT } from "@/components/i18n-provider";
+import { useOpenRequest } from "@/components/open-request";
 import { createApiToken } from "@/app/actions";
 import { ApiTokensView, ApiTokenFormView, ApiTokenRevealView, type ApiTokenRow } from "./view";
 
@@ -58,6 +59,7 @@ export function CreateApiTokenButton() {
       setError(null);
     }
   };
+  useOpenRequest("new-api-token", () => onOpenChange(true));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

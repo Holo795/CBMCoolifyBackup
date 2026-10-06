@@ -10,7 +10,13 @@ export type Entry = {
   id: string;
   label: string;
   sub?: string;
-  href: string;
+  /** Where to go; with `openKey`, the dialog to open there (see open-request). */
+  href?: string;
+  openKey?: string;
+  /** An external page, opened in a new tab. */
+  external?: boolean;
+  /** An immediate action (theme, language, sign out) instead of navigating. */
+  run?: () => void;
   group: string;
   keywords?: string[];
   icon?: LucideIcon;
