@@ -17,16 +17,28 @@ A single Coolify panel can manage several servers. CBM handles this natively.
 ## Manual override
 
 If auto-detection can't decide yet (a brand-new, empty host with nothing recognizable), set the
-agent's server by hand on the **Agents** page (a dropdown), or pass `AGENT_SERVER_UUID` when
-installing the agent.
+agent's server by hand on the **Agents** page (admin; the dropdown in the *Server* column), or
+pass `AGENT_SERVER_UUID` when installing the agent.
 
 ## Per-server schedules
 
-When an instance spans several servers, the **instance page shows one block per server**: the
-agent status there, the install reminder, and that server's **own schedule** (cron + destination
-+ retention). Schedule precedence is *resource override > server > instance > global*.
+When an instance spans several servers, its card on **Coolify instances** shows **one row per
+server** instead of the single *Instance schedule* row: the agent status there (*agent
+connected*, *agent offline* or *no agent installed*), the last run, and that server's **own
+schedule** (frequency + mode + destination + retention), set or edited with **Set** / **Edit**
+in a side panel. The install command (card **…** menu → **Install command**) is the same for
+every host. Schedule precedence is *resource override > server > instance*.
 
-"Back up Coolify" (the control plane) stays a single action, routed to the main server.
+"Back up Coolify" (the control plane) stays a single action, routed to the server Coolify runs
+on.
+
+## Server mapping for restores
+
+A restore to a new resource (e.g. after re-pointing an instance or migrating) lands on the
+snapshot's server when it still exists on the target instance. Otherwise, for a multi-server
+target, the card **…** menu → **Server mapping for restores** (admin) maps each source server
+UUID to one of this instance's servers; unmapped sources go to the first server. See
+[Disaster recovery](disaster-recovery.md).
 
 ## Local destinations are per server
 

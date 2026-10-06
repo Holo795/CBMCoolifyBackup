@@ -13,20 +13,22 @@ re-inviting.
 
 ## Configure it (UI)
 
-**Settings → Email (SMTP)** (admin only). Fill in your provider's details:
+**Settings → Email (SMTP)** (admin only; jump to it from the section list on the left of the
+Settings page). Fill in your provider's details:
 
 | Field | Example |
 | --- | --- |
 | Host | `smtp.mailgun.org` |
 | Port | `587` (STARTTLS) or `465` (implicit TLS) |
-| Implicit TLS | on for port 465, off for 587 |
+| Implicit TLS (switch) | on for port 465, off for 587 |
 | Username / Password | your SMTP credentials (password is write-only / stored encrypted) |
 | From address | `backups@yourdomain.com` |
 | From name | `CBM Backups` (optional) |
 
 Then click **Save**, and **Send test email (establish connection)** — this opens the SMTP
-connection, sends a test message, and only marks SMTP *verified* if it succeeds. Until a test
-passes, password reset and verification stay disabled (a warning is shown).
+connection with the saved settings, sends a test message **to your own (admin) address**, and
+only marks SMTP *verified* if it succeeds. Saving again clears that flag. Until a test passes,
+password reset, verification and emailed invitations stay disabled (a warning is shown).
 
 The SMTP password is encrypted at rest with `MASTER_KEY` (see [Security](security.md)); it's
 never sent back to the browser.
@@ -46,14 +48,16 @@ SMTP_FROM=backups@yourdomain.com
 SMTP_FROM_NAME=CBM Backups
 ```
 
-Env-provided SMTP is trusted (no "send test" needed). See
+Locked fields show as disabled in the form. When `SMTP_HOST` comes from env, the config is
+trusted (no "send test" needed). See
 [Configuration](configuration.md) for the full variable reference.
 
 ## Account verification (optional)
 
-In **Settings → Email**, *Require email verification* turns on a **soft** check: new users and
-email changes receive a verification link, but **sign-in is never blocked** — it's a reminder,
-not a gate. Enabling it requires a working SMTP (CBM verifies the connection first).
+In **Settings → Email (SMTP)**, the *Require email verification* switch turns on a **soft**
+check: new users receive a verification link, and a change of email on **Profile** must be
+confirmed from a link sent to the current address (if that one is verified). **Sign-in is never
+blocked** — it's a reminder, not a gate. Enabling it requires a working SMTP (CBM verifies the connection first).
 
 ## Local development — Mailpit
 

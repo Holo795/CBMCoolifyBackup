@@ -55,28 +55,34 @@ Open your `BETTER_AUTH_URL` and **register**. The **first account to register be
 administrator**, and public sign-up closes automatically afterwards. There is no seed user and
 no default password.
 
-To add teammates, invite them from **Users** with a role (admin / operator / viewer) — see
+To add teammates, use **Users → Invite** with a role (admin / operator / viewer) — see
 [Accounts & roles](accounts.md). For password-reset and verification emails, set up SMTP in
-**Settings → Email** ([Email](email.md)).
+**Settings → Email (SMTP)** ([Email](email.md)).
 
 ---
 
 ## 3. Connect Coolify
 
-In the UI: **Coolify instances → Connect**, and enter:
+![Coolify instances](screenshots/instances.png)
 
+In the UI: **Coolify instances → Connect an instance** (in the page header), and enter:
+
+- a **name** for the instance (e.g. `production`),
 - the Coolify **base URL** (e.g. `https://coolify.example.com`),
 - a Coolify **API token** (Coolify → Keys & Tokens → API tokens, read access is enough to
   discover resources; write access is needed for "restore → new" which creates resources).
 
-CBM then syncs the instance and lists its resources.
+**Connect & sync** saves it, syncs the instance and lists its resources. The sync button on the
+instance card re-syncs on demand; the card's **…** menu also holds **Re-point the instance**
+(point it at another Coolify) and **Delete** (type the instance name to confirm).
 
 ---
 
 ## 4. Install an agent on each Docker host
 
-On the instance card, click **Reveal install command** to get a one-time enrollment token,
-then run the one-liner **on each host** you want to back up:
+On the instance card, open the **…** menu → **Install command**, then click **Reveal install
+command** to get the enrollment token (shown once; revealing again rotates it), and run the
+one-liner **on each host** you want to back up:
 
 ```bash
 curl -fsSL https://cbm.example.com/install.sh | CBM_TOKEN=cbm_… sh
@@ -93,7 +99,7 @@ This starts the `cbm-agent` container with:
 
 The agent is installed **directly** (not through the Coolify API) because Coolify's deploy
 path would strip the Docker socket mount the agent needs. Re-running the command reconfigures
-the agent in place.
+the agent in place. The agent shows up on the **Agents** page within ~30s.
 
 In a **multi-server** Coolify instance, run it once per server — each agent auto-detects which
 Coolify server it serves. See [Multi-server](multi-server.md).
@@ -102,9 +108,12 @@ Coolify server it serves. See [Multi-server](multi-server.md).
 
 ## 5. Configure backups
 
-- **Destinations** → add where backups are stored (local / SSH-SFTP / S3, tar or restic).
+- **Destinations → Add a destination** → where backups are stored (local / SSH-SFTP / S3,
+  standard (tar) or restic engine).
 - **Resources** → toggle "Include in scheduled backups" per resource.
-- **Coolify instances** (or a resource) → set a **schedule** (cron + destination + retention).
+- **Coolify instances** → **Set** on the instance's schedule row (one row per server in a
+  multi-server instance) → frequency, mode, destination and retention, in a side panel. A
+  resource can override it from its **Schedule** tab.
 
 You're done. See [Backups](backups.md) for what gets captured and how.
 

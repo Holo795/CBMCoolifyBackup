@@ -19,9 +19,10 @@ mount the volume **read-write**, copies it, then resumes them. Read-only mounts 
 with no volumes are never touched.
 
 ### Live mode (no freeze)
-Per resource you can opt into **"live, no freeze"** — copy volumes with zero interruption,
-accepting that a file rewritten exactly during the copy could be inconsistent. Useful for
-resources that write a lot outside a database.
+Per resource you can opt into **"Copy live, without freezing (at my own risk)"** (resource →
+**Options** tab) — copy volumes with zero interruption, accepting that a file rewritten exactly
+during the copy could be inconsistent. Avoid it for resources that write a lot outside a
+database.
 
 ### Integrity
 Each archive is streamed through `tar -tf` (it must open) before upload, and after upload the
@@ -32,8 +33,9 @@ agent confirms every artifact actually landed at the destination.
 ## Hooks (per container)
 
 Per resource you can set **pre/post-backup commands** that run inside its containers, so a
-multi-container service can quiesce each part independently (admins only: a hook runs an
-arbitrary command in a production container).
+multi-container service can quiesce each part independently. They live in the **Backup hooks**
+card of the resource's **Options** tab (admins only: a hook runs an arbitrary command in a
+production container).
 
 - **Targets.** The agent reports each resource's containers, so the rows are there before the
   first backup. A row targets the docker compose **service** (e.g. `worker`) when the container
@@ -57,24 +59,32 @@ Example: `php artisan down` (pre) / `php artisan up` (post), or flushing a cache
 ## Scheduling & retention
 
 Schedules are cron expressions evaluated in your configured timezone (**Settings → Timezone**).
-Scope, most specific wins:
+Admins edit them in a side panel: **Set** / **Edit** on the instance card (**Coolify
+instances**), with a **Frequency** control (*Hourly*, *Daily* 02:00, *Weekly* Monday 02:00,
+*Monthly* the 1st at 02:00, or *Custom* cron), a **Mode** card, a **Destination** and the
+**Retention**. The **…** menu next to it has *Remove the schedule*. Scope, most specific
+wins:
 
-1. a **per-resource** override, else
+1. a **per-resource** override (resource → **Schedule** tab → *Override schedule for this
+   resource*; *revert to inherited* drops it), else
 2. a **per-server** schedule (multi-server instances), else
 3. the **instance** schedule.
 
 Each schedule has a destination, a mode, and **grandfather-father-son retention**
-(keep N daily / weekly / monthly). Retention runs after each scheduled fire; for restic it is
-delegated to `restic forget --prune`. See
-[Reconciliation & retention](reconciliation-retention.md).
+(keep N daily / weekly / monthly; 7 / 4 / 6 by default). Retention runs after each scheduled
+fire and after each successful backup on a schedule; for restic it is delegated to
+`restic forget --prune`. See [Reconciliation & retention](reconciliation-retention.md).
 
-**Modes:** `backup` keeps versioned snapshots; `sync` keeps a single copy — each run writes a new one and the previous copy is deleted only once the new one is verified.
+**Modes:** `backup` keeps versioned snapshots; `sync` keeps a single copy — each run writes a new one and the previous copy is deleted only once the new one is verified. Retention isn't asked for in `sync` mode.
 
-A resource must have **"Include in scheduled backups"** enabled to be picked up — and a schedule
-must exist (enabling the toggle alone doesn't back anything up).
+A resource must have **"Include in scheduled backups"** enabled to be picked up (the
+**Scheduled** switch on the **Resources** list, or the resource's **Options** tab) — and a
+schedule must exist (enabling the toggle alone doesn't back anything up).
 
-You can also **Back up now** from any resource, and **Back up Coolify** (the control plane's own
-database + data) from the instance card.
+You can also back up on demand (operators): **Backup** on a row of the **Resources** list or
+**Back up now** on a resource page, which use the resource's effective schedule for the
+destination and mode (with no schedule, any existing destination in `backup` mode). **Back up
+Coolify** (the control plane's own database + data) is on the instance card.
 
 ---
 

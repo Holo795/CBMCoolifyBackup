@@ -1,6 +1,6 @@
 # Troubleshooting / FAQ
 
-### An instance shows "agent offline" / a resource is greyed out
+### An instance shows "agent offline" / a resource shows "Agent unavailable"
 No agent has sent a heartbeat in the last ~90s for that instance/server. Check the `cbm-agent`
 container is running on the host (`docker ps`, `docker logs cbm-agent`) and that
 `CONTROLLER_URL` is reachable from it. Re-run the install command to reconfigure.
@@ -13,7 +13,7 @@ fix its connectivity. In a multi-server instance you need one agent **per server
 ### A backup is enabled but nothing runs
 Toggling "Include in scheduled backups" isn't enough — you also need a **schedule** (on the
 instance, the server, or the resource). Without one, nothing is backed up automatically. Use
-**Back up now** to test on demand.
+**Back up now** on the resource's page to test on demand.
 
 ### "Nothing to verify" on a destination
 The destination has no recorded backups yet, so reconciliation has nothing to check. Run a
@@ -25,14 +25,15 @@ removed them; the database record stays so you can see the loss.
 
 ### Restore failed: artifact not found
 The backup's files are gone from the destination (or, for a local destination, the producing
-agent's host is down). Check the destination and run **Verify**.
+agent's host is down). Check the destination and run **Verify** from its **…** menu.
 
 ### restic over SSH/SFTP fails to connect
 restic's SFTP backend needs a working SSH connection from the **agent's host**:
 - key auth is most reliable; password auth uses `sshpass`;
 - if you use a **jump host**, the agent's host must reach the bastion;
 - the **base path must already exist** on the target (restic won't `mkdir -p` it);
-- run the destination **Test** to confirm reachability (note: Test runs from the controller).
+- run **Test** from the destination's **…** menu to confirm reachability (note: Test runs from
+  the controller).
 
 ### The controller didn't pick up the new image
 Container registries can lag on `:latest`. On the host: `docker pull

@@ -20,17 +20,23 @@ resource), and alerts when something fails, goes missing, or never ran.
 
 ## Screenshots
 
-| Overview | Resources | Snapshots & restore |
-| --- | --- | --- |
-| ![Overview](docs/screenshots/overview.png) | ![Resources](docs/screenshots/resources.png) | ![Restore](docs/screenshots/snapshots.png) |
+![Overview](docs/screenshots/overview.png)
 
-| Destinations (restic) | Users & roles | Settings (email · alerts) |
+| Resources | Snapshots | Snapshot & restore |
 | --- | --- | --- |
-| ![Destinations](docs/screenshots/destinations.png) | ![Users](docs/screenshots/users.png) | ![Settings](docs/screenshots/settings.png) |
+| ![Resources](docs/screenshots/resources.png) | ![Snapshots](docs/screenshots/snapshots.png) | ![Snapshot and restore](docs/screenshots/snapshot.png) |
 
-| Command palette | Mobile |
+| Coolify instances | Destinations (tar · restic) | Agents |
+| --- | --- | --- |
+| ![Coolify instances](docs/screenshots/instances.png) | ![Destinations](docs/screenshots/destinations.png) | ![Agents](docs/screenshots/agents.png) |
+
+| Users & roles | Settings | Command palette |
+| --- | --- | --- |
+| ![Users](docs/screenshots/users.png) | ![Settings](docs/screenshots/settings.png) | ![Command palette](docs/screenshots/command-palette.png) |
+
+| Dark mode | Mobile |
 | --- | --- |
-| ![Search](docs/screenshots/command-palette.png) | ![Mobile](docs/screenshots/mobile.png) |
+| ![Dark mode](docs/screenshots/dark.png) | ![Mobile](docs/screenshots/mobile.png) |
 
 ---
 
@@ -92,8 +98,9 @@ needs to actually come back to life isn't covered. CBM backs up the whole resour
 - **Automatic test restores.** A restore drill proves a backup actually restores: an agent
   loads each database dump into a network‑less sandbox container of the same engine and checks
   every table came back, reads volume archives back end to end, then deletes everything —
-  Coolify and your resources are never touched. On demand, via the API/MCP, or weekly; a failure
-  alerts you. See [docs/restore.md](docs/restore.md#test-restores-restore-drills).
+  Coolify and your resources are never touched. On demand (**Test restore** on a snapshot), via
+  the API/MCP, or weekly; a failure alerts you. See
+  [docs/restore.md](docs/restore.md#test-restores-restore-drills).
 - **Reconciliation, integrity & mirroring.** A daily check confirms every backup is still
   **present**; an opt‑in weekly **integrity** check re‑reads the stored data to catch **silent
   corruption** (`restic check` / tar re‑checksum); and a destination can **mirror** every backup
@@ -110,6 +117,9 @@ needs to actually come back to life isn't covered. CBM backs up the whole resour
 - **MCP server.** An [MCP](https://modelcontextprotocol.io) server lets any AI agent (Claude
   Desktop, Claude Code, Cursor, Cline…) inspect your fleet and trigger backups over a
   token‑authenticated API, with the same role model as the UI. See [docs/mcp.md](docs/mcp.md).
+- **Web panel.** Sidebar navigation with a **⌘K / Ctrl+K** command palette, light/dark theme,
+  English and French, and a mobile layout. Secondary actions sit in each card's **…** menu;
+  results show up as toasts.
 
 ---
 
@@ -163,15 +173,15 @@ reference in **[docs/configuration.md](docs/configuration.md)**.
 
 Open your `BETTER_AUTH_URL` and **register**. The **first account becomes the administrator**,
 then public sign‑up closes automatically — no seeding, no default password. To add teammates,
-invite them from **Users** with a role (admin / operator / viewer); see
+use **Users → Invite** with a role (admin / operator / viewer); see
 **[docs/accounts.md](docs/accounts.md)**. For password reset and verification emails, configure
-SMTP in **Settings → Email** (**[docs/email.md](docs/email.md)**).
+SMTP in **Settings → Email (SMTP)** (**[docs/email.md](docs/email.md)**).
 
 ### 3. Connect Coolify & install agents
 
-In the UI: **Coolify instances → Connect** (base URL + an API token). Then **Reveal install
-command** on the instance card and run the one‑liner **on each Docker host** you want to back
-up:
+In the UI: **Coolify instances → Connect an instance** (name, base URL + an API token). Then,
+on the instance card, open the **…** menu → **Install command** → **Reveal install command** and
+run the one‑liner **on each Docker host** you want to back up:
 
 ```bash
 curl -fsSL https://your-controller/install.sh | CBM_TOKEN=cbm_… sh
@@ -243,7 +253,8 @@ Being upfront so you don't lose data by surprise.
 - Secrets (Coolify tokens, SSH/S3 creds, encryption & restic keys) are **AES‑256‑GCM
   encrypted at rest** with `MASTER_KEY` (falls back to `BETTER_AUTH_SECRET`).
 - Agents authenticate with a bearer token (sha256‑hashed in the DB); enrollment tokens are
-  one‑time and shown once.
+  per instance, shown once, and rotated on every reveal. API tokens (MCP) are likewise shown
+  once and stored only as a hash.
 - **Role‑based access** (admin / operator / viewer) is enforced on every mutating action
   server‑side; invitation links are single‑use, expiring, and stored only as a sha256 hash.
 - The Docker socket grants root‑equivalent access — agents run trusted on each host.

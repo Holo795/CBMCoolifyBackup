@@ -49,7 +49,10 @@ out-of-date schema.
 
 ### Optional OAuth login
 
-Set the pair(s) you want; the provider button appears on the login page when configured.
+Set the pair(s) you want: each configured provider gets a **Continue with …** button on the
+sign-in page. `GITLAB_ISSUER` is only needed for a self-managed GitLab (default `https://gitlab.com`).
+The callback URL to register with the provider is `<BETTER_AUTH_URL>/api/auth/callback/<provider>`
+(`github`, `google` or `gitlab`).
 
 | Provider | Variables |
 | --- | --- |
@@ -60,15 +63,15 @@ Set the pair(s) you want; the provider button appears on the login page when con
 ### Email (SMTP)
 
 Optional — enables password reset, account verification, and emailed invitations. You can
-also set these from **Settings → Email** in the UI; **any value set here overrides the UI and
-locks that field** (config-as-code wins). Env-provided SMTP is trusted (no "send test"
+also set these from **Settings → Email (SMTP)** in the UI; **any value set here overrides the
+UI and locks that field** (config-as-code wins). Env-provided SMTP is trusted (no "send test"
 needed). Full guide: **[Email (SMTP)](email.md)**.
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `SMTP_HOST` | — | SMTP server hostname, e.g. `smtp.mailgun.org`. |
 | `SMTP_PORT` | — | `587` (STARTTLS) or `465` (implicit TLS). |
-| `SMTP_SECURE` | `false` | `true` for implicit TLS (port 465). |
+| `SMTP_SECURE` | — | `true` for implicit TLS (port 465). Unset: the UI setting, else `true` only on port 465. |
 | `SMTP_USER` / `SMTP_PASSWORD` | — | SMTP credentials. |
 | `SMTP_FROM` | — | From address, e.g. `backups@yourdomain.com`. |
 | `SMTP_FROM_NAME` | — | Optional display name, e.g. `CBM Backups`. |
@@ -82,12 +85,12 @@ Most are set by the install command; you rarely set them by hand.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `CONTROLLER_URL` | `http://localhost:3000` | Where the agent reaches the controller. |
-| `ENROLLMENT_TOKEN` | — | One-time token from "Reveal install command"; exchanged for a bearer token on first start. |
+| `ENROLLMENT_TOKEN` | — | The instance's enrollment token (instance card → **…** → **Install command**); exchanged for a bearer token on first start. |
 | `AGENT_TOKEN` | — | Bearer token (set automatically after enrollment). |
 | `AGENT_HOSTNAME` | OS hostname | Identifies this agent (one agent per instance + hostname). |
 | `AGENT_SERVER_UUID` | — | Pin this agent to a Coolify server (disables auto-detection). Usually left unset. |
 | `AGENT_CONCURRENCY` | `2` | How many jobs the agent runs at once. |
-| `AGENT_WORK_DIR` | `/var/lib/cbm-agent` | Local staging directory for artifacts before upload. |
+| `AGENT_WORK_DIR` | `/var/lib/cbm-agent` (image) | Local staging directory for artifacts before upload (`/tmp/cbm-agent` when run outside the image). |
 | `AGENT_MIN_FREE_MB` | `1024` | Free space kept on the work dir's disk: a backup checks it before freezing anything, and a restore/mirror/drill needs twice the snapshot size on top. |
 | `DOCKER_BIN` | `docker` | Path to the Docker CLI. |
 | `POLL_INTERVAL_MS` | `5000` | Job poll interval. |
@@ -105,3 +108,13 @@ The agent container must mount the Docker socket and (for "local" destinations) 
   timestamp. Stored server-side, the same for everyone.
 - **Settings → Failure alerts** — a webhook URL (Discord / Slack / custom) notified on backup
   failures, missing backups, and overdue backups. See [Alerts](alerts.md).
+- **Settings → Email (SMTP)** — SMTP details (unless set by env), a test send, and the "Require
+  email verification" switch. See [Email](email.md).
+- **Settings → Disaster recovery** — the metadata self-backup and the recovery file. See
+  [Disaster recovery](disaster-recovery.md).
+- **Settings → Restore drills** — "Run a drill every week". See
+  [Restore](restore.md#test-restores-restore-drills).
+- **Settings → API tokens (MCP)** — **New token** creates a machine token with its own role. See
+  [MCP server](mcp.md).
+
+Settings is admin-only; on wide screens a sticky nav on the left jumps between these sections.

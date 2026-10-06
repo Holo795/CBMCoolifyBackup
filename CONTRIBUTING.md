@@ -45,7 +45,7 @@ locally first just gives you faster feedback:
 ```bash
 npm run lint        # ESLint across all packages
 npm run typecheck   # type-check every package (builds @cbm/shared first)
-npm test            # unit tests (shared + agent + controller)
+npm test            # unit tests (shared + agent + controller + mcp)
 ```
 
 Each of these is a generic, repo-wide command — there's nothing extra to run per package.
@@ -57,6 +57,9 @@ Each of these is a generic, repo-wide command — there's nothing extra to run p
 - If you change the Prisma schema, add a **migration** under
   `packages/controller/prisma/migrations/` (the deploy step runs `prisma migrate deploy`).
 - If you change the agent/controller contract, update `@cbm/shared` and rebuild it.
+- UI strings live in `packages/controller/src/i18n/dictionaries/`: add every new key to both
+  the `en` and `fr` objects (`fr` is typed as `typeof en`, so `npm run typecheck` catches a
+  missing one).
 - If you add or bump a dependency, refresh `package-lock.json` **from Linux** (CI and the
   images run `npm ci`, and npm on macOS/Windows drops Linux-only optional packages):
   `docker run --rm -v "$PWD":/w -w /w node:24-alpine npm install --package-lock-only --ignore-scripts`.

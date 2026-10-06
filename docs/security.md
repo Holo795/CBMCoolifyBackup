@@ -21,10 +21,18 @@ repository passwords — are **AES-256-GCM encrypted at rest** with your `MASTER
 
 - Agents authenticate to the controller with a **bearer token**, stored only as a sha256 hash in
   the database.
-- **Enrollment tokens** (from "Reveal install command") are per-instance, shown **once**, and
-  matched by hash. Revealing again rotates the token and invalidates the old one.
+- **Enrollment tokens** (instance card → **…** → **Install command** → "Reveal install command")
+  are per-instance, shown **once**, and matched by hash. Revealing again rotates the token and
+  invalidates the old one.
 - Agents make **outbound** connections only (they poll the controller) — nothing needs to be
   opened on your hosts.
+
+## API tokens (MCP)
+
+Machine tokens for the MCP server or any external agent are created in **Settings → API tokens
+(MCP) → New token**. Each carries its own role (viewer / operator / admin), is shown **once** at
+creation, and is stored only as a sha256 hash. Revoke a token from the same list; it stops working
+immediately. See [MCP server](mcp.md).
 
 ## Trust model
 

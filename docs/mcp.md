@@ -11,17 +11,17 @@ exactly what a user of that role can do, and no more.
 
 ## 1. Create a token
 
-In the controller: **Settings → API tokens (MCP) → Create token**. Give it a
-name and a role:
+In the controller (admin): **Settings → API tokens (MCP) → New token**. Give it
+a name, pick a role card, then **Create token**:
 
 | Role | Can do |
 |---|---|
 | **viewer** | read-only: list instances, resources, snapshots, destinations, agents, jobs |
-| **operator** | viewer **+** trigger a backup, mirror a snapshot, verify a destination |
+| **operator** | viewer **+** trigger a backup, mirror a snapshot, verify a destination, run a test restore |
 | **admin** | full API access — grant only when you need it |
 
 The token is shown **once**. Copy it; only its hash is stored. Revoke it any
-time from the same screen (it stops working immediately).
+time from the token's "…" menu → **Revoke** (it stops working immediately).
 
 For the "reads + safe triggers" an agent usually needs, pick **operator**.
 
@@ -122,11 +122,12 @@ Reads (viewer+):
 - `cbm_list_instances`
 - `cbm_list_resources` — filter by `instanceId`, `backupEnabled`
 - `cbm_get_resource` — one resource + its effective schedule
-- `cbm_list_snapshots` — filter by `resourceId`, `status`, `limit`
+- `cbm_list_snapshots` — filter by `resourceId`, `status`, `limit` (default 50, max 200)
 - `cbm_get_snapshot` — one snapshot + its artifacts
 - `cbm_list_destinations`
-- `cbm_list_agents`
-- `cbm_list_jobs` — filter by `type`, `status`, `limit`
+- `cbm_list_agents` — filter by `instanceId`
+- `cbm_list_jobs` — filter by `type` (`backup`, `restore`, `prune`, `mirror`,
+  `verify-destination`, `restore-drill`), `status`, `limit` (default 25, max 100)
 - `cbm_get_job` — one job + its full event log
 
 Triggers (operator+):

@@ -1,6 +1,12 @@
 # Restore
 
-From any successful snapshot you can restore **in place** or **to a new resource**.
+![A snapshot, with Restore and Clone](screenshots/snapshot.png)
+
+From any successful snapshot you can restore **in place** (**Restore**) or **to a new resource**
+(**Clone**). Both buttons sit on each succeeded row of **Snapshots** and in the header of the
+snapshot's page (operator+, and they need a live agent on the instance). Each asks for
+confirmation, then opens the snapshot's page so you can follow the restore log live; past restores
+are listed in its **Restores** card.
 
 > **A clone has no data of its own.** Coolify clones the *configuration*, not the contents — a
 > freshly cloned resource starts empty. The data always comes from the snapshot (a logical dump
@@ -19,7 +25,7 @@ Overwrites the existing resource's data with the snapshot:
 
 ## → new (clone)
 
-Creates a **brand-new Coolify resource** and restores into it — the original is never touched.
+**Clone** creates a **brand-new Coolify resource** and restores into it — the original is never touched.
 Works for all types:
 
 - **Databases** (dump engines) — the clone is deployed and the dump is loaded into it.
@@ -37,13 +43,14 @@ snapshot are applied to the clone automatically, including the credentials Cooli
 for a service (`SERVICE_USER_*` / `SERVICE_PASSWORD_*`), since its restored database was created
 with them; domains are not copied.
 
-The Coolify **control plane** ("Back up Coolify") can only be restored in place.
+The Coolify **control plane** ("Back up Coolify") can only be restored in place — its snapshots
+have no **Clone** button.
 
 Because each snapshot also captures the **full resource definition** (git/build pack, image,
 compose, domains, database credentials), `→ new` works even when the **source Coolify is gone**,
 and it **creates any missing project/environment** on the target. When several Coolify instances
-are connected, a **"Restore onto"** picker lets you clone the snapshot onto a *different* Coolify
-(migration). See **[disaster-recovery.md](disaster-recovery.md)**.
+are connected, the **Clone** dialog offers a **Restore onto** select, so you
+can clone the snapshot onto a *different* Coolify (migration). See **[disaster-recovery.md](disaster-recovery.md)**.
 
 ### Restoring a whole stack: references are rewired
 
@@ -90,11 +97,14 @@ actually restorable — without touching Coolify or the original resource:
 3. Everything is deleted afterwards; sandboxes left behind by a crashed agent are cleaned up by the
    next drill.
 
-Run one from a snapshot's page (**Test restore**, operator+), via the API
+Run one from a snapshot's page (**Test restore** in its *Test restores* card or its "…" menu,
+operator+), via the API
 (`POST /api/v1/snapshots/:id/drill`) or the MCP tool `cbm_test_restore`. Turn on **Settings →
 Restore drills** to test each backup-enabled resource's latest snapshot every week (Saturday 05:00);
 each snapshot is drilled once, and a drill that couldn't run (agent offline) is retried. A failed
-drill sends an alert, and the snapshots list shows a shield badge once a snapshot is verified.
+drill sends an alert. The snapshot's *Test restores* card keeps every drill with its per-artifact
+checks, and the snapshots list shows a shield badge on tested snapshots (hover it for the result:
+restore verified, failed, or did not run).
 
 What a drill does **not** prove: that Coolify can redeploy the application around the data. For
 that, an occasional real **→ new** restore is still the ultimate check.
