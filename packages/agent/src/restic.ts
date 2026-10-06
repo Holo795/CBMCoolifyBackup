@@ -21,7 +21,20 @@ export interface ResticCtx {
   env: NodeJS.ProcessEnv;
   args: string[];
   cleanup: () => Promise<void>;
+  /** Host paths restic reads besides the volume (a local repository, the ssh
+   * connect script and keys) - mounted into a helper container when the agent
+   * doesn't run in one itself (see restic-helper.ts). */
+  paths: string[];
 }
+
+/** Environment variables a restic context sets (forwarded to helper containers). */
+export const RESTIC_ENV_KEYS = [
+  "RESTIC_PASSWORD",
+  "RESTIC_REPOSITORY",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_DEFAULT_REGION",
+] as const;
 
 /** Single-quote a token for POSIX sh (used when writing the connect script). */
 function shq(s: string): string {
@@ -46,12 +59,17 @@ export function resticS3Endpoint(endpoint?: string): string {
   return /^https?:\/\//.test(ep) ? ep : `https://${ep}`;
 }
 
-export async function resticContext(dest: ResolvedDestination, password: string): Promise<ResticCtx> {
+/**
+ * `tmpBase`: where the ssh connect script and keys go - the agent's work dir
+ * when a helper container runs restic, so the helper sees them (it shares the
+ * agent's volumes, not its /tmp).
+ */
+export async function resticContext(dest: ResolvedDestination, password: string, tmpBase = tmpdir()): Promise<ResticCtx> {
   const env: NodeJS.ProcessEnv = { ...process.env, RESTIC_PASSWORD: password };
 
   if (dest.type === "local") {
     env.RESTIC_REPOSITORY = `${dest.basePath.replace(/\/$/, "")}/restic-repo`;
-    return { env, args: [], cleanup: async () => {} };
+    return { env, args: [], cleanup: async () => {}, paths: [dest.basePath] };
   }
 
   if (dest.type === "s3") {
@@ -60,13 +78,13 @@ export async function resticContext(dest: ResolvedDestination, password: string)
     env.AWS_ACCESS_KEY_ID = dest.accessKeyId;
     env.AWS_SECRET_ACCESS_KEY = dest.secretAccessKey;
     env.AWS_DEFAULT_REGION = dest.region || "us-east-1";
-    return { env, args: [], cleanup: async () => {} };
+    return { env, args: [], cleanup: async () => {}, paths: [] };
   }
 
   // ssh / sftp: restic's sftp backend shells out to ssh. We build a full ssh
   // command (key via -i, password via sshpass -f, bastion via a nested
   // ProxyCommand) and hand it to restic as `-o sftp.command=…`.
-  const tmp = await mkdtemp(join(tmpdir(), "cbm-restic-"));
+  const tmp = await mkdtemp(join(tmpBase, "cbm-restic-"));
   const secretFile = async (name: string, content: string, withNewline: boolean) => {
     const p = join(tmp, name);
     await writeFile(p, withNewline && !content.endsWith("\n") ? `${content}\n` : content, { mode: 0o600 });
@@ -125,6 +143,7 @@ export async function resticContext(dest: ResolvedDestination, password: string)
   return {
     env,
     args: ["-o", `sftp.command=${connect}`],
+    paths: [tmp],
     cleanup: async () => {
       await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
     },
@@ -140,14 +159,22 @@ export async function withResticCtx<T>(
   dest: ResolvedDestination,
   password: string,
   fn: (ctx: ResticCtx) => Promise<T>,
+  tmpBase?: string,
 ): Promise<T> {
-  const ctx = await resticContext(dest, password);
+  const ctx = await resticContext(dest, password, tmpBase);
   try {
     return await fn(ctx);
   } finally {
     await ctx.cleanup();
   }
 }
+
+/**
+ * How long a command waits for a lock held by another one (`--retry-lock`)
+ * instead of failing at once: a prune right after a backup otherwise collides
+ * with the mirror reading the same repository.
+ */
+export const LOCK_WAIT = "30m";
 
 /** Run a restic command, buffering stdout/stderr. Global ctx args come first. */
 export function restic(ctx: ResticCtx, args: string[]): Promise<ResticRun> {
@@ -175,16 +202,9 @@ export async function resticEnsureRepo(ctx: ResticCtx): Promise<void> {
   return p;
 }
 
-/**
- * Back up a staging directory into the repo, tagged so it can be found later.
- * Returns the new restic snapshot id.
- */
-export async function resticBackupDir(ctx: ResticCtx, dir: string, tags: string[]): Promise<string> {
-  const args = ["backup", dir, "--host", "cbm", "--json"];
-  for (const t of tags) args.push("--tag", t);
-  const r = await restic(ctx, args);
-  if (r.code !== 0) throw new Error(`restic backup failed: ${r.stderr.slice(0, 500)}`);
-  for (const line of r.stdout.split("\n").reverse()) {
+/** The snapshot id in `restic backup --json` output (its summary line), if any. */
+export function backupSummaryId(stdout: string): string | null {
+  for (const line of stdout.split("\n").reverse()) {
     const s = line.trim();
     if (!s.startsWith("{")) continue;
     try {
@@ -194,7 +214,21 @@ export async function resticBackupDir(ctx: ResticCtx, dir: string, tags: string[
       /* ignore non-JSON lines */
     }
   }
-  throw new Error("restic backup did not report a snapshot id");
+  return null;
+}
+
+/**
+ * Back up a staging directory into the repo, tagged so it can be found later.
+ * Returns the new restic snapshot id.
+ */
+export async function resticBackupDir(ctx: ResticCtx, dir: string, tags: string[]): Promise<string> {
+  const args = ["backup", dir, "--host", "cbm", "--json", "--retry-lock", LOCK_WAIT];
+  for (const t of tags) args.push("--tag", t);
+  const r = await restic(ctx, args);
+  if (r.code !== 0) throw new Error(`restic backup failed: ${r.stderr.slice(0, 500)}`);
+  const id = backupSummaryId(r.stdout);
+  if (!id) throw new Error("restic backup did not report a snapshot id");
+  return id;
 }
 
 /**
@@ -203,17 +237,17 @@ export async function resticBackupDir(ctx: ResticCtx, dir: string, tags: string[
  * paths under the target, so we locate the manifest by scanning).
  */
 export async function resticRestoreById(ctx: ResticCtx, snapshotId: string, targetRoot: string): Promise<string> {
-  const r = await restic(ctx, ["restore", snapshotId, "--target", targetRoot]);
+  const r = await restic(ctx, ["restore", snapshotId, "--target", targetRoot, "--retry-lock", LOCK_WAIT]);
   if (r.code !== 0) throw new Error(`restic restore failed: ${r.stderr.slice(0, 500)}`);
   const found = await findManifestDir(targetRoot);
   if (!found) throw new Error("restic restore produced no manifest.json");
   return found;
 }
 
-/** Forget specific snapshots by id and prune freed data. */
-export async function resticForget(ctx: ResticCtx, snapshotIds: string[]): Promise<void> {
+/** Forget specific snapshots by id and (unless `prune` is false) prune freed data. */
+export async function resticForget(ctx: ResticCtx, snapshotIds: string[], prune = true): Promise<void> {
   if (snapshotIds.length === 0) return;
-  const r = await restic(ctx, ["forget", ...snapshotIds, "--prune"]);
+  const r = await restic(ctx, ["forget", ...snapshotIds, ...(prune ? ["--prune"] : []), "--retry-lock", LOCK_WAIT]);
   if (r.code !== 0) throw new Error(`restic forget failed: ${r.stderr.slice(0, 500)}`);
 }
 

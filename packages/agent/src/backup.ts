@@ -15,6 +15,7 @@ import {
   MANIFEST_FILE,
   CONFIG_FILE,
   CONFIG_ONLY_CAPTURE,
+  RESTIC_PART_META,
 } from "@cbm/shared";
 import { dumpDatabase, dumpRedis } from "./dump.js";
 import { REDIS_ENGINES, isRedisEngine, type Engine } from "./engines.js";
@@ -27,6 +28,7 @@ import {
   containerExists,
   containerWritableBytes,
   pathSizeBytes,
+  rootStat,
   execShell,
   inspectContainer,
   type RunResult,
@@ -35,13 +37,21 @@ import { matchHookTargets, DEFAULT_HOOK_TIMEOUT_SEC } from "./hooks.js";
 import { captureProvenance } from "./provenance.js";
 import { encryptFile, sha256File } from "./crypto.js";
 import { makeTransfer, type Transfer } from "./transfer.js";
-import { resticEnsureRepo, resticBackupDir, withResticCtx } from "./restic.js";
+import { resticEnsureRepo, resticBackupDir, resticContext, resticForget, type ResticCtx } from "./restic.js";
+import { resticBackupPath, snapshotPath, type PathBackup } from "./restic-helper.js";
 import { resolveResource, findDbContainers, readDbCredentials, resourceContainers } from "./resolve.js";
 import { assertFreeSpace, freeBytes, minFreeBytes } from "./disk.js";
 import { getSettings } from "./settings.js";
-import { chooseStaging } from "./staging.js";
+import { chooseStaging, needsMeasure } from "./staging.js";
 import { captureTar } from "./capture.js";
 import { backupOutcome, unbackedLayerWarning, captureErrorWarning, configOnlyFailure } from "./outcome.js";
+
+const mib = (n: number) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GiB` : `${(n / 1024 ** 2).toFixed(1)} MiB`);
+
+/** "12 new, 3 changed, 4 210 unchanged files - 1.2 MiB added" */
+function describePass(b: PathBackup): string {
+  return `${b.filesNew} new, ${b.filesChanged} changed, ${b.filesUnmodified} unchanged files - ${mib(b.added)} added`;
+}
 
 export type Emit = (level: "debug" | "info" | "warn" | "error", message: string, progress?: number) => void;
 
@@ -91,6 +101,21 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
   const transferFor = async () => (transfer ??= await makeTransfer(job.destination));
   // Artifacts already at the destination (sent without a local copy).
   const sentDirect = new Set<string>();
+  // restic: opened on first use too, and the snapshots of volumes read in place,
+  // dropped again if the backup fails.
+  let restic: ResticCtx | undefined;
+  const resticFor = async () => {
+    if (restic) return restic;
+    if (!job.storage.resticPassword) throw new Error("restic engine selected but no repository password provided");
+    // Its ssh files go in the work dir (seen by helper containers), never in
+    // the stage that becomes the snapshot.
+    const ctx = await resticContext(job.destination, job.storage.resticPassword, workDir);
+    restic = ctx;
+    await resticEnsureRepo(ctx);
+    return ctx;
+  };
+  const parts: string[] = [];
+  let stored = false;
   const isDb = DUMPABLE_DB_TYPES.includes(resource.type);
   const containers = resourceContainers(resource);
   // What the agent actually did, recorded in the manifest for display.
@@ -115,6 +140,69 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
   const isCoolifySelf = resource.coolifyUuid.startsWith("coolify-self");
   const isRedisStandalone = REDIS_ENGINES.includes(resource.type as Engine);
 
+  // restic engine: back a volume / host folder up where it is (a helper container
+  // with it mounted read-only), so nothing is copied to the host and restic reads
+  // only the files changed since its previous snapshot. When containers must be
+  // frozen, a first pass runs WITHOUT freezing and carries the bulk of the
+  // changes; the frozen pass then only reads what moved in between.
+  const resticInPlace = async (
+    t: { source: string; fileName: string; label: string; meta: Record<string, string>; resticPath: () => string; freezeContainers: () => Promise<string[]> },
+    i: number,
+    total: number,
+  ): Promise<Artifact> => {
+    const ctx = await resticFor();
+    const path = t.resticPath();
+    const progress = 20 + (50 * i) / Math.max(1, total);
+    const root = await rootStat(t.source);
+    const tags = [`snap:${job.id}`, `res:${resource.coolifyUuid}`, "part:volume"];
+    const owners = liveBackup ? [] : await t.freezeContainers();
+    let warm: string | undefined;
+    if (owners.length) {
+      emit("info", `Reading ${t.label} into the restic repository before freezing (${i}/${total})`, progress);
+      const w = await resticBackupPath(ctx, workDir, t.source, path, [...tags, "pass:warm"]);
+      warm = w.id;
+      parts.push(w.id);
+      emit("info", `First pass: ${describePass(w)}`);
+    }
+    const paused: string[] = [];
+    let b: PathBackup;
+    try {
+      for (const c of owners) {
+        emit("info", `Freezing ${c} for a consistent copy of ${t.source}`);
+        await pauseContainer(c);
+        paused.push(c);
+      }
+      if (liveBackup) emit("warn", `Live copy of ${t.source} without freezing (at your own risk) - may be inconsistent`);
+      emit("info", owners.length ? `Final pass on ${t.label} while frozen` : `Backing up ${t.label} with restic (${i}/${total})`, progress);
+      // Frozen: wait for another command's lock a minute at most, never longer.
+      b = await resticBackupPath(ctx, workDir, t.source, path, tags, owners.length ? "1m" : undefined);
+      parts.push(b.id);
+    } finally {
+      for (const c of paused.reverse()) {
+        emit("info", `Resuming ${c}`);
+        await unpauseContainer(c).catch((e) => emit("error", `Failed to resume ${c}: ${(e as Error).message}`));
+      }
+    }
+    emit("info", `${owners.length ? "Final pass" : t.label}: ${describePass(b)}`);
+    if (warm) {
+      // Its data lives on in the final snapshot; only the snapshot record goes.
+      await resticForget(ctx, [warm], false).catch((e) => emit("warn", `Could not drop the first-pass snapshot ${warm}: ${(e as Error).message}`));
+      parts.splice(parts.indexOf(warm), 1);
+    }
+    return {
+      kind: "volume",
+      filename: t.fileName,
+      sizeBytes: b.bytes,
+      encrypted: false,
+      meta: {
+        ...t.meta,
+        [RESTIC_PART_META]: b.id,
+        resticPath: path,
+        ...(root ? { rootOwner: root.owner, rootMode: root.mode } : {}),
+      },
+    };
+  };
+
   // Copy every named volume + host-path (bind) mount WITHOUT stopping a
   // container: briefly freeze (docker pause) only the running container(s) that
   // write to each one, unless liveBackup is set. Returns the capture method.
@@ -128,6 +216,8 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
       fileName: string;
       label: string;
       meta: Record<string, string>;
+      /** Where restic keeps it when it reads it in place. */
+      resticPath: () => string;
       freezeContainers: () => Promise<string[]>;
     }> = [
       ...resource.volumes.map((vol) => ({
@@ -135,15 +225,20 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
         fileName: volumeFileName(vol),
         label: `volume ${vol}`,
         meta: { volume: vol },
+        resticPath: () => snapshotPath("volume", vol),
         freezeContainers: () => runningRwContainersForVolume(vol),
       })),
-      ...resource.bindMounts.map((b) => ({
-        source: b.source,
-        fileName: volumeFileName("bind-" + b.source.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")),
-        label: `host folder ${b.source}`,
-        meta: { bindSource: b.source },
-        freezeContainers: async () => ((await isContainerRunning(b.container)) ? [b.container] : []),
-      })),
+      ...resource.bindMounts.map((b) => {
+        const slug = b.source.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+        return {
+          source: b.source,
+          fileName: volumeFileName("bind-" + slug),
+          label: `host folder ${b.source}`,
+          meta: { bindSource: b.source },
+          resticPath: () => snapshotPath("bind", slug),
+          freezeContainers: async () => ((await isContainerRunning(b.container)) ? [b.container] : []),
+        };
+      }),
     ];
 
     const total = targets.length;
@@ -153,16 +248,21 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
       // Before freezing anything: never pause an app only to fail on a full disk.
       // chooseStaging checks the room a local copy needs; a direct send needs none.
       const { stagingMode } = getSettings();
-      const needBytes = await pathSizeBytes(t.source);
+      const measure = needsMeasure(stagingMode, job.storage.engine);
+      const needBytes = measure ? await pathSizeBytes(t.source) : null;
       const choice = chooseStaging({
         mode: stagingMode,
         engine: job.storage.engine,
         label: t.label,
         needBytes,
-        freeBytes: await freeBytes(stage),
+        freeBytes: measure ? await freeBytes(stage) : null,
         minFreeBytes: minFreeBytes(),
       });
       if ("error" in choice) throw new Error(choice.error);
+      if (choice.where === "repository") {
+        artifacts.push(await resticInPlace(t, i, total));
+        continue;
+      }
       const owners = liveBackup ? [] : await t.freezeContainers();
       if (choice.where === "direct") {
         emit(
@@ -404,15 +504,12 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     // Incremental, deduplicated, encrypted: restic backs up the whole staging
     // dir; only changed blocks are uploaded. The repo encrypts at rest.
     emit("info", "Storing in restic repository (incremental)", 80);
-    if (!job.storage.resticPassword) throw new Error("restic engine selected but no repository password provided");
-    await withResticCtx(job.destination, job.storage.resticPassword, async (ctx) => {
-      await resticEnsureRepo(ctx);
-      const snapId = await resticBackupDir(ctx, stage, [`snap:${job.id}`, `res:${resource.coolifyUuid}`]);
-      manifest.resticSnapshotId = snapId;
-      // Re-write the manifest with the id so a local copy reflects reality.
-      await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
-      emit("info", `Stored as restic snapshot ${snapId}`, 95);
-    });
+    const ctx = await resticFor();
+    const snapId = await resticBackupDir(ctx, stage, [`snap:${job.id}`, `res:${resource.coolifyUuid}`]);
+    manifest.resticSnapshotId = snapId;
+    // Re-write the manifest with the id so a local copy reflects reality.
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+    emit("info", `Stored as restic snapshot ${snapId}`, 95);
   } else {
     // tar engine: one file per artifact at the destination.
     emit("info", "Uploading to destination", 80);
@@ -434,8 +531,13 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
   }
 
   emit("info", "Backup complete", 100);
+  stored = true;
   return manifest;
   } finally {
+    if (!stored && restic && parts.length) {
+      await resticForget(restic, parts, false).catch((e) => emit("warn", `Could not drop restic snapshots of the failed backup: ${(e as Error).message}`));
+    }
+    await restic?.cleanup().catch(() => undefined);
     // Post-backup hooks always run (e.g. bring an app back out of maintenance),
     // best-effort and in REVERSE order (undo the last pre hook first), then clean
     // the staging dir.

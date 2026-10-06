@@ -1,6 +1,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import type { RestoreJob, ResourceType } from "@cbm/shared";
+import { RESTIC_PART_META, type Artifact, type RestoreJob, type ResourceType } from "@cbm/shared";
 import { restoreDatabase } from "./dump.js";
 import {
   restoreVolume,
@@ -9,12 +9,14 @@ import {
   stopContainer,
   startContainer,
   containerExists,
+  docker,
 } from "./docker.js";
 import { unsafeRestorePath } from "./paths.js";
 import { REDIS_ENGINES, type Engine } from "./engines.js";
 import { decryptFile } from "./crypto.js";
 import { makeTransfer } from "./transfer.js";
 import { resticRestoreById, withResticCtx } from "./restic.js";
+import { resticRestorePath } from "./restic-helper.js";
 import { resolveResource, readDbCredentials, resourceContainers } from "./resolve.js";
 import type { Emit } from "./backup.js";
 
@@ -43,7 +45,8 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
       for (const a of manifest.artifacts) {
         // restic repos are encrypted natively, so artifacts are never AES-wrapped.
         if (a.encrypted) throw new Error(`Encrypted artifact ${a.filename} in a restic snapshot is unexpected`);
-        localFiles[a.filename] = join(dir, a.filename);
+        // Volumes read in place live in their own snapshot (restored below).
+        if (!a.meta[RESTIC_PART_META]) localFiles[a.filename] = join(dir, a.filename);
       }
     } else {
       let i = 0;
@@ -61,6 +64,25 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
         localFiles[a.filename] = usable;
       }
     }
+
+    // A volume restic read in place is its own restic snapshot: restored straight
+    // into the target (no local copy), with its root folder's owner and mode.
+    const putVolume = async (v: Artifact, target: string, isHostPath: boolean) => {
+      const part = v.meta[RESTIC_PART_META];
+      if (!part) {
+        await (isHostPath ? restoreToPath(target, localFiles[v.filename]) : restoreVolume(target, localFiles[v.filename]));
+        return;
+      }
+      if (!v.meta.resticPath) throw new Error(`${v.filename}: restic snapshot ${part} has no recorded path`);
+      if (!isHostPath) await docker(["volume", "create", target]);
+      const root = v.meta.rootOwner && v.meta.rootMode ? { owner: v.meta.rootOwner, mode: v.meta.rootMode } : undefined;
+      await withResticCtx(
+        job.source,
+        job.storage.resticPassword!,
+        (ctx) => resticRestorePath(ctx, workDir, part, v.meta.resticPath!, target, root),
+        workDir,
+      );
+    };
 
     const allDumps = manifest.artifacts.filter((a) => a.kind === "db-dump");
     const volumes = manifest.artifacts.filter((a) => a.kind === "volume");
@@ -118,7 +140,7 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
           continue;
         }
         emit("info", `Restoring volume ${src} → ${dest}`, 70);
-        await restoreVolume(dest, localFiles[v.filename]);
+        await putVolume(v, dest, false);
       }
       for (const d of redisDumps) {
         const dest = d.meta.volume ? job.volumeMap?.[d.meta.volume] : undefined;
@@ -153,7 +175,7 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
             // Docker auto-creates a missing host path for the bind mount (fresh
             // machine after DR) — root-owned, so permissions may need review.
             emit("info", `Restoring host folder ${v.meta.bindSource} (created if missing)`, 70);
-            await restoreToPath(v.meta.bindSource, localFiles[v.filename]);
+            await putVolume(v, v.meta.bindSource, true);
             continue;
           }
           const volName = v.meta.volume;
@@ -162,7 +184,7 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
             continue;
           }
           emit("info", `Restoring volume ${volName}`, 70);
-          await restoreVolume(volName, localFiles[v.filename]);
+          await putVolume(v, volName, false);
         }
         for (const d of redisDumps) {
           if (!d.meta.volume) {

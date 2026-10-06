@@ -222,6 +222,14 @@ export async function pathSizeBytes(source: string): Promise<number | null> {
   return Number.isFinite(kib) ? kib * 1024 : null;
 }
 
+/** Owner (`uid:gid`) and octal mode of a volume's or host folder's root, or
+ * null when it can't be read. restic restores the content, not the root. */
+export async function rootStat(source: string): Promise<{ owner: string; mode: string } | null> {
+  const r = await docker(["run", "--rm", "--network", "none", "-v", `${source}:/data:ro`, "alpine:3.24", "stat", "-c", "%u:%g %a", "/data"]);
+  const [owner, mode] = r.code === 0 ? r.stdout.trim().split(" ") : [];
+  return owner && mode && /^\d+:\d+$/.test(owner) && /^[0-7]{3,4}$/.test(mode) ? { owner, mode } : null;
+}
+
 /** Spawn a docker command whose streams the caller wires (see capture.ts). */
 export function spawnDocker(args: string[], stdio: StdioOptions): ChildProcess {
   return spawn(DOCKER, args, { stdio, env: childEnv() });

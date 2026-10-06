@@ -114,6 +114,21 @@ export const Artifact = z.object({
 });
 export type Artifact = z.infer<typeof Artifact>;
 
+/**
+ * restic engine: artifact meta key naming the restic snapshot that holds this
+ * artifact on its own - a volume streamed straight into the repository (copy
+ * mode auto/direct) is a separate restic snapshot (`restic backup --stdin`),
+ * stored as `/<filename>`. Without it, the artifact is in the snapshot's main
+ * restic snapshot with the rest of the staging directory.
+ */
+export const RESTIC_PART_META = "resticSnapshotId";
+
+/** The extra restic snapshots ("parts") a manifest's artifacts live in. */
+export function resticPartIds(manifest: { artifacts?: Array<{ meta?: Record<string, string> }> } | null | undefined): string[] {
+  const ids = (manifest?.artifacts ?? []).map((a) => a.meta?.[RESTIC_PART_META]).filter((x): x is string => !!x);
+  return [...new Set(ids)];
+}
+
 /** Git/image provenance captured by the agent via `docker inspect`. */
 export const Provenance = z.object({
   gitCommitSha: z.string().optional(),
@@ -268,7 +283,8 @@ export const PruneJob = z.object({
   storage: StorageSpec.default({ engine: "tar" }),
   /** Relative directories at the destination to delete recursively (tar engine). */
   dirs: z.array(z.string()),
-  /** For the restic engine: forget snapshots by restic snapshot id, then prune. */
+  /** For the restic engine: forget snapshots by restic snapshot id (main and
+   * part snapshots, see RESTIC_PART_META), then prune. */
   resticSnapshotIds: z.array(z.string()).optional(),
 });
 export type PruneJob = z.infer<typeof PruneJob>;
@@ -281,7 +297,7 @@ export const VerifyDestinationJob = z.object({
   /** Snapshot directories whose files should still be present at the destination
    * (tar engine). The agent reports which are present vs missing. */
   dirs: z.array(z.string()),
-  /** For the restic engine: the restic snapshot ids to confirm still exist. The
+  /** For the restic engine: the restic snapshot ids (main and parts) to confirm still exist. The
    * agent reports the present/missing sets using these ids as the keys. */
   resticSnapshotIds: z.array(z.string()).optional(),
   /** Deep integrity check (not just presence): tar re-downloads each artifact and
@@ -407,10 +423,11 @@ export type DiscoveredContainer = z.infer<typeof DiscoveredContainer>;
 /**
  * Where a volume copy goes before reaching the destination:
  *  - "auto"  : on the agent host when it fits (short freeze), else straight to
- *              the destination (tar engine; the freeze lasts the upload);
+ *              the destination (the freeze lasts the upload);
  *  - "local" : always on the host (fails cleanly when it doesn't fit);
- *  - "direct": always straight to the destination (tar engine; restic keeps a
- *              local copy).
+ *  - "direct": always straight to the destination.
+ * With restic, "straight to the destination" is a separate restic snapshot fed
+ * the tar stream (see RESTIC_PART_META).
  */
 export const StagingMode = z.enum(["auto", "local", "direct"]);
 export type StagingMode = z.infer<typeof StagingMode>;

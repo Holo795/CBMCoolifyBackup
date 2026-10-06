@@ -1,10 +1,12 @@
-import { redactSecrets, type RestoreDrillJob, type DrillCheck, type Artifact, type ResourceType, type DbCredentials } from "@cbm/shared";
+import { redactSecrets, RESTIC_PART_META, type RestoreDrillJob, type DrillCheck, type Artifact, type ResourceType, type DbCredentials } from "@cbm/shared";
 import { mkdtemp, rm, open } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { stagePlaintext } from "./stage.js";
+import { withResticCtx } from "./restic.js";
+import { resticCountPath } from "./restic-helper.js";
 import { docker, tarEntryCount, writeFileIntoVolume, type RunResult } from "./docker.js";
 import { restoreDatabase } from "./dump.js";
 import { detectEngine } from "./engines.js";
@@ -17,7 +19,8 @@ import type { Emit } from "./backup.js";
  *  - SQL/document dumps are loaded into a throwaway container of the same
  *    engine and the restored tables are counted against the dump;
  *  - Redis RDB exports are loaded by a throwaway redis-server;
- *  - volume/bind archives are read back end to end.
+ *  - volume/bind archives are read back end to end (a volume restic read in
+ *    place is read back from the repository, without a local copy).
  * Sandboxes have NO network (`--network none`), random credentials, and are
  * always removed. Nothing here talks to Coolify or to the original resource.
  */
@@ -286,6 +289,8 @@ export async function runRestoreDrill(
         decryptionKey: job.decryptionKey,
       },
       stage,
+      workDir,
+      "skip",
     );
 
     const artifacts = job.manifest.artifacts ?? [];
@@ -313,7 +318,16 @@ export async function runRestoreDrill(
           }
         } else if (a.kind === "volume") {
           emit("info", `Reading back ${a.filename}`, progress);
-          const n = await tarEntryCount(file);
+          const part = a.meta?.[RESTIC_PART_META];
+          // Read in place by restic: read it back from the repository, end to end.
+          const n = part
+            ? await withResticCtx(
+                job.source,
+                job.storage.resticPassword ?? "",
+                (ctx) => resticCountPath(ctx, workDir, part, a.meta.resticPath ?? ""),
+                workDir,
+              )
+            : await tarEntryCount(file);
           checks.push({ ...base, ok: true, detail: n === 0 ? "empty archive (read back fine)" : `${n} entries read back` });
         } else {
           // config / image-ref: must be present and non-empty.

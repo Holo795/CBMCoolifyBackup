@@ -1,10 +1,10 @@
 import type { MirrorJob, SnapshotManifest, Artifact } from "@cbm/shared";
-import { MANIFEST_FILE } from "@cbm/shared";
+import { MANIFEST_FILE, RESTIC_PART_META } from "@cbm/shared";
 import { mkdtemp, rm, mkdir, writeFile, copyFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { makeTransfer } from "./transfer.js";
 import { withResticCtx, resticEnsureRepo, resticBackupDir } from "./restic.js";
-import { encryptFile } from "./crypto.js";
+import { encryptFile, sha256File } from "./crypto.js";
 import { stagePlaintext } from "./stage.js";
 import type { Emit } from "./backup.js";
 
@@ -35,6 +35,7 @@ export async function runMirror(
         decryptionKey: job.sourceEncryptionKey,
       },
       stage,
+      workDir,
     );
 
     // Rebuild the manifest + files under the TARGET's crypto.
@@ -56,7 +57,11 @@ export async function runMirror(
         await copyFile(src, join(outDir, filename));
       }
       const sizeBytes = (await stat(join(outDir, filename))).size;
-      newArtifacts.push({ ...a, filename, encrypted, sizeBytes });
+      // A volume restic read in place is a plain tar in the copy: drop what
+      // pointed at its own restic snapshot, and checksum the tar.
+      const { [RESTIC_PART_META]: part, resticPath: _p, rootOwner: _o, rootMode: _m, ...meta } = a.meta ?? {};
+      const sha256 = part ? await sha256File(src) : a.sha256;
+      newArtifacts.push({ ...a, meta, sha256, filename, encrypted, sizeBytes });
     }
     const manifest: SnapshotManifest = { ...job.manifest, artifacts: newArtifacts, encrypted: !!targetKey };
 
