@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { setDrillsEnabled } from "@/app/actions";
 import { DrillsToggleView } from "./view";
 
@@ -14,13 +15,14 @@ export function DrillsToggle({ enabled }: { enabled: boolean }) {
   const [on, setOn] = useState(enabled);
   const [pending, start] = useTransition();
 
-  const onToggle = () => {
-    const next = !on;
+  const onToggle = (next: boolean) => {
     setOn(next); // optimistic
     start(async () => {
       const r = await setDrillsEnabled(next);
-      if (r?.error) setOn(!next); // revert on failure
-      else router.refresh();
+      if (r?.error) {
+        setOn(!next); // revert on failure
+        toast.error(r.error);
+      } else router.refresh();
     });
   };
 

@@ -148,11 +148,15 @@ export function OptionCards<V extends string>({
   value: V;
   onChange: (v: V) => void;
   options: { value: V; title: React.ReactNode; hint?: React.ReactNode; icon?: React.ReactNode }[];
-  columns?: 2 | 3;
+  columns?: 1 | 2 | 3;
   label?: string;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className={cn("grid gap-2", columns === 3 ? "grid-cols-3" : "grid-cols-2")}>
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className={cn("grid gap-2", columns === 3 ? "grid-cols-3" : columns === 2 ? "grid-cols-2" : "grid-cols-1")}
+    >
       {options.map((o) => {
         const checked = o.value === value;
         return (

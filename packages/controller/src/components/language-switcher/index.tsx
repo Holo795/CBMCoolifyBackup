@@ -24,14 +24,17 @@ export function LanguageSwitcher() {
   };
 
   return (
-    <label className="inline-flex items-center gap-1 text-muted-foreground" title="Language / Langue">
-      <Languages className="h-4 w-4" />
+    <label
+      className="relative inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring"
+      title="Language / Langue"
+    >
+      <Languages className="size-4" />
       <select
         value={current}
         disabled={pending}
         onChange={(e) => onChange(e.target.value)}
         aria-label={t("components.language")}
-        className="cursor-pointer rounded-md bg-transparent py-1 pl-1 pr-5 text-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        className="cursor-pointer appearance-none bg-transparent text-[13px] font-medium outline-none"
       >
         {LOCALES.map((l) => (
           <option key={l} value={l}>

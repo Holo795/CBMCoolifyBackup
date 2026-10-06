@@ -1,10 +1,19 @@
 import { PageHeader } from "@/components/page-header";
-import { Card, CardContent, Badge } from "@/components/ui";
+import { Badge, List, ListItem, Section } from "@/components/ui";
+import { ActionButton } from "@/components/action-button";
+import { revokeInvitation } from "@/app/actions";
 import { getT } from "@/lib/i18n";
-import { InvitePanel, type PendingInvite } from "./invite-panel";
+import { Mail, X } from "lucide-react";
+import { InviteButton, type PendingInvite } from "./invite-panel";
 import { UserRowActions } from "./user-row-actions";
 
 export type UserRow = { id: string; name: string; email: string; role: string };
+
+function initials(u: UserRow) {
+  const src = (u.name || u.email).trim();
+  const parts = src.split(/[\s@._-]+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || "?";
+}
 
 /** Presentation only: the Users admin page. Data is fetched in ./page.tsx. */
 export async function UsersView({
@@ -24,76 +33,63 @@ export async function UsersView({
   const lastAdmin = (u: UserRow) => u.role === "admin" && adminCount <= 1;
 
   return (
-    <>
-      <PageHeader title={t("users.title")} description={t("users.description")} />
+    <div className="flex flex-col gap-6">
+      <PageHeader title={t("users.title")} description={t("users.description")} action={<InviteButton canEmail={canEmail} />} />
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-        <Card className="min-w-0">
-          <CardContent className="p-0">
-            {/* Desktop: table. Mobile: cards (below). */}
-            <table className="hidden w-full text-sm md:table">
-              <thead className="border-b text-left text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-2.5 font-medium">{t("users.name")}</th>
-                  <th className="px-4 py-2.5 font-medium">{t("users.email")}</th>
-                  <th className="px-4 py-2.5 font-medium">{t("users.role")}</th>
-                  <th className="px-4 py-2.5"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} className="border-b last:border-0">
-                    <td className="px-4 py-2.5 font-medium">
-                      {u.name || "-"}
-                      {u.id === meId && <span className="ml-2 text-xs text-muted-foreground">{t("users.you")}</span>}
-                    </td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{u.email}</td>
-                    <td className="px-4 py-2.5">
-                      <Badge tone={u.role === "admin" ? "accent" : "neutral"}>{t(`users.roles.${u.role}`)}</Badge>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <UserRowActions
-                        userId={u.id}
-                        email={u.email}
-                        role={u.role}
-                        isSelf={u.id === meId}
-                        isLastAdmin={lastAdmin(u)}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <Section title={t("users.members")}>
+        <List>
+          {users.map((u) => (
+            <ListItem key={u.id} className="flex-wrap gap-y-2">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent">
+                {initials(u)}
+              </span>
+              <div className="min-w-0 flex-1 basis-40">
+                <p className="flex items-center gap-2 truncate text-sm font-medium">
+                  {u.name || u.email}
+                  {u.id === meId && <Badge>{t("users.you")}</Badge>}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+              </div>
+              <UserRowActions
+                userId={u.id}
+                email={u.email}
+                role={u.role}
+                isSelf={u.id === meId}
+                isLastAdmin={lastAdmin(u)}
+              />
+            </ListItem>
+          ))}
+        </List>
+      </Section>
 
-            {/* Mobile: one card per user. */}
-            <div className="divide-y md:hidden">
-              {users.map((u) => (
-                <div key={u.id} className="flex flex-col gap-2 p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <span className="block truncate font-medium">
-                        {u.name || u.email}
-                        {u.id === meId && <span className="ml-2 text-xs text-muted-foreground">{t("users.you")}</span>}
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">{u.email}</span>
-                    </div>
-                    <Badge tone={u.role === "admin" ? "accent" : "neutral"}>{t(`users.roles.${u.role}`)}</Badge>
-                  </div>
-                  <UserRowActions
-                    userId={u.id}
-                    email={u.email}
-                    role={u.role}
-                    isSelf={u.id === meId}
-                    isLastAdmin={lastAdmin(u)}
-                  />
+      {invites.length > 0 && (
+        <Section title={t("users.invite.pending")}>
+          <List>
+            {invites.map((i) => (
+              <ListItem key={i.id}>
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-dashed text-muted-foreground">
+                  <Mail className="size-3.5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{i.email}</p>
+                  <p className="text-xs text-muted-foreground">{t("users.invite.expires", { date: i.expires })}</p>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <InvitePanel canEmail={canEmail} invites={invites} />
-      </div>
-    </>
+                <Badge tone={i.role === "admin" ? "accent" : "neutral"}>{t(`users.roles.${i.role}`)}</Badge>
+                <ActionButton
+                  action={revokeInvitation.bind(null, i.id)}
+                  variant="ghost"
+                  size="icon-sm"
+                  title={t("users.invite.revokeAria")}
+                  successMsg={t("users.invite.revoked")}
+                >
+                  <X />
+                  <span className="sr-only">{t("users.invite.revokeAria")}</span>
+                </ActionButton>
+              </ListItem>
+            ))}
+          </List>
+        </Section>
+      )}
+    </div>
   );
 }

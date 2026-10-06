@@ -3,8 +3,6 @@
 import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
-import { Button, Tooltip, type ButtonSize, type ButtonVariant } from "@/components/ui";
 import { useT } from "@/components/i18n-provider";
 import { ConfirmDeleteDialogView } from "./view";
 
@@ -16,6 +14,9 @@ export type ConfirmDeleteProps = {
   body: ReactNode;
   /** Navigate here after a successful delete (e.g. the page of the deleted item). */
   redirectTo?: string;
+  /** Confirm button text (default "Delete") and success toast (default "Deleted"). */
+  confirmLabel?: string;
+  doneMsg?: string;
 };
 
 /** Controlled typed-confirmation dialog (open it from a menu, a button…). */
@@ -27,6 +28,8 @@ export function ConfirmDeleteDialog({
   title,
   body,
   redirectTo,
+  confirmLabel,
+  doneMsg,
 }: ConfirmDeleteProps & { open: boolean; onOpenChange: (v: boolean) => void }) {
   const t = useT();
   const router = useRouter();
@@ -54,7 +57,7 @@ export function ConfirmDeleteDialog({
         return;
       }
       onOpenChange(false);
-      toast.success(t("components.deleted"));
+      toast.success(doneMsg ?? t("components.deleted"));
       if (redirectTo) router.push(redirectTo);
       else router.refresh();
     });
@@ -73,36 +76,7 @@ export function ConfirmDeleteDialog({
       body={body}
       onConfirm={onConfirm}
       error={error}
+      confirmLabel={confirmLabel ?? t("common.delete")}
     />
-  );
-}
-
-/** A delete button that asks for a typed confirmation first. */
-export function ConfirmDeleteButton({
-  label,
-  variant = "danger-ghost",
-  size = "icon-sm",
-  ...props
-}: ConfirmDeleteProps & { label?: string; variant?: ButtonVariant | "danger" | "ghost" | "outline"; size?: ButtonSize | "sm" | "md" | "icon" }) {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  const iconOnly = !label;
-  const button = (
-    <Button
-      size={iconOnly ? (size === "sm" || size === "md" ? "icon-sm" : size) : size}
-      variant={variant === "danger" && iconOnly ? "danger-ghost" : variant}
-      aria-label={iconOnly ? t("common.delete") : undefined}
-      aria-haspopup="dialog"
-      onClick={() => setOpen(true)}
-    >
-      <Trash2 aria-hidden />
-      {label}
-    </Button>
-  );
-  return (
-    <>
-      {iconOnly ? <Tooltip content={props.title}>{button}</Tooltip> : button}
-      <ConfirmDeleteDialog open={open} onOpenChange={setOpen} {...props} />
-    </>
   );
 }

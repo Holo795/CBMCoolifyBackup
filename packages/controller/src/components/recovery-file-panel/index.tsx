@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { useT } from "@/components/i18n-provider";
 import { RecoveryFilePanelView } from "./view";
 
@@ -24,7 +25,6 @@ export function RecoveryFilePanel({
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState<"export" | "import" | null>(null);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Import state
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -32,14 +32,10 @@ export function RecoveryFilePanel({
   const [importConfirm, setImportConfirm] = useState("");
   const [importOverride, setImportOverride] = useState(false);
 
-  const flash = (ok: boolean, text: string) => {
-    setMsg({ ok, text });
-    if (ok) setTimeout(() => setMsg(null), 12000);
-  };
+  const flash = (ok: boolean, text: string) => (ok ? toast.success(text, { duration: 12000 }) : toast.error(text));
 
   const onGenerate = async () => {
     setBusy("export");
-    setMsg(null);
     try {
       const res = await fetch("/api/recovery/export", {
         method: "POST",
@@ -76,7 +72,6 @@ export function RecoveryFilePanel({
       return;
     }
     setBusy("import");
-    setMsg(null);
     try {
       const fd = new FormData();
       fd.set("file", importFile);
@@ -102,7 +97,6 @@ export function RecoveryFilePanel({
       current={current}
       password={password}
       busy={busy}
-      msg={msg}
       importPassword={importPassword}
       importConfirm={importConfirm}
       importOverride={importOverride}

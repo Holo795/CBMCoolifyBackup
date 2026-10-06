@@ -1,6 +1,7 @@
 "use client";
 
-import { Button, Label, Select, Badge } from "@/components/ui";
+import { Play, ShieldCheck } from "lucide-react";
+import { Button, Field, Select, SwitchRow, StatusDot, Tooltip } from "@/components/ui";
 import { useT } from "@/components/i18n-provider";
 
 /** Presentation only: the self-backup config form. Logic in ./index.tsx. */
@@ -10,7 +11,6 @@ export function SelfBackupFormView({
   pending,
   runPending,
   verifyPending,
-  msg,
   onSubmit,
   onRunNow,
   onVerify,
@@ -20,7 +20,6 @@ export function SelfBackupFormView({
   pending: boolean;
   runPending: boolean;
   verifyPending: boolean;
-  msg: string | null;
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   onRunNow: () => void;
   onVerify: () => void;
@@ -28,47 +27,51 @@ export function SelfBackupFormView({
   const t = useT();
   const ok = current.lastStatus === "ok";
 
+  if (destinations.length === 0)
+    return (
+      <p className="rounded-lg border border-warning/30 bg-warning-soft px-3 py-2.5 text-[13px] text-warning">{t("settings.selfBackupNoDest")}</p>
+    );
+
+  const disabledHint = current.enabled ? undefined : t("settings.backupNowTitleDisabled");
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-3">
-      {destinations.length === 0 ? (
-        <p className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--color-warning)]">{t("settings.selfBackupNoDest")}</p>
-      ) : (
-        <>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="selfBackupDest">{t("settings.selfBackupDestLabel")}</Label>
-            <Select id="selfBackupDest" name="destinationId" defaultValue={current.destinationId} className="max-w-xs">
-              {destinations.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name} ({d.type})
-                </option>
-              ))}
-            </Select>
-          </div>
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            <input type="checkbox" name="enabled" defaultChecked={current.enabled} className="h-4 w-4" />
-            {t("settings.selfBackupEnableLabel")}
-          </label>
-          {current.lastRunAt && (
-            <p className="flex items-center gap-2 text-xs text-muted-foreground">
-              {t("settings.selfBackupLastRun")} <span className="text-foreground">{current.lastRunAt}</span>
-              <Badge tone={ok ? "success" : "danger"}>{ok ? t("settings.statusOk") : t("settings.statusFailed")}</Badge>
-              {!ok && current.lastStatus && <span className="text-[var(--color-danger)]">{current.lastStatus}</span>}
-            </p>
-          )}
-          <div className="flex items-center gap-3">
-            <Button type="submit" variant="primary" disabled={pending}>
-              {pending ? t("common.saving") : t("common.save")}
-            </Button>
-            <Button type="button" variant="outline" disabled={runPending || !current.enabled} onClick={onRunNow} title={current.enabled ? t("settings.backupNowTitleEnabled") : t("settings.backupNowTitleDisabled")}>
-              {runPending ? t("settings.backingUp") : t("settings.backupNow")}
-            </Button>
-            <Button type="button" variant="ghost" disabled={verifyPending || !current.enabled} onClick={onVerify} title={t("settings.verifyTitle")}>
-              {verifyPending ? t("settings.verifying") : t("settings.verifyRecoveryPath")}
-            </Button>
-            {msg && <span className="text-xs text-muted-foreground">{msg}</span>}
-          </div>
-        </>
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
+      <SwitchRow id="selfBackupEnabled" name="enabled" label={t("settings.selfBackupEnableLabel")} defaultChecked={current.enabled} />
+      <Field label={t("settings.selfBackupDestLabel")} htmlFor="selfBackupDest">
+        <Select id="selfBackupDest" name="destinationId" defaultValue={current.destinationId} className="sm:max-w-xs">
+          {destinations.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name} ({d.type})
+            </option>
+          ))}
+        </Select>
+      </Field>
+      {current.lastRunAt && (
+        <p className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
+          <StatusDot tone={ok ? "success" : "danger"} />
+          {t("settings.selfBackupLastRun")} <span className="text-foreground">{current.lastRunAt}</span>
+          <span className={ok ? "text-success" : "text-danger"}>· {ok ? t("settings.statusOk") : t("settings.statusFailed")}</span>
+          {!ok && current.lastStatus && <span className="w-full text-xs text-danger">{current.lastStatus}</span>}
+        </p>
       )}
+      <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-4">
+        <Tooltip content={disabledHint ?? t("settings.verifyTitle")}>
+          <span tabIndex={current.enabled ? -1 : 0}>
+            <Button type="button" variant="ghost" loading={verifyPending} disabled={!current.enabled} onClick={onVerify}>
+              <ShieldCheck /> {t("settings.verifyRecoveryPath")}
+            </Button>
+          </span>
+        </Tooltip>
+        <Tooltip content={disabledHint ?? t("settings.backupNowTitleEnabled")}>
+          <span tabIndex={current.enabled ? -1 : 0}>
+            <Button type="button" loading={runPending} disabled={!current.enabled} onClick={onRunNow}>
+              <Play /> {t("settings.backupNow")}
+            </Button>
+          </span>
+        </Tooltip>
+        <Button type="submit" variant="primary" loading={pending}>
+          {t("common.save")}
+        </Button>
+      </div>
     </form>
   );
 }

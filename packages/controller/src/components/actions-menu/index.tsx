@@ -11,6 +11,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  Dialog,
+  DialogContent,
   type ButtonSize,
 } from "@/components/ui";
 import { ConfirmDeleteDialog, type ConfirmDeleteProps } from "@/components/confirm-delete";
@@ -33,6 +35,8 @@ export type MenuAction =
   | RunAction
   | { kind: "link"; label: string; icon?: ReactNode; href: string; external?: boolean }
   | ({ kind: "delete"; label: string; icon?: ReactNode } & ConfirmDeleteProps)
+  /** Opens a dialog showing `content` (e.g. a form with its own submit). */
+  | { kind: "dialog"; label: string; icon?: ReactNode; title: string; description?: string; content: ReactNode; wide?: boolean }
   | { kind: "separator" };
 
 /** The "…" menu of a row or card: secondary actions, results as toasts. */
@@ -41,6 +45,7 @@ export function ActionsMenu({ items, size = "icon-sm", label }: { items: MenuAct
   const router = useRouter();
   const [, start] = useTransition();
   const [confirm, setConfirm] = useState<(ConfirmDeleteProps & { label: string }) | null>(null);
+  const [dialog, setDialog] = useState<Extract<MenuAction, { kind: "dialog" }> | null>(null);
 
   const run = (a: RunAction) => {
     if (a.confirm && !window.confirm(a.confirm)) return;
@@ -80,6 +85,12 @@ export function ActionsMenu({ items, size = "icon-sm", label }: { items: MenuAct
                   </a>
                 </DropdownMenuItem>
               );
+            if (it.kind === "dialog")
+              return (
+                <DropdownMenuItem key={key} onSelect={() => setDialog(it)}>
+                  {it.icon} {it.label}
+                </DropdownMenuItem>
+              );
             if (it.kind === "delete")
               return (
                 <DropdownMenuItem key={key} tone="danger" onSelect={() => setConfirm(it)}>
@@ -94,6 +105,13 @@ export function ActionsMenu({ items, size = "icon-sm", label }: { items: MenuAct
           })}
         </DropdownMenuContent>
       </DropdownMenu>
+      <Dialog open={dialog !== null} onOpenChange={(v) => !v && setDialog(null)}>
+        {dialog && (
+          <DialogContent title={dialog.title} description={dialog.description} className={dialog.wide ? "max-w-2xl" : undefined}>
+            {dialog.content}
+          </DialogContent>
+        )}
+      </Dialog>
       {confirm && (
         <ConfirmDeleteDialog
           open
@@ -103,6 +121,8 @@ export function ActionsMenu({ items, size = "icon-sm", label }: { items: MenuAct
           title={confirm.title}
           body={confirm.body}
           redirectTo={confirm.redirectTo}
+          confirmLabel={confirm.confirmLabel}
+          doneMsg={confirm.doneMsg}
         />
       )}
     </>

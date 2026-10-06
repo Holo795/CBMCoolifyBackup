@@ -2,8 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { Trash2 } from "lucide-react";
 import { Select } from "@/components/ui";
-import { ConfirmDeleteButton } from "@/components/confirm-delete";
+import { ActionsMenu } from "@/components/actions-menu";
 import { setUserRole, removeUser } from "@/app/actions";
 import { ROLES } from "@/lib/roles";
 import { useT } from "@/components/i18n-provider";
@@ -27,43 +29,61 @@ export function UserRowActions({
   const router = useRouter();
   const [value, setValue] = useState(role);
   const [pending, start] = useTransition();
-  const [err, setErr] = useState<string | null>(null);
 
   function onRole(e: React.ChangeEvent<HTMLSelectElement>) {
     const next = e.target.value;
     const prev = value;
     setValue(next);
-    setErr(null);
     start(async () => {
       const r = await setUserRole(userId, next);
       if (r?.error) {
-        setErr(r.error);
+        toast.error(r.error);
         setValue(prev);
       } else {
+        toast.success(t("users.roleUpdated"));
         router.refresh();
       }
     });
   }
 
+  const removable = !isSelf && !isLastAdmin;
   return (
-    <div className="flex items-center justify-end gap-2">
-      {err && <span className="text-xs text-[var(--color-danger)]">{err}</span>}
-      <Select value={value} onChange={onRole} disabled={pending || isLastAdmin} className="w-28" aria-label={t("users.role")}>
+    <div className="flex items-center justify-end gap-1">
+      <Select
+        value={value}
+        onChange={onRole}
+        disabled={pending || isLastAdmin}
+        className="w-32 [&_select]:h-8 [&_select]:text-[13px]"
+        aria-label={t("users.role")}
+      >
         {ROLES.map((r) => (
           <option key={r} value={r}>
             {t(`users.roles.${r}`)}
           </option>
         ))}
       </Select>
-      {!isSelf && !isLastAdmin && (
-        <ConfirmDeleteButton
-          action={() => removeUser(userId)}
-          confirmWord={email}
-          title={t("users.remove.title", { email })}
-          body={
-            <>{t("users.remove.bodyBefore")}<b>{email}</b>{t("users.remove.bodyAfter")}</>
-          }
+      {removable ? (
+        <ActionsMenu
+          items={[
+            {
+              kind: "delete",
+              label: t("common.delete"),
+              icon: <Trash2 />,
+              action: () => removeUser(userId),
+              confirmWord: email,
+              title: t("users.remove.title", { email }),
+              body: (
+                <>
+                  {t("users.remove.bodyBefore")}
+                  <b className="text-foreground">{email}</b>
+                  {t("users.remove.bodyAfter")}
+                </>
+              ),
+            },
+          ]}
         />
+      ) : (
+        <span className="size-7 shrink-0" aria-hidden />
       )}
     </div>
   );

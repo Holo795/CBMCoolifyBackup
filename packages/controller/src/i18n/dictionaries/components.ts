@@ -25,6 +25,7 @@ export const en = {
   language: "Language",
   autoDetect: "Auto-detect",
   auto: "auto",
+  manual: "manual",
   liveLog: {
     live: "live",
     finished: "finished - {status}",
@@ -58,6 +59,7 @@ export const fr: typeof en = {
   language: "Langue",
   autoDetect: "Détection auto",
   auto: "auto",
+  manual: "manuel",
   liveLog: {
     live: "en direct",
     finished: "terminé - {status}",

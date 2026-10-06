@@ -1,6 +1,7 @@
 "use client";
 
-import { Button, Input, Label } from "@/components/ui";
+import { Send } from "lucide-react";
+import { Button, Input, Field, SwitchRow } from "@/components/ui";
 import { useT } from "@/components/i18n-provider";
 
 export interface SmtpCurrent {
@@ -18,13 +19,13 @@ export interface SmtpCurrent {
 export function SmtpConfigFormView({
   current,
   pending,
-  msg,
+  testing,
   onAction,
   onTest,
 }: {
   current: SmtpCurrent;
   pending: boolean;
-  msg: string | null;
+  testing: boolean;
   onAction: (fd: FormData) => void;
   onTest: () => void;
 }) {
@@ -32,30 +33,23 @@ export function SmtpConfigFormView({
   const env = current.envLocked;
 
   return (
-    <form action={onAction} className="flex flex-col gap-3">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="flex flex-col gap-1.5 sm:col-span-2">
-          <Label htmlFor="smtpHost">{t("settings.smtpHost")}</Label>
+    <form action={onAction} className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_7rem]">
+        <Field label={t("settings.smtpHost")} htmlFor="smtpHost">
           <Input id="smtpHost" name="smtpHost" defaultValue={current.host} disabled={env.host} placeholder="smtp.example.com" />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="smtpPort">{t("settings.smtpPort")}</Label>
+        </Field>
+        <Field label={t("settings.smtpPort")} htmlFor="smtpPort">
           <Input id="smtpPort" name="smtpPort" type="number" defaultValue={current.port} disabled={env.port} placeholder="587" />
-        </div>
+        </Field>
       </div>
 
-      <label className="flex items-center gap-2 text-sm text-muted-foreground">
-        <input type="checkbox" name="smtpSecure" defaultChecked={current.secure} disabled={env.secure} />
-        {t("settings.smtpImplicitTls")}
-      </label>
+      <SwitchRow id="smtpSecure" name="smtpSecure" label={t("settings.smtpImplicitTls")} defaultChecked={current.secure} disabled={env.secure} />
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="smtpUser">{t("settings.smtpUsername")}</Label>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Field label={t("settings.smtpUsername")} htmlFor="smtpUser">
           <Input id="smtpUser" name="smtpUser" defaultValue={current.user} disabled={env.user} autoComplete="off" />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="smtpPassword">{t("settings.smtpPassword")}</Label>
+        </Field>
+        <Field label={t("settings.smtpPassword")} htmlFor="smtpPassword">
           <Input
             id="smtpPassword"
             name="smtpPassword"
@@ -64,28 +58,22 @@ export function SmtpConfigFormView({
             autoComplete="new-password"
             placeholder={env.password ? t("settings.smtpPasswordEnvPlaceholder") : current.hasPassword ? t("settings.smtpPasswordUnchanged") : ""}
           />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="smtpFrom">{t("settings.smtpFrom")}</Label>
+        </Field>
+        <Field label={t("settings.smtpFrom")} htmlFor="smtpFrom">
           <Input id="smtpFrom" name="smtpFrom" type="email" defaultValue={current.from} disabled={env.from} placeholder="cbm@yourdomain.com" />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="smtpFromName">{t("settings.smtpFromName")}</Label>
+        </Field>
+        <Field label={t("settings.smtpFromName")} htmlFor="smtpFromName">
           <Input id="smtpFromName" name="smtpFromName" defaultValue={current.fromName} disabled={env.fromName} placeholder="CBM Backups" />
-        </div>
+        </Field>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Button type="submit" variant="primary" disabled={pending}>
-          {pending ? t("common.saving") : t("common.save")}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button type="button" variant="ghost" loading={testing} disabled={pending} onClick={onTest}>
+          <Send /> {t("settings.smtpSendTest")}
         </Button>
-        <Button type="button" variant="outline" disabled={pending} onClick={onTest}>
-          {t("settings.smtpSendTest")}
+        <Button type="submit" variant="primary" loading={pending}>
+          {t("common.save")}
         </Button>
-        {msg && <span className="text-xs text-muted-foreground">{msg}</span>}
       </div>
     </form>
   );
@@ -95,23 +83,21 @@ export function SmtpConfigFormView({
 export function EmailVerificationToggleView({
   on,
   pending,
-  error,
   onChange,
 }: {
   on: boolean;
   pending: boolean;
-  error: string | null;
   onChange: (checked: boolean) => void;
 }) {
   const t = useT();
   return (
-    <label className="flex items-start gap-2 text-sm">
-      <input type="checkbox" checked={on} disabled={pending} className="mt-0.5" onChange={(e) => onChange(e.target.checked)} />
-      <span>
-        <span className="font-medium">{t("settings.requireEmailVerification")}</span>
-        <span className="mt-0.5 block text-xs text-muted-foreground">{t("settings.requireEmailVerificationDesc")}</span>
-        {error && <span className="mt-0.5 block text-xs text-[var(--color-danger)]">{error}</span>}
-      </span>
-    </label>
+    <SwitchRow
+      id="requireEmailVerification"
+      label={t("settings.requireEmailVerification")}
+      description={t("settings.requireEmailVerificationDesc")}
+      checked={on}
+      onCheckedChange={onChange}
+      disabled={pending}
+    />
   );
 }

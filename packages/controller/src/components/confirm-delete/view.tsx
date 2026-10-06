@@ -19,6 +19,7 @@ export function ConfirmDeleteDialogView({
   body,
   onConfirm,
   error,
+  confirmLabel,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -28,6 +29,7 @@ export function ConfirmDeleteDialogView({
   ok: boolean;
   confirmWord: string;
   title: string;
+  confirmLabel: string;
   body: ReactNode;
   onConfirm: () => void;
   /** Why the action refused (shown in the dialog, which stays open). */
@@ -72,7 +74,7 @@ export function ConfirmDeleteDialogView({
               <Button size="sm">{t("common.cancel")}</Button>
             </D.Close>
             <Button size="sm" variant="danger" disabled={!ok} loading={pending} onClick={onConfirm}>
-              {t("common.delete")}
+              {confirmLabel}
             </Button>
           </div>
         </D.Content>

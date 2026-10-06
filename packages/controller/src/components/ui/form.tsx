@@ -101,31 +101,44 @@ export function Checkbox({ className, ...props }: React.ComponentProps<typeof Ch
   );
 }
 
-/** A switch with its label and description, as one clickable row. */
+/** A switch with its label and description, as one clickable row. With `name`
+ *  it also submits in a form ("on" when checked), like a checkbox. */
 export function SwitchRow({
   id,
   label,
   description,
   checked,
+  defaultChecked,
   onCheckedChange,
   disabled,
+  name,
 }: {
   id: string;
   label: React.ReactNode;
   description?: React.ReactNode;
-  checked: boolean;
-  onCheckedChange: (v: boolean) => void;
+  checked?: boolean;
+  defaultChecked?: boolean;
+  onCheckedChange?: (v: boolean) => void;
   disabled?: boolean;
+  name?: string;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4">
+    <div className="relative flex items-start justify-between gap-4">
       <div className="flex min-w-0 flex-col gap-0.5">
         <label htmlFor={id} className="cursor-pointer text-sm font-medium">
           {label}
         </label>
         {description && <p className="text-[13px] leading-5 text-muted-foreground">{description}</p>}
       </div>
-      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} className="mt-0.5" />
+      <Switch
+        id={id}
+        name={name}
+        checked={checked}
+        defaultChecked={defaultChecked}
+        onCheckedChange={onCheckedChange}
+        disabled={disabled}
+        className="mt-0.5"
+      />
     </div>
   );
 }

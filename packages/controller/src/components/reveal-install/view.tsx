@@ -1,8 +1,27 @@
 "use client";
 
-import { Button } from "@/components/ui";
-import { KeyRound, Copy, Check, AlertTriangle, Terminal } from "lucide-react";
+import { Button, Disclosure } from "@/components/ui";
+import { KeyRound, Copy, Check, AlertTriangle } from "lucide-react";
 import { useT } from "@/components/i18n-provider";
+
+function CommandBox({ text, copied, onCopy, label }: { text: string; copied: boolean; onCopy: () => void; label: string }) {
+  return (
+    <div className="relative">
+      <pre className="overflow-x-auto rounded-lg bg-[#0f1013] p-3 pr-12 font-mono text-xs leading-5 whitespace-pre-wrap break-all text-[#d6d7dc]">
+        {text}
+      </pre>
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        onClick={onCopy}
+        aria-label={label}
+        className="absolute right-2 top-2 text-[#9b9ca6] hover:bg-white/10 hover:text-white"
+      >
+        {copied ? <Check /> : <Copy />}
+      </Button>
+    </div>
+  );
+}
 
 /** Presentation only: the reveal button + revealed command panel. Logic in ./index.tsx. */
 export function RevealInstallView({
@@ -25,21 +44,26 @@ export function RevealInstallView({
   const t = useT();
   if (!data) {
     return (
-      <Button size="sm" variant="outline" onClick={onReveal} disabled={pending}>
-        <KeyRound className="h-3.5 w-3.5" />{" "}
-        {pending
-          ? t("instances.reveal.generating")
-          : hasToken
-            ? t("instances.reveal.revealNew")
-            : t("instances.reveal.reveal")}
-      </Button>
+      <div className="flex flex-col items-start gap-3">
+        <p className="text-[13px] leading-5 text-muted-foreground">
+          {t("instances.reveal.warnBefore")}
+          <b className="text-foreground">{t("instances.reveal.warnOnce")}</b>
+          {t("instances.reveal.warnMid")}
+          <b className="text-foreground">{t("instances.reveal.warnRotates")}</b>
+          {t("instances.reveal.warnAfter")}
+        </p>
+        <Button variant="primary" onClick={onReveal} loading={pending}>
+          <KeyRound />
+          {hasToken ? t("instances.reveal.revealNew") : t("instances.reveal.reveal")}
+        </Button>
+      </div>
     );
   }
 
   return (
-    <div className="flex w-full flex-col gap-2">
-      <div className="flex items-start gap-2 rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-2.5 text-xs">
-        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-warning)]" />
+    <div className="flex w-full flex-col gap-3">
+      <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning-soft p-3 text-xs leading-5">
+        <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
         <span>
           {t("instances.reveal.warnBefore")}
           <b>{t("instances.reveal.warnOnce")}</b>
@@ -48,30 +72,13 @@ export function RevealInstallView({
           {t("instances.reveal.warnAfter")}
         </span>
       </div>
-
-      <div className="flex items-start gap-2">
-        <pre className="min-w-0 flex-1 overflow-auto rounded-md bg-muted/40 p-3 font-mono text-xs leading-relaxed">{data.oneLiner}</pre>
-        <Button size="sm" variant="outline" onClick={() => onCopy(data.oneLiner, "one")} aria-label={t("instances.reveal.copyCommand")}>
-          {copied === "one" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-        </Button>
-      </div>
-
-      <details className="text-xs">
-        <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-          <Terminal className="mr-1 inline h-3.5 w-3.5" />
-          {t("instances.reveal.rawSummary")}
-        </summary>
-        <div className="mt-2 flex items-start gap-2">
-          <pre className="min-w-0 flex-1 overflow-auto rounded-md bg-muted/40 p-3 font-mono text-xs leading-relaxed">{data.raw}</pre>
-          <Button size="sm" variant="outline" onClick={() => onCopy(data.raw, "raw")} aria-label={t("instances.reveal.copyDockerRun")}>
-            {copied === "raw" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          </Button>
-        </div>
-      </details>
-
-      <button type="button" className="self-start text-xs text-muted-foreground hover:text-foreground" onClick={onHide}>
+      <CommandBox text={data.oneLiner} copied={copied === "one"} onCopy={() => onCopy(data.oneLiner, "one")} label={t("instances.reveal.copyCommand")} />
+      <Disclosure summary={t("instances.reveal.rawSummary")}>
+        <CommandBox text={data.raw} copied={copied === "raw"} onCopy={() => onCopy(data.raw, "raw")} label={t("instances.reveal.copyDockerRun")} />
+      </Disclosure>
+      <Button size="sm" variant="ghost" className="self-start" onClick={onHide}>
         {t("instances.reveal.hide")}
-      </button>
+      </Button>
     </div>
   );
 }

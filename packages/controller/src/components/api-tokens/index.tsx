@@ -1,54 +1,97 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { Plus } from "lucide-react";
+import { Button, Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui";
 import { useT } from "@/components/i18n-provider";
 import { createApiToken } from "@/app/actions";
-import { ApiTokensView, type ApiTokenRow } from "./view";
+import { ApiTokensView, ApiTokenFormView, ApiTokenRevealView, type ApiTokenRow } from "./view";
+
+export type { ApiTokenRow };
+
+/** The list of machine API tokens (MCP server / external AI agents). Markup in ./view.tsx. */
+export function ApiTokens({ tokens }: { tokens: ApiTokenRow[] }) {
+  return <ApiTokensView tokens={tokens} />;
+}
 
 /**
- * Manage machine API tokens for the MCP server / external AI agents. Create is
- * reveal-once (the plaintext is shown here and never again); revoke is a typed
- * confirmation. Markup in ./view.tsx.
+ * "New token" button + dialog. Create is reveal-once: the plaintext is shown
+ * in the dialog and never again.
  */
-export function ApiTokens({ tokens }: { tokens: ApiTokenRow[] }) {
+export function CreateApiTokenButton() {
   const t = useT();
   const router = useRouter();
+  const formId = useId();
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [role, setRole] = useState("operator");
   const [pending, start] = useTransition();
   const [revealed, setRevealed] = useState<string | null>(null);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const onCreate = () => {
-    setMsg(null);
+  const onCreate = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setError(null);
     start(async () => {
       const fd = new FormData();
       fd.set("name", name);
       fd.set("role", role);
       const res = await createApiToken(fd);
       if (res.error || !res.token) {
-        setMsg({ ok: false, text: res.error ?? t("apitokens.createFailed") });
+        setError(res.error ?? t("apitokens.createFailed"));
         return;
       }
       setRevealed(res.token);
-      setName("");
+      toast.success(t("apitokens.created"));
       router.refresh();
     });
   };
 
+  const onOpenChange = (v: boolean) => {
+    setOpen(v);
+    if (v) {
+      setName("");
+      setRole("operator");
+      setRevealed(null);
+      setError(null);
+    }
+  };
+
   return (
-    <ApiTokensView
-      tokens={tokens}
-      name={name}
-      role={role}
-      pending={pending}
-      revealed={revealed}
-      msg={msg}
-      onNameChange={setName}
-      onRoleChange={setRole}
-      onCreate={onCreate}
-      onDismissReveal={() => setRevealed(null)}
-    />
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogTrigger asChild>
+        <Button size="sm">
+          <Plus /> {t("apitokens.newToken")}
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        title={t("apitokens.newToken")}
+        description={t("apitokens.newTokenDesc")}
+        footer={
+          revealed ? (
+            <DialogClose asChild>
+              <Button variant="primary">{t("apitokens.dismiss")}</Button>
+            </DialogClose>
+          ) : (
+            <>
+              <DialogClose asChild>
+                <Button>{t("common.cancel")}</Button>
+              </DialogClose>
+              <Button type="submit" form={formId} variant="primary" loading={pending} disabled={!name.trim()}>
+                {t("apitokens.create")}
+              </Button>
+            </>
+          )
+        }
+      >
+        {revealed ? (
+          <ApiTokenRevealView token={revealed} />
+        ) : (
+          <ApiTokenFormView formId={formId} name={name} role={role} error={error} onNameChange={setName} onRoleChange={setRole} onSubmit={onCreate} />
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

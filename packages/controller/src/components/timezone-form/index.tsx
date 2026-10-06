@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { toast } from "sonner";
 import { updateTimezone } from "@/app/actions";
 import { useT } from "@/components/i18n-provider";
 import { TimezoneFormView } from "./view";
@@ -14,8 +15,8 @@ const ZONES: string[] =
 export function TimezoneForm({ current }: { current: string }) {
   const t = useT();
   const [tz, setTz] = useState(current);
+  const [saved, setSaved] = useState(current);
   const [pending, start] = useTransition();
-  const [msg, setMsg] = useState<string | null>(null);
   const [now, setNow] = useState("");
 
   useEffect(() => {
@@ -28,8 +29,12 @@ export function TimezoneForm({ current }: { current: string }) {
   const onAction = (fd: FormData) =>
     start(async () => {
       const r = await updateTimezone(fd);
-      setMsg(r?.error ?? t("settings.saved"));
+      if (r?.error) toast.error(r.error);
+      else {
+        setSaved(tz);
+        toast.success(t("settings.saved"));
+      }
     });
 
-  return <TimezoneFormView tz={tz} onTzChange={setTz} zones={ZONES} now={now} onAction={onAction} pending={pending} msg={msg} />;
+  return <TimezoneFormView tz={tz} onTzChange={setTz} zones={ZONES} now={now} onAction={onAction} pending={pending} dirty={tz !== saved} />;
 }

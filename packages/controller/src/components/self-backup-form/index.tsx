@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { updateSelfBackup, runSelfBackupNow, verifyRecoveryPath } from "@/app/actions";
 import { useT } from "@/components/i18n-provider";
 import { SelfBackupFormView } from "./view";
+
+type Result = { error?: string; detail?: string } | void | undefined;
 
 /**
  * Disaster-recovery self-backup config: pick a (non-local) destination and
@@ -23,35 +26,22 @@ export function SelfBackupForm({
   const [pending, start] = useTransition();
   const [runPending, startRun] = useTransition();
   const [verifyPending, startVerify] = useTransition();
-  const [msg, setMsg] = useState<string | null>(null);
 
-  const flash = (text: string) => {
-    setMsg(text);
-    setTimeout(() => setMsg(null), 8000);
+  const report = (r: Result, fallback: string, refresh = true) => {
+    if (r?.error) toast.error(r.error);
+    else {
+      toast.success(r?.detail ?? fallback);
+      if (refresh) router.refresh();
+    }
   };
 
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    start(async () => {
-      const r = await updateSelfBackup(fd);
-      flash(r?.error ?? r?.detail ?? t("settings.savedPlain"));
-      if (!r?.error) router.refresh();
-    });
+    start(async () => report(await updateSelfBackup(fd), t("settings.savedPlain")));
   };
-
-  const onRunNow = () =>
-    startRun(async () => {
-      const r = await runSelfBackupNow();
-      flash(r?.error ?? r?.detail ?? t("settings.done"));
-      if (!r?.error) router.refresh();
-    });
-
-  const onVerify = () =>
-    startVerify(async () => {
-      const r = await verifyRecoveryPath();
-      flash(r?.error ?? r?.detail ?? t("settings.verified"));
-    });
+  const onRunNow = () => startRun(async () => report(await runSelfBackupNow(), t("settings.done")));
+  const onVerify = () => startVerify(async () => report(await verifyRecoveryPath(), t("settings.verified"), false));
 
   return (
     <SelfBackupFormView
@@ -60,7 +50,6 @@ export function SelfBackupForm({
       pending={pending}
       runPending={runPending}
       verifyPending={verifyPending}
-      msg={msg}
       onSubmit={onSubmit}
       onRunNow={onRunNow}
       onVerify={onVerify}

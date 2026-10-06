@@ -36,6 +36,14 @@ export function DialogContent({
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-overlay backdrop-blur-[2px] data-[state=open]:animate-[cbm-fade-in_150ms_ease-out]" />
       <DialogPrimitive.Content
+        // Focus the first field when there is one, else the dialog itself (not the close button).
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          const root = e.currentTarget as HTMLElement;
+          const field = root.querySelector<HTMLElement>("[autofocus], input:not([type=hidden]):not([disabled]), select, textarea");
+          (field ?? root).focus();
+        }}
+        tabIndex={-1}
         className={cn(
           "fixed z-50 flex flex-col border bg-card text-card-foreground shadow-lg focus:outline-none",
           side === "right"

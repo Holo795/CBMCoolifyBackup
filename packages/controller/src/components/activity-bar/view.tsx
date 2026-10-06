@@ -1,9 +1,9 @@
 "use client";
 
-import { Badge, statusTone } from "@/components/ui";
-import { timeAgo } from "@/lib/cn";
+import { StatusDot, statusTone } from "@/components/ui";
+import { cn, timeAgo } from "@/lib/cn";
 import { useT } from "@/components/i18n-provider";
-import { Activity, ChevronUp, ChevronDown, Loader2, Database, RotateCcw, Copy, ShieldCheck } from "lucide-react";
+import { Activity, ChevronUp, Loader2, Database, RotateCcw, Copy, ShieldCheck, Scissors, FlaskConical } from "lucide-react";
 
 export type ActivityJob = {
   id: string;
@@ -22,6 +22,8 @@ const TYPE_ICON: Record<string, typeof Database> = {
   restore: RotateCcw,
   mirror: Copy,
   "verify-destination": ShieldCheck,
+  prune: Scissors,
+  "restore-drill": FlaskConical,
 };
 
 /** Presentation only: the bottom activity bar + expandable job list. */
@@ -40,53 +42,66 @@ export function ActivityBarView({
   const running = active > 0;
 
   return (
-    <div className="relative shrink-0 border-t bg-card/60">
+    <div className="relative shrink-0 border-t bg-surface">
       {open && (
-        <div className="absolute bottom-full left-0 right-0 max-h-80 overflow-auto border-t bg-card shadow-lg">
-          <ul className="divide-y">
-            {jobs.map((j) => {
-              const Icon = TYPE_ICON[j.type] ?? Activity;
-              const live = j.status === "queued" || j.status === "running";
-              return (
-                <li key={j.id} className="flex items-center gap-3 px-4 py-2 text-sm">
-                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate">
-                    <span className="font-medium">{t(`activity.type.${j.type}`)}</span>
-                    {j.label && <span className="text-muted-foreground"> · {j.label}</span>}
-                    {live && j.message && <span className="ml-2 truncate text-xs text-muted-foreground">{j.message}</span>}
-                  </span>
-                  {live && j.progress != null && (
-                    <span className="hidden w-24 shrink-0 overflow-hidden rounded-full bg-muted sm:block">
-                      <span className="block h-1.5 rounded-full bg-accent transition-all" style={{ width: `${j.progress}%` }} />
+        <div
+          id="activity-panel"
+          className="absolute bottom-full left-0 right-0 max-h-[min(24rem,60dvh)] overflow-auto border-t bg-card shadow-lg animate-[cbm-fade-in_120ms_ease-out]"
+        >
+          {jobs.length === 0 ? (
+            <p className="px-4 py-6 text-center text-[13px] text-muted-foreground">{t("activity.empty")}</p>
+          ) : (
+            <ul className="divide-y">
+              {jobs.map((j) => {
+                const Icon = TYPE_ICON[j.type] ?? Activity;
+                const live = j.status === "queued" || j.status === "running";
+                return (
+                  <li key={j.id} className="flex items-center gap-3 px-4 py-2.5 sm:px-5">
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-surface text-muted-foreground">
+                      <Icon className="size-3.5" />
                     </span>
-                  )}
-                  <Badge tone={statusTone(j.status)}>{t(`activity.status.${j.status}`)}</Badge>
-                  <span className="hidden w-20 shrink-0 text-right text-xs text-muted-foreground sm:block">
-                    {timeAgo(new Date(j.finishedAt ?? j.createdAt), t)}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13px]">
+                        <span className="font-medium">{t(`activity.type.${j.type}`)}</span>
+                        {j.label && <span className="text-muted-foreground"> · {j.label}</span>}
+                      </p>
+                      {(live && j.message) || j.error ? (
+                        <p className={cn("truncate text-xs", j.error ? "text-danger" : "text-muted-foreground")}>{j.error ?? j.message}</p>
+                      ) : null}
+                    </div>
+                    {live && j.progress != null && (
+                      <span className="hidden w-24 shrink-0 overflow-hidden rounded-full bg-muted sm:block">
+                        <span className="block h-1.5 rounded-full bg-accent transition-all" style={{ width: `${j.progress}%` }} />
+                      </span>
+                    )}
+                    <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                      <StatusDot tone={statusTone(j.status)} pulse={j.status === "running"} />
+                      {t(`activity.status.${j.status}`)}
+                    </span>
+                    <span className="tabular hidden w-20 shrink-0 text-right text-xs text-subtle-foreground sm:block">
+                      {timeAgo(new Date(j.finishedAt ?? j.createdAt), t)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       )}
 
       <button
+        type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between px-4 py-1.5 text-xs text-muted-foreground hover:text-foreground"
-        aria-label={open ? t("activity.hide") : t("activity.show")}
+        aria-expanded={open}
+        aria-controls="activity-panel"
+        className="flex h-8 w-full items-center justify-between px-4 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5"
       >
         <span className="flex items-center gap-2">
-          {running ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
-          ) : (
-            <Activity className="h-3.5 w-3.5" />
-          )}
-          <span className="font-medium">
-            {running ? t("activity.running", { count: active }) : t("activity.recent")}
-          </span>
+          {running ? <Loader2 className="size-3.5 animate-spin text-accent" /> : <Activity className="size-3.5" />}
+          <span className="font-medium">{running ? t("activity.running", { count: active }) : t("activity.recent")}</span>
         </span>
-        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
+        <ChevronUp className={cn("size-3.5 transition-transform", open && "rotate-180")} />
+        <span className="sr-only">{open ? t("activity.hide") : t("activity.show")}</span>
       </button>
     </div>
   );

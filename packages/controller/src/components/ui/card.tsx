@@ -18,8 +18,9 @@ export function CardHeader({
   ...props
 }: React.ComponentProps<"div"> & { actions?: React.ReactNode }) {
   return (
-    <div className={cn("flex items-start justify-between gap-4 px-5 pt-4 pb-3", className)} {...props}>
-      <div className="flex min-w-0 flex-col gap-1">{children}</div>
+    <div className={cn("flex flex-wrap items-start justify-between gap-x-4 gap-y-3 px-5 pt-4 pb-3", className)} {...props}>
+      {/* With actions, the title block wraps above them once the card gets narrow. */}
+      <div className={cn("flex min-w-0 flex-col gap-1", actions && "flex-1 basis-56")}>{children}</div>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </div>
   );

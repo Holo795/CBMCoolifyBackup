@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { HardDrive, Server, Cpu, Clock, Bell, User, Mail, LifeBuoy } from "lucide-react";
+import { HardDrive, Server, Cpu, Database, AppWindow, Layers, Zap, Clock, Bell, User, Mail, LifeBuoy } from "lucide-react";
 import { navFor } from "@/components/nav";
 import { useT } from "@/components/i18n-provider";
 import type { T } from "@/lib/i18n-shared";
@@ -26,6 +26,16 @@ const NAV_KEYWORDS: Record<string, string[]> = {
   "/users": ["users", "members", "team", "roles", "invite", "invitation"],
   "/settings": ["settings", "config", "configuration"],
 };
+
+// Same mapping as <ResourceIcon>, as a bare icon for the result rows.
+const resourceIcon = (type: string) =>
+  /redis|keydb|dragonfly/.test(type)
+    ? Zap
+    : /postgres|mysql|maria|mongo|clickhouse/.test(type)
+      ? Database
+      : type === "service"
+        ? Layers
+        : AppWindow;
 
 // Group order in the results.
 const GROUP_ORDER = ["Pages", "Settings", "Resources", "Destinations", "Instances", "Agents"];
@@ -129,7 +139,7 @@ export function CommandPalette({ role }: { role: string }) {
     const dyn: Entry[] = [];
     if (index) {
       for (const r of index.resources)
-        dyn.push({ id: `r:${r.id}`, label: r.name, sub: r.type, href: `/resources/${r.id}`, group: "Resources" });
+        dyn.push({ id: `r:${r.id}`, label: r.name, sub: r.type, href: `/resources/${r.id}`, group: "Resources", icon: resourceIcon(r.type) });
       for (const d of index.destinations)
         dyn.push({ id: `d:${d.id}`, label: d.name, sub: d.type, href: `/destinations/${d.id}`, group: "Destinations", icon: HardDrive });
       for (const i of index.instances)

@@ -20,11 +20,11 @@ export function AppLayoutView({
 }) {
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex h-dvh overflow-hidden">
+      <div className="flex h-dvh overflow-clip">
         <Sidebar role={role} name={name} email={email} />
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col overflow-clip">
           <MobileNav role={role} name={name} email={email} />
-          <main className="flex-1 overflow-y-auto">
+          <main className="relative flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-6xl px-4 pt-6 pb-24 sm:px-8 sm:pt-8">
               <RoleProvider role={role}>{children}</RoleProvider>
             </div>

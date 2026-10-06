@@ -1,10 +1,9 @@
 "use client";
 
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label } from "@/components/ui";
-import { DatabaseBackup } from "lucide-react";
+import { Button, Input, Field } from "@/components/ui";
 import { GithubIcon } from "@/components/icons/github";
 import { useT } from "@/components/i18n-provider";
-import { LanguageSwitcher } from "@/components/language-switcher";
+import { AuthShell, AuthMessage } from "@/components/auth-shell";
 
 /** Presentation only: the login / forgot-password card. Logic in ./login-form.tsx. */
 export function LoginFormView({
@@ -47,77 +46,72 @@ export function LoginFormView({
   onGithub: () => void;
 }) {
   const t = useT();
+  const title = forgot ? t("auth.forgotPassword") : needsSetup ? t("auth.createAdmin") : t("auth.signIn");
+  const description = forgot ? t("auth.forgotPrompt") : needsSetup ? t("auth.createAdminTitle") : t("auth.signInSubtitle");
+  const forgotLink = showForgotToggle && (
+    <button
+      type="button"
+      className="text-[13px] font-medium text-accent hover:underline focus-visible:outline-none focus-visible:underline"
+      onClick={onToggleForgot}
+    >
+      {forgot ? t("auth.backToSignIn") : t("auth.forgotPassword")}
+    </button>
+  );
+
   return (
-    <div className="relative flex min-h-screen items-center justify-center p-4">
-      <div className="absolute right-4 top-4">
-        <LanguageSwitcher />
-      </div>
-      <Card className="w-full max-w-sm">
-        <CardHeader className="items-center text-center">
-          <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-            <DatabaseBackup className="h-6 w-6" />
-          </div>
-          <CardTitle>{t("auth.appName")}</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {forgot ? t("auth.forgotPrompt") : needsSetup ? t("auth.createAdminTitle") : t("auth.signInSubtitle")}
-          </p>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <form onSubmit={onSubmit} className="flex flex-col gap-3">
-            {needsSetup && !forgot && (
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="firstName">{t("auth.firstName")}</Label>
-                  <Input id="firstName" value={firstName} onChange={(e) => onFirstNameChange(e.target.value)} autoComplete="given-name" />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="lastName">{t("auth.lastName")}</Label>
-                  <Input id="lastName" value={lastName} onChange={(e) => onLastNameChange(e.target.value)} autoComplete="family-name" />
-                </div>
-              </div>
-            )}
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="email">{t("auth.email")}</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => onEmailChange(e.target.value)} required />
+    <AuthShell title={title} description={description} footer={forgot ? forgotLink : null}>
+      <div className="flex flex-col gap-4">
+        <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          {needsSetup && !forgot && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={t("auth.firstName")} htmlFor="firstName">
+                <Input id="firstName" value={firstName} onChange={(e) => onFirstNameChange(e.target.value)} autoComplete="given-name" />
+              </Field>
+              <Field label={t("auth.lastName")} htmlFor="lastName">
+                <Input id="lastName" value={lastName} onChange={(e) => onLastNameChange(e.target.value)} autoComplete="family-name" />
+              </Field>
             </div>
-            {!forgot && (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="password">{t("auth.password")}</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => onPasswordChange(e.target.value)}
-                  required
-                  minLength={8}
-                />
+          )}
+          <Field label={t("auth.email")} htmlFor="email">
+            <Input id="email" type="email" value={email} onChange={(e) => onEmailChange(e.target.value)} autoComplete="email" autoFocus required />
+          </Field>
+          {!forgot && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <label htmlFor="password" className="text-[13px] font-medium">
+                  {t("auth.password")}
+                </label>
+                {forgotLink}
               </div>
-            )}
-            {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
-            {notice && <p className="text-sm text-muted-foreground">{notice}</p>}
-            <Button type="submit" variant="primary" disabled={loading}>
-              {loading ? "…" : forgot ? t("auth.sendResetLink") : needsSetup ? t("auth.createAdmin") : t("auth.signIn")}
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => onPasswordChange(e.target.value)}
+                autoComplete={needsSetup ? "new-password" : "current-password"}
+                required
+                minLength={8}
+              />
+            </div>
+          )}
+          {error && <AuthMessage tone="error">{error}</AuthMessage>}
+          {notice && <AuthMessage tone="info">{notice}</AuthMessage>}
+          <Button type="submit" variant="primary" loading={loading} className="w-full">
+            {forgot ? t("auth.sendResetLink") : needsSetup ? t("auth.createAdmin") : t("auth.signIn")}
+          </Button>
+        </form>
+
+        {hasGithub && !forgot && (
+          <>
+            <div className="flex items-center gap-3 text-xs text-subtle-foreground">
+              <div className="h-px flex-1 bg-border" /> {t("auth.or")} <div className="h-px flex-1 bg-border" />
+            </div>
+            <Button type="button" onClick={onGithub} className="w-full">
+              <GithubIcon className="size-4" /> {t("auth.continueWithGithub")}
             </Button>
-          </form>
-
-          {showForgotToggle && (
-            <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={onToggleForgot}>
-              {forgot ? t("auth.backToSignIn") : t("auth.forgotPassword")}
-            </button>
-          )}
-
-          {hasGithub && !forgot && (
-            <>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <div className="h-px flex-1 bg-border" /> {t("auth.or")} <div className="h-px flex-1 bg-border" />
-              </div>
-              <Button type="button" variant="outline" onClick={onGithub}>
-                <GithubIcon className="h-4 w-4" /> {t("auth.continueWithGithub")}
-              </Button>
-            </>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+          </>
+        )}
+      </div>
+    </AuthShell>
   );
 }

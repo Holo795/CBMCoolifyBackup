@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { sha256Hex } from "@/lib/crypto";
 import { getT } from "@/lib/i18n";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui";
+import { AuthShell, AuthMessage } from "@/components/auth-shell";
 import { AcceptInviteForm } from "./accept-form";
 
 export const dynamic = "force-dynamic";
@@ -17,19 +17,16 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
 
   if (invalid || expired) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <Card className="w-full max-w-sm">
-          <CardHeader className="text-center">
-            <CardTitle>{t("auth.inviteUnavailable")}</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3 text-sm text-muted-foreground">
-            <p>{expired ? t("auth.inviteExpired") : t("auth.inviteInvalid")}</p>
-            <Link href="/login" className="text-accent hover:underline">
-              {t("auth.goToSignIn")}
-            </Link>
-          </CardContent>
-        </Card>
-      </div>
+      <AuthShell
+        title={t("auth.inviteUnavailable")}
+        footer={
+          <Link href="/login" className="font-medium text-accent hover:underline">
+            {t("auth.goToSignIn")}
+          </Link>
+        }
+      >
+        <AuthMessage tone="info">{expired ? t("auth.inviteExpired") : t("auth.inviteInvalid")}</AuthMessage>
+      </AuthShell>
     );
   }
 

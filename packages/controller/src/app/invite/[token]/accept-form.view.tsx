@@ -1,7 +1,8 @@
 "use client";
 
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label, Badge } from "@/components/ui";
+import { Button, Input, Field, Badge } from "@/components/ui";
 import { useT } from "@/components/i18n-provider";
+import { AuthShell, AuthMessage } from "@/components/auth-shell";
 
 /** Presentation only: the invite-acceptance card. Logic in ./accept-form.tsx. */
 export function AcceptInviteFormView({
@@ -35,71 +36,53 @@ export function AcceptInviteFormView({
 }) {
   const t = useT();
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <CardTitle>{t("auth.inviteTitle")}</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {t("auth.joiningAs")} <Badge tone="accent">{role}</Badge>
-          </p>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={onSubmit} className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="email">{t("auth.email")}</Label>
-              <Input id="email" type="email" value={email} readOnly disabled />
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="firstName">{t("auth.firstName")}</Label>
-                <Input
-                  id="firstName"
-                  value={firstName}
-                  onChange={(e) => onFirstNameChange(e.target.value)}
-                  autoComplete="given-name"
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="lastName">{t("auth.lastName")}</Label>
-                <Input
-                  id="lastName"
-                  value={lastName}
-                  onChange={(e) => onLastNameChange(e.target.value)}
-                  autoComplete="family-name"
-                />
-              </div>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="password">{t("auth.password")}</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => onPasswordChange(e.target.value)}
-                autoComplete="new-password"
-                required
-                minLength={8}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="confirm">{t("auth.confirmPassword")}</Label>
-              <Input
-                id="confirm"
-                type="password"
-                value={confirm}
-                onChange={(e) => onConfirmChange(e.target.value)}
-                autoComplete="new-password"
-                required
-                minLength={8}
-              />
-            </div>
-            {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
-            <Button type="submit" variant="primary" disabled={loading}>
-              {loading ? "…" : t("auth.createAccount")}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+    <AuthShell
+      title={t("auth.inviteTitle")}
+      description={
+        <span className="inline-flex items-center gap-1.5">
+          {t("auth.joiningAs")} <Badge tone="accent">{t(`users.roles.${role}`)}</Badge>
+        </span>
+      }
+    >
+      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+        <Field label={t("auth.email")} htmlFor="email">
+          <Input id="email" type="email" value={email} autoComplete="username" readOnly disabled />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={t("auth.firstName")} htmlFor="firstName">
+            <Input id="firstName" value={firstName} onChange={(e) => onFirstNameChange(e.target.value)} autoComplete="given-name" autoFocus />
+          </Field>
+          <Field label={t("auth.lastName")} htmlFor="lastName">
+            <Input id="lastName" value={lastName} onChange={(e) => onLastNameChange(e.target.value)} autoComplete="family-name" />
+          </Field>
+        </div>
+        <Field label={t("auth.password")} htmlFor="password">
+          <Input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(e) => onPasswordChange(e.target.value)}
+            autoComplete="new-password"
+            required
+            minLength={8}
+          />
+        </Field>
+        <Field label={t("auth.confirmPassword")} htmlFor="confirm">
+          <Input
+            id="confirm"
+            type="password"
+            value={confirm}
+            onChange={(e) => onConfirmChange(e.target.value)}
+            autoComplete="new-password"
+            required
+            minLength={8}
+          />
+        </Field>
+        {error && <AuthMessage tone="error">{error}</AuthMessage>}
+        <Button type="submit" variant="primary" loading={loading} className="w-full">
+          {t("auth.createAccount")}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

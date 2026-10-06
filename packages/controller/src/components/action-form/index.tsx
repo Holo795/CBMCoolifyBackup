@@ -3,6 +3,8 @@
 import { useRef, useState, useTransition } from "react";
 import { ActionFormView } from "./view";
 import { useT } from "@/components/i18n-provider";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 
 type ActionResult = { ok?: boolean; error?: string; warning?: string } | void;
 
@@ -18,6 +20,7 @@ export function ActionForm({
   resetOnSuccess?: boolean;
 }) {
   const t = useT();
+  const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +36,9 @@ export function ActionForm({
       if (r && "error" in r && r.error) setError(r.error);
       else {
         if (r && "warning" in r && r.warning) setWarning(r.warning);
+        else toast.success(t("common.done"));
         if (resetOnSuccess) formRef.current?.reset();
+        router.refresh();
       }
     });
   };
