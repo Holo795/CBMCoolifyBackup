@@ -21,6 +21,8 @@ export async function syncInstance(instanceId: string): Promise<{ synced: number
         type: r.type,
         projectName: r.projectName,
         environment: r.environment,
+        projectUuid: r.projectUuid,
+        environmentUuid: r.environmentUuid,
         buildPack: r.buildPack,
         status: r.status,
         serverUuid: r.serverUuid,
@@ -31,6 +33,9 @@ export async function syncInstance(instanceId: string): Promise<{ synced: number
         type: r.type,
         projectName: r.projectName,
         environment: r.environment,
+        // Keep the last known ids when an older Coolify doesn't return them.
+        ...(r.projectUuid ? { projectUuid: r.projectUuid } : {}),
+        ...(r.environmentUuid ? { environmentUuid: r.environmentUuid } : {}),
         buildPack: r.buildPack,
         status: r.status,
         serverUuid: r.serverUuid,

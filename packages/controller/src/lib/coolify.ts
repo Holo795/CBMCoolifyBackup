@@ -14,6 +14,9 @@ export interface CoolifyResource {
   environment: string;
   buildPack?: string;
   environmentId?: number;
+  /** For a link to the resource in Coolify's own UI (see lib/coolify-link). */
+  projectUuid?: string;
+  environmentUuid?: string;
   /** The Coolify server this resource is deployed on (multi-server routing). */
   serverUuid?: string;
   serverName?: string;
@@ -57,11 +60,14 @@ export interface CoolifyRaw {
   [k: string]: unknown;
 }
 
+/** A project environment, by its numeric id (what resources reference). */
+type EnvInfo = { project: string; environment: string; projectUuid?: string; environmentUuid?: string };
+
 /** A Coolify project as returned by /api/v1/projects (+ detail). */
 interface CoolifyProjectRaw {
   uuid?: string;
   name?: string;
-  environments?: Array<{ id?: number; name?: string }>;
+  environments?: Array<{ id?: number; name?: string; uuid?: string }>;
 }
 
 /** Image tags that move over time - a clone must pin the digest, not the tag. */
@@ -724,8 +730,8 @@ export class CoolifyClient {
     }
   }
 
-  private async envMap(): Promise<Map<number, { project: string; environment: string }>> {
-    const map = new Map<number, { project: string; environment: string }>();
+  private async envMap(): Promise<Map<number, EnvInfo>> {
+    const map = new Map<number, EnvInfo>();
     try {
       const projects = await this.get<CoolifyProjectRaw[]>("/api/v1/projects");
       for (const p of projects ?? []) {
@@ -741,7 +747,7 @@ export class CoolifyClient {
         }
         for (const e of envs ?? []) {
           if (typeof e.id === "number") {
-            map.set(e.id, { project: name ?? "", environment: e.name ?? "" });
+            map.set(e.id, { project: name ?? "", environment: e.name ?? "", projectUuid: p.uuid, environmentUuid: e.uuid });
           }
         }
       }
@@ -789,7 +795,7 @@ export class CoolifyClient {
   private normalize(
     r: CoolifyRaw,
     forcedType: string | undefined,
-    envs: Map<number, { project: string; environment: string }>,
+    envs: Map<number, EnvInfo>,
   ): CoolifyResource {
     const rawType: string = forcedType ?? r.type ?? r.database_type ?? "unknown";
     const type = normalizeType(rawType);
@@ -808,6 +814,8 @@ export class CoolifyClient {
       environment: env?.environment ?? "",
       buildPack: r.build_pack ?? undefined,
       environmentId: envId,
+      projectUuid: env?.projectUuid,
+      environmentUuid: env?.environmentUuid,
       serverUuid: typeof server?.uuid === "string" ? server.uuid : undefined,
       serverName: typeof server?.name === "string" ? server.name : undefined,
     };

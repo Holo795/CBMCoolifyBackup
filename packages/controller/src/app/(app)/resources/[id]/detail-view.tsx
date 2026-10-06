@@ -28,6 +28,7 @@ import {
   Field,
   Textarea,
   statusTone,
+  buttonClass,
 } from "@/components/ui";
 import { ResourceToggles } from "@/components/resource-toggles";
 import { ResourceIcon } from "@/components/resource-icon";
@@ -36,6 +37,7 @@ import { setResourceSchedule, removeResourceOverride, backupNow, updateResourceE
 import { ActionForm } from "@/components/action-form";
 import { snapshotDeleteItems } from "@/components/snapshot-delete";
 import type { Usage } from "@/lib/storage-usage";
+import { coolifyResourceUrl } from "@/lib/coolify-link";
 import { ActionsMenu } from "@/components/actions-menu";
 import { RestoreActions } from "@/components/restore-actions";
 import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
@@ -126,13 +128,25 @@ export async function ResourceDetailView({
         }
         description={[resource.type, resource.instance.name, resource.projectName, resource.serverName].filter(Boolean).join(" · ")}
         action={
-          agentDown || removed ? undefined : (
-            <Gate min="operator">
-              <ActionButton action={backupNow.bind(null, resource.id)} variant="primary" size="md" successMsg={t("resources.backupQueued")}>
-                <Play /> {t("resources.backUpNow")}
-              </ActionButton>
-            </Gate>
-          )
+          <div className="flex flex-wrap items-center gap-2">
+            {!removed && (
+              <a
+                href={coolifyResourceUrl(resource.instance.baseUrl, resource)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={buttonClass("secondary", "md")}
+              >
+                <ExternalLink /> {t("resources.openInCoolify")}
+              </a>
+            )}
+            {agentDown || removed ? null : (
+              <Gate min="operator">
+                <ActionButton action={backupNow.bind(null, resource.id)} variant="primary" size="md" successMsg={t("resources.backupQueued")}>
+                  <Play /> {t("resources.backUpNow")}
+                </ActionButton>
+              </Gate>
+            )}
+          </div>
         }
       />
 

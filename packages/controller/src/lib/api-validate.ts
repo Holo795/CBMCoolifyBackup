@@ -28,6 +28,7 @@ const bool = z.enum(["true", "false"]);
 
 export const resourcesQuery = z.object({
   instanceId: id.optional(),
+  serverUuid: id.optional(),
   backupEnabled: bool.optional(),
 });
 

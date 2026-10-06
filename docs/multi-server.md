@@ -7,7 +7,10 @@ A single Coolify panel can manage several servers. CBM handles this natively.
 - **One agent per server.** Run the (same) install command on each Docker host. The enrollment
   token is per instance, shared across its servers.
 - **Server captured per resource.** On sync, CBM records which Coolify server each resource is
-  deployed on (from the Coolify API).
+  deployed on (from the Coolify API). The **Resources** list shows it under each name, can be
+  filtered by Coolify instance and by server, and can be grouped by either (a header per group,
+  with its count); the filters stay in the URL. Each row (and the resource page) has an **Open in
+  Coolify** link to the resource's own page in its Coolify.
 - **Auto-detected agent → server.** Each agent reports the resources it can see on its local
   Docker host; CBM matches them to the known servers and assigns the agent automatically. No
   manual mapping needed in the common case.

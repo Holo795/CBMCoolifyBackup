@@ -9,13 +9,25 @@ import { Input, Select } from "@/components/ui";
  * Search box + optional select filter that update the URL as you type
  * (debounced), so lists stay server-rendered and shareable.
  */
+type SelectFilter = {
+  param: string;
+  allLabel: string;
+  label: string;
+  options: { value: string; label: string }[];
+  /** Other params reset when this one changes (e.g. the server when the instance does). */
+  clears?: string[];
+};
+
 export function FilterBar({
   placeholder,
   select,
+  selects,
 }: {
   placeholder: string;
   /** e.g. a "type" filter: param name, the "all" label and the options. */
-  select?: { param: string; allLabel: string; label: string; options: { value: string; label: string }[] };
+  select?: SelectFilter;
+  /** Several such filters, side by side. */
+  selects?: SelectFilter[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -46,8 +58,8 @@ export function FilterBar({
   }, [q]);
 
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-      <div className="relative w-full sm:max-w-sm">
+    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+      <div className="relative w-full sm:min-w-48 sm:max-w-sm sm:flex-1">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle-foreground" />
         <Input
           type="search"
@@ -59,21 +71,22 @@ export function FilterBar({
         />
         {pending && <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-subtle-foreground" />}
       </div>
-      {select && (
+      {[...(select ? [select] : []), ...(selects ?? [])].map((f) => (
         <Select
-          aria-label={select.label}
-          value={params.get(select.param) ?? ""}
-          onChange={(e) => push({ [select.param]: e.target.value })}
-          className="sm:w-52"
+          key={f.param}
+          aria-label={f.label}
+          value={params.get(f.param) ?? ""}
+          onChange={(e) => push({ [f.param]: e.target.value, ...Object.fromEntries((f.clears ?? []).map((c) => [c, ""])) })}
+          className="sm:w-auto sm:min-w-36"
         >
-          <option value="">{select.allLabel}</option>
-          {select.options.map((o) => (
+          <option value="">{f.allLabel}</option>
+          {f.options.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>
           ))}
         </Select>
-      )}
+      ))}
     </div>
   );
 }

@@ -68,7 +68,7 @@ export class CbmClient {
   listInstances() {
     return this.get("/api/v1/instances");
   }
-  listResources(q: { instanceId?: string; backupEnabled?: boolean }) {
+  listResources(q: { instanceId?: string; serverUuid?: string; backupEnabled?: boolean }) {
     return this.get("/api/v1/resources", q);
   }
   getResource(id: string) {

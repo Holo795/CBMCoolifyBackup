@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * List resources (databases, apps, services) across instances.
- * Filters: `?instanceId=` and `?backupEnabled=true|false`.
+ * Filters: `?instanceId=`, `?serverUuid=` (a Coolify server) and `?backupEnabled=true|false`.
  */
 export async function GET(req: Request) {
   const auth = await requireApi(req);
@@ -16,12 +16,16 @@ export async function GET(req: Request) {
 
   const q = parseQuery(resourcesQuery, req);
   if (!q.ok) return q.response;
-  const { instanceId } = q.data;
+  const { instanceId, serverUuid } = q.data;
   const backupEnabled = q.data.backupEnabled === undefined ? undefined : q.data.backupEnabled === "true";
 
   const rows = await prisma.resource.findMany({
-    where: { ...(instanceId ? { instanceId } : {}), ...(backupEnabled === undefined ? {} : { backupEnabled }) },
-    orderBy: [{ instanceId: "asc" }, { name: "asc" }],
+    where: {
+      ...(instanceId ? { instanceId } : {}),
+      ...(serverUuid ? { serverUuid } : {}),
+      ...(backupEnabled === undefined ? {} : { backupEnabled }),
+    },
+    orderBy: [{ instanceId: "asc" }, { serverName: { sort: "asc", nulls: "last" } }, { name: "asc" }],
     select: {
       id: true,
       instanceId: true,

@@ -52,10 +52,12 @@ export function registerTools(server: McpServer, client: CbmClient): void {
       description: "List backup-able resources (databases, apps, services) across instances.",
       inputSchema: {
         instanceId: z.string().optional().describe("Only this Coolify instance id"),
+        serverUuid: z.string().optional().describe("Only resources on this Coolify server (serverUuid, as listed)"),
         backupEnabled: z.boolean().optional().describe("Only resources with backups enabled (true) or disabled (false)"),
       },
     },
-    async ({ instanceId, backupEnabled }) => guard(() => client.listResources({ instanceId, backupEnabled }))(),
+    async ({ instanceId, serverUuid, backupEnabled }) =>
+      guard(() => client.listResources({ instanceId, serverUuid, backupEnabled }))(),
   );
 
   server.registerTool(

@@ -24,7 +24,7 @@ export default async function SnapshotsPage({
     prisma.snapshot.count({ where }),
     prisma.snapshot.findMany({
       where,
-      orderBy: { startedAt: "desc" },
+      orderBy: [{ startedAt: "desc" }, { id: "desc" }],
       skip: (page - 1) * PER_PAGE,
       take: PER_PAGE,
       include: {

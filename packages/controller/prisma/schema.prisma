@@ -186,6 +186,9 @@ model Resource {
   type         String        // postgresql | mysql | ... | application | service
   projectName  String        @default("")
   environment  String        @default("")
+  // Coolify ids of its project and environment: a link to it in Coolify's UI.
+  projectUuid     String?
+  environmentUuid String?
   buildPack    String?
   status       String        @default("unknown")
   // Which Coolify server this resource is deployed on (from the Coolify API).

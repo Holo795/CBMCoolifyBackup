@@ -120,7 +120,7 @@ Reads (viewer+):
 
 - `cbm_whoami` — check the token and its role
 - `cbm_list_instances`
-- `cbm_list_resources` — filter by `instanceId`, `backupEnabled`
+- `cbm_list_resources` — filter by `instanceId`, `serverUuid`, `backupEnabled`
 - `cbm_get_resource` — one resource + its effective schedule
 - `cbm_list_snapshots` — filter by `resourceId`, `status`, `limit` (default 50, max 200)
 - `cbm_get_snapshot` — one snapshot + its artifacts

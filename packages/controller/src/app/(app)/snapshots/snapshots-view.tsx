@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Prisma } from "@/generated/prisma/client";
 import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
 import { PageHeader } from "@/components/page-header";
-import { Badge, StatusDot, EmptyState, List, Tooltip, buttonClass, statusTone } from "@/components/ui";
+import { Badge, StatusDot, EmptyState, List, Tooltip, statusTone } from "@/components/ui";
 import { retrySnapshot, cancelSnapshot } from "@/app/actions";
 import { snapshotDeleteItems } from "@/components/snapshot-delete";
 import { ActionButton } from "@/components/action-button";
@@ -11,10 +11,11 @@ import { RestoreActions } from "@/components/restore-actions";
 import { FilterBar } from "@/components/filter-bar";
 import { Gate } from "@/components/role-gate";
 import { getT, getLocale } from "@/lib/i18n";
+import { Pager } from "@/components/pager";
 import { formatBytes } from "@/lib/cn";
 import { drillTone } from "@/lib/status";
 import { modeLabel, captureLabel } from "@/lib/schedule";
-import { Archive, RefreshCw, X, ShieldCheck, ExternalLink, Boxes, ChevronLeft, ChevronRight } from "lucide-react";
+import { Archive, RefreshCw, X, ShieldCheck, ExternalLink, Boxes } from "lucide-react";
 import { type DESTINATION_SECRETS } from "@/lib/public-fields";
 
 type SnapshotRow = Prisma.SnapshotGetPayload<{
@@ -200,20 +201,7 @@ export async function SnapshotsView({
           {t(total === 1 ? "snapshots.countOne" : "snapshots.countOther", { count: total })}
           {totalPages > 1 && <> · {t("resources.pageIndicator", { page, pages: totalPages })}</>}
         </span>
-        {totalPages > 1 && (
-          <div className="flex gap-2">
-            {page > 1 && (
-              <Link href={qs(page - 1)} className={buttonClass("secondary", "sm")}>
-                <ChevronLeft /> {t("resources.prev")}
-              </Link>
-            )}
-            {page < totalPages && (
-              <Link href={qs(page + 1)} className={buttonClass("secondary", "sm")}>
-                {t("resources.next")} <ChevronRight />
-              </Link>
-            )}
-          </div>
-        )}
+        <Pager t={t} page={page} totalPages={totalPages} href={qs} />
       </div>
     </div>
   );
