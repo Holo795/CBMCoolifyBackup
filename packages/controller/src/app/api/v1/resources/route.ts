@@ -35,6 +35,7 @@ export async function GET(req: Request) {
       serverName: true,
       backupEnabled: true,
       liveBackup: true,
+      backupExcludes: true,
       instance: { select: { name: true } },
     },
   });

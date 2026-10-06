@@ -3,6 +3,16 @@ import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
 import type { ResolvedDestination } from "@cbm/shared";
 import { runCapture, type RunResult } from "./proc.js";
+import { getSettings } from "./settings.js";
+
+/**
+ * restic's cache (the repository's index and trees), in the agent's work dir:
+ * the work dir is a persistent volume, so the cache survives agent updates and
+ * restic doesn't download the index again on every run (costly over SFTP).
+ */
+export function resticCacheDir(): string {
+  return process.env.RESTIC_CACHE_DIR || join(process.env.AGENT_WORK_DIR || "/tmp/cbm-agent", "restic-cache");
+}
 
 let RESTIC = "restic";
 export function setResticBin(bin: string) {
@@ -31,6 +41,9 @@ export interface ResticCtx {
 export const RESTIC_ENV_KEYS = [
   "RESTIC_PASSWORD",
   "RESTIC_REPOSITORY",
+  "RESTIC_CACHE_DIR",
+  "RESTIC_READ_CONCURRENCY",
+  "RESTIC_PACK_SIZE",
   "AWS_ACCESS_KEY_ID",
   "AWS_SECRET_ACCESS_KEY",
   "AWS_DEFAULT_REGION",
@@ -65,7 +78,15 @@ export function resticS3Endpoint(endpoint?: string): string {
  * agent's volumes, not its /tmp).
  */
 export async function resticContext(dest: ResolvedDestination, password: string, tmpBase = tmpdir()): Promise<ResticCtx> {
-  const env: NodeJS.ProcessEnv = { ...process.env, RESTIC_PASSWORD: password };
+  const { resticReadConcurrency, resticPackSize } = getSettings();
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    RESTIC_PASSWORD: password,
+    RESTIC_CACHE_DIR: resticCacheDir(),
+    // restic reads these itself; set from the agent's settings (env > CBM > default).
+    RESTIC_READ_CONCURRENCY: String(resticReadConcurrency),
+    RESTIC_PACK_SIZE: String(resticPackSize),
+  };
 
   if (dest.type === "local") {
     env.RESTIC_REPOSITORY = `${dest.basePath.replace(/\/$/, "")}/restic-repo`;

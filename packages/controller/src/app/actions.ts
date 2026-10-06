@@ -23,6 +23,7 @@ import { setTimezone, isValidTimezone } from "@/lib/settings";
 import { removeSnapshots } from "@/lib/snapshot-removal";
 import { resetTwoFactor, isTwoFactorPolicy } from "@/lib/two-factor";
 import { settingsFromForm } from "@/lib/agent-settings";
+import { MAX_EXCLUDES, excludeError, normalizeExcludes } from "@cbm/shared";
 
 function s(fd: FormData, key: string): string {
   return (fd.get(key) ?? "").toString().trim();
@@ -996,6 +997,30 @@ export async function updateResourceSettings(resourceId: string, fd: FormData): 
   });
   revalidatePath("/resources");
   revalidatePath(`/resources/${resourceId}`);
+}
+
+/**
+ * Save the paths a resource's volume copies leave out (one per line). Admin:
+ * it decides what isn't backed up. A restore in place leaves them as they are.
+ */
+export async function updateResourceExcludes(resourceId: string, fd: FormData): Promise<{ ok?: boolean; error?: string }> {
+  const t = await getT();
+  try {
+    await requireRole("admin");
+    const lines = String(fd.get("excludes") ?? "").split(/\r?\n/);
+    let excludes: string[];
+    try {
+      excludes = normalizeExcludes(lines);
+    } catch {
+      const bad = lines.find((l) => l.trim() && excludeError(l));
+      return { error: bad ? t("messages.excludeInvalid", { pattern: bad.trim() }) : t("messages.excludeTooMany", { max: MAX_EXCLUDES }) };
+    }
+    await prisma.resource.update({ where: { id: resourceId }, data: { backupExcludes: excludes } });
+    revalidatePath(`/resources/${resourceId}`);
+    return { ok: true };
+  } catch (e) {
+    return { error: errorText(e, t) };
+  }
 }
 
 /** Save a resource's per-container pre/post-backup hooks (empty entries dropped). */

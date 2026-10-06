@@ -27,6 +27,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       serverName: true,
       backupEnabled: true,
       liveBackup: true,
+      backupExcludes: true,
       instance: { select: { name: true } },
     },
   });

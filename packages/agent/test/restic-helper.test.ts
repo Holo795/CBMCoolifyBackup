@@ -73,11 +73,19 @@ test("restic in place: incremental passes, read-back, restore and tar copy", { s
     assert.match(listing, process.platform === "darwin" ? /^drwx------ .* \.\/$/m : /^drwx------ 999\/\S+ .* \.\/$/m);
     assert.match(listing, /\.\/sub\/b\.txt$/m);
 
+    // Exclusions: left out of the backup, kept on the target by a restore.
+    const ex = ["/files", "*.bin"];
+    const third = await resticBackupPath(ctx, work, src, path, ["snap:t1"], { excludes: ex });
+    assert.equal(await resticCountPath(ctx, work, third.id, path), 4, "sub, sub/a.txt, sub/b.txt, link");
+    await sh(dst, "mkdir -p /d/files && echo keep > /d/files/k.txt && echo keep > /d/kept.bin && echo stale > /d/stale.txt");
+    await resticRestorePath(ctx, work, third.id, path, dst, { owner: "999:999", mode: "700" }, ex);
+    assert.equal(await sh(dst, "cd /d && find . -type f | sort | tr '\\n' ' '"), "./big.bin ./files/k.txt ./kept.bin ./sub/a.txt ./sub/b.txt");
+
     // Bad references never reach a shell.
     await assert.rejects(resticRestorePath(ctx, work, "abc; rm -rf /", path, dst));
     await assert.rejects(resticCountPath(ctx, work, second.id, "/etc"));
 
-    await resticForget(ctx, [first.id, second.id], false);
+    await resticForget(ctx, [first.id, second.id, third.id], false);
     assert.equal((await resticListSnapshotIds(ctx)).size, 0);
     await ctx.cleanup();
   } finally {

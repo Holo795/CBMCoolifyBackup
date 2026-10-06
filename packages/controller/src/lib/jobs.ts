@@ -233,6 +233,7 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
     envEnc,
     capturedConfig,
     configCaptureError,
+    excludes: resource.backupExcludes,
     resource: {
       coolifyUuid: resource.coolifyUuid,
       name: resource.name,

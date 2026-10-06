@@ -195,9 +195,47 @@ export const SnapshotManifest = z.object({
   destinationDir: z.string(),
   /** restic snapshot id when stored via the restic engine. */
   resticSnapshotId: z.string().optional(),
+  /** Paths left out of the volume copies (see normalizeExcludes): a restore in
+   * place leaves them as they are. */
+  excludes: z.array(z.string()).optional(),
   notes: z.string().optional(),
 });
 export type SnapshotManifest = z.infer<typeof SnapshotManifest>;
+
+/**
+ * Paths left out of a resource's volume and host-folder copies (and left as
+ * they are by a restore in place). Each is either `/path` - from the root of
+ * every volume or folder of the resource - or a bare name (no slash) matched at
+ * any depth; `*` and `?` wildcards work. E.g. `/backups`, `/logs`, `*.tmp`.
+ */
+export const MAX_EXCLUDES = 50;
+export function excludeError(raw: string): string | null {
+  const p = raw.trim().replace(/\/+$/, "");
+  if (!p || p === "/") return "empty";
+  if (p.length > 200) return "too long";
+  if (/[\n\r\0\\]/.test(p)) return "invalid character";
+  if (p.startsWith("/")) {
+    if (p.split("/").some((seg) => seg === ".." || seg === ".")) return "no . or .. segments";
+  } else if (p.includes("/")) {
+    return "use /path from the root, or a bare name";
+  } else if (p === ".." || p === ".") {
+    return "no . or ..";
+  }
+  return null;
+}
+/** Normalised exclusions (trimmed, no trailing slash, de-duplicated); throws on an invalid one. */
+export function normalizeExcludes(raw: string[]): string[] {
+  const out: string[] = [];
+  for (const r of raw) {
+    if (!r.trim()) continue;
+    const err = excludeError(r);
+    if (err) throw new Error(`Invalid exclusion "${r.trim()}": ${err}`);
+    const p = r.trim().replace(/\/+$/, "");
+    if (!out.includes(p)) out.push(p);
+  }
+  if (out.length > MAX_EXCLUDES) throw new Error(`At most ${MAX_EXCLUDES} exclusions`);
+  return out;
+}
 
 /* ------------------------------------------------------------------ *
  * Jobs (controller -> agent)                                          *
@@ -221,6 +259,8 @@ export const BackupJob = z.object({
    * definition from Coolify: the snapshot then can't recreate them. The agent
    * logs it, and fails a configuration-only backup (that is all it would keep). */
   configCaptureError: z.string().optional(),
+  /** Paths left out of the volume and host-folder copies (see normalizeExcludes). */
+  excludes: z.array(z.string()).default([]),
   resource: ResourceDescriptor,
   destination: ResolvedDestination,
   encryption: EncryptionSpec,
@@ -444,9 +484,22 @@ export const AgentSettings = z.object({
   stagingMode: StagingMode.optional(),
   /** Agent log verbosity (LOG_LEVEL). */
   logLevel: AgentLogLevel.optional(),
+  /** Files restic reads at once (RESTIC_READ_CONCURRENCY, restic's own variable):
+   * higher suits fast disks (NVMe). */
+  resticReadConcurrency: z.number().int().min(1).max(32).optional(),
+  /** Size of the packs restic writes, in MiB (RESTIC_PACK_SIZE): bigger means
+   * fewer files on a remote (SFTP, S3), at the cost of memory. */
+  resticPackSize: z.number().int().min(4).max(128).optional(),
 });
 export type AgentSettings = z.infer<typeof AgentSettings>;
-export const AgentSettingKey = z.enum(["concurrency", "minFreeMb", "stagingMode", "logLevel"]);
+export const AgentSettingKey = z.enum([
+  "concurrency",
+  "minFreeMb",
+  "stagingMode",
+  "logLevel",
+  "resticReadConcurrency",
+  "resticPackSize",
+]);
 export type AgentSettingKey = z.infer<typeof AgentSettingKey>;
 
 /** Built-in values, used when neither CBM nor the host sets one. */
@@ -455,6 +508,9 @@ export const AGENT_SETTING_DEFAULTS: Required<AgentSettings> = {
   minFreeMb: 1024,
   stagingMode: "auto",
   logLevel: "info",
+  // restic's own defaults.
+  resticReadConcurrency: 2,
+  resticPackSize: 16,
 };
 
 /** The host environment variable behind each setting (it wins over CBM). */
@@ -463,6 +519,8 @@ export const AGENT_SETTING_ENV: Record<AgentSettingKey, string> = {
   minFreeMb: "AGENT_MIN_FREE_MB",
   stagingMode: "AGENT_STAGING_MODE",
   logLevel: "LOG_LEVEL",
+  resticReadConcurrency: "RESTIC_READ_CONCURRENCY",
+  resticPackSize: "RESTIC_PACK_SIZE",
 };
 
 export const HeartbeatRequest = z.object({

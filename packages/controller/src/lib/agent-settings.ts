@@ -37,6 +37,8 @@ export function settingsFromForm(fd: FormData): { settings?: AgentSettings; erro
   num("minFreeMb");
   str("stagingMode");
   str("logLevel");
+  num("resticReadConcurrency");
+  num("resticPackSize");
   const parsed = AgentSettings.safeParse(raw);
   if (!parsed.success) return { error: parsed.error.issues[0]?.path.join(".") ?? "invalid" };
   return { settings: parsed.data };

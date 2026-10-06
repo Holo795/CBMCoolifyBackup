@@ -31,6 +31,7 @@ export function serializeResource(r: {
   serverName: string | null;
   backupEnabled: boolean;
   liveBackup: boolean;
+  backupExcludes?: string[];
   instance?: { name: string } | null;
 }) {
   return {
@@ -47,6 +48,7 @@ export function serializeResource(r: {
     serverName: r.serverName,
     backupEnabled: r.backupEnabled,
     liveBackup: r.liveBackup,
+    backupExcludes: r.backupExcludes ?? [],
   };
 }
 

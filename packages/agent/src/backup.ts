@@ -122,6 +122,7 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
   let captureMethod = "none";
 
   emit("info", `Starting ${job.mode} of ${resource.name} [${resource.type}]`, 2);
+  if (job.excludes.length) emit("info", `Left out of volume copies: ${job.excludes.join(", ")}`);
   const captureWarning = captureErrorWarning(job.configCaptureError);
   if (captureWarning) emit("warn", captureWarning);
 
@@ -159,7 +160,7 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     let warm: string | undefined;
     if (owners.length) {
       emit("info", `Reading ${t.label} into the restic repository before freezing (${i}/${total})`, progress);
-      const w = await resticBackupPath(ctx, workDir, t.source, path, [...tags, "pass:warm"]);
+      const w = await resticBackupPath(ctx, workDir, t.source, path, [...tags, "pass:warm"], { excludes: job.excludes });
       warm = w.id;
       parts.push(w.id);
       emit("info", `First pass: ${describePass(w)}`);
@@ -175,7 +176,10 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
       if (liveBackup) emit("warn", `Live copy of ${t.source} without freezing (at your own risk) - may be inconsistent`);
       emit("info", owners.length ? `Final pass on ${t.label} while frozen` : `Backing up ${t.label} with restic (${i}/${total})`, progress);
       // Frozen: wait for another command's lock a minute at most, never longer.
-      b = await resticBackupPath(ctx, workDir, t.source, path, tags, owners.length ? "1m" : undefined);
+      b = await resticBackupPath(ctx, workDir, t.source, path, tags, {
+        lockWait: owners.length ? "1m" : undefined,
+        excludes: job.excludes,
+      });
       parts.push(b.id);
     } finally {
       for (const c of paused.reverse()) {
@@ -290,7 +294,7 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
           choice.where === "local"
             ? (body: Readable) => pipeline(body, createWriteStream(target))
             : async (body: Readable) => (await transferFor()).putStream(body, target, needBytes ?? undefined);
-        const res = await captureTar(t.source, sink, job.encryption.enabled ? job.encryption.key : undefined);
+        const res = await captureTar(t.source, sink, job.encryption.enabled ? job.encryption.key : undefined, job.excludes);
         artifacts.push({
           kind: "volume",
           filename,
@@ -494,6 +498,7 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     capturedConfig: job.capturedConfig,
     encrypted: job.encryption.enabled,
     destinationDir: job.destinationDir,
+    ...(job.excludes.length ? { excludes: job.excludes } : {}),
   };
 
   // Persist the manifest into the staging dir (it's part of what gets stored).

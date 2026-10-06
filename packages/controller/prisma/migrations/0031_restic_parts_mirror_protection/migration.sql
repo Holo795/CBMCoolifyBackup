@@ -13,3 +13,5 @@ ALTER TABLE "Destination" ADD COLUMN "mirrorKeepMonthly" INTEGER NOT NULL DEFAUL
 ALTER TABLE "Destination" ADD COLUMN "protectionStatus" TEXT;
 ALTER TABLE "Destination" ADD COLUMN "protectionDetail" TEXT;
 ALTER TABLE "Destination" ADD COLUMN "protectionCheckedAt" TIMESTAMP(3);
+-- Paths left out of a resource's volume copies.
+ALTER TABLE "Resource" ADD COLUMN "backupExcludes" TEXT[] DEFAULT ARRAY[]::TEXT[];

@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises";
 import { redactSecrets } from "@cbm/shared";
 import { runCapture, type RunResult } from "./proc.js";
 import { holdContainer, releaseContainer, heldContainers } from "./held.js";
+import { wipeScript } from "./excludes.js";
 
 let DOCKER = "docker";
 export function setDockerBin(bin: string) {
@@ -235,21 +236,12 @@ export function spawnDocker(args: string[], stdio: StdioOptions): ChildProcess {
   return spawn(DOCKER, args, { stdio, env: childEnv() });
 }
 
-/** Restore a tarball into a docker volume (creates it if missing). */
-export async function restoreVolume(volume: string, inFile: string): Promise<void> {
+/** Restore a tarball into a docker volume (creates it if missing). Excluded
+ * paths (left out of the backup) are kept as they are. */
+export async function restoreVolume(volume: string, inFile: string, excludes: string[] = []): Promise<void> {
   await docker(["volume", "create", volume]);
   await dockerFromFile(
-    [
-      "run",
-      "--rm",
-      "-i",
-      "-v",
-      `${volume}:/data`,
-      "alpine:3.24",
-      "sh",
-      "-c",
-      "rm -rf /data/* /data/..?* /data/.[!.]* 2>/dev/null; tar -xf - -C /data",
-    ],
+    ["run", "--rm", "-i", "-v", `${volume}:/data`, "alpine:3.24", "sh", "-c", `${wipeScript("/data", excludes)}; tar -xf - -C /data`],
     inFile,
   );
 }
@@ -289,20 +281,11 @@ export async function restoreRdbIntoVolume(volume: string, inFile: string): Prom
   await dockerFromFile(["run", "--rm", "-i", "-v", `${volume}:/data`, "alpine:3.24", "sh", "-c", RDB_PLACE_SCRIPT], inFile);
 }
 
-/** Restore a tarball into a host directory (a bind-mount source). */
-export async function restoreToPath(hostPath: string, inFile: string): Promise<void> {
+/** Restore a tarball into a host directory (a bind-mount source). Excluded
+ * paths (left out of the backup) are kept as they are. */
+export async function restoreToPath(hostPath: string, inFile: string, excludes: string[] = []): Promise<void> {
   await dockerFromFile(
-    [
-      "run",
-      "--rm",
-      "-i",
-      "-v",
-      `${hostPath}:/data`,
-      "alpine:3.24",
-      "sh",
-      "-c",
-      "rm -rf /data/* /data/..?* /data/.[!.]* 2>/dev/null; tar -xf - -C /data",
-    ],
+    ["run", "--rm", "-i", "-v", `${hostPath}:/data`, "alpine:3.24", "sh", "-c", `${wipeScript("/data", excludes)}; tar -xf - -C /data`],
     inFile,
   );
 }

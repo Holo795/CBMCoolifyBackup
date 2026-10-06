@@ -46,10 +46,23 @@ test("an empty stream still encrypts to a valid file", async () => {
 });
 
 test("agent settings: the host env wins over CBM, invalid env values are ignored", () => {
-  const env = readEnvSettings({ AGENT_CONCURRENCY: "4", AGENT_STAGING_MODE: "sideways", LOG_LEVEL: "debug" } as NodeJS.ProcessEnv);
-  assert.deepEqual(env, { concurrency: 4, logLevel: "debug" });
-  const s = resolveSettings(env, { concurrency: 1, minFreeMb: 2048, stagingMode: "direct", logLevel: "error" });
-  assert.deepEqual(s, { concurrency: 4, minFreeMb: 2048, stagingMode: "direct", logLevel: "debug" });
+  const env = readEnvSettings({
+    AGENT_CONCURRENCY: "4",
+    AGENT_STAGING_MODE: "sideways",
+    LOG_LEVEL: "debug",
+    RESTIC_READ_CONCURRENCY: "6",
+    RESTIC_PACK_SIZE: "999",
+  } as NodeJS.ProcessEnv);
+  assert.deepEqual(env, { concurrency: 4, logLevel: "debug", resticReadConcurrency: 6 });
+  const s = resolveSettings(env, { concurrency: 1, minFreeMb: 2048, stagingMode: "direct", logLevel: "error", resticPackSize: 64 });
+  assert.deepEqual(s, {
+    concurrency: 4,
+    minFreeMb: 2048,
+    stagingMode: "direct",
+    logLevel: "debug",
+    resticReadConcurrency: 6,
+    resticPackSize: 64,
+  });
   assert.equal(resolveSettings({}, undefined).stagingMode, "auto");
 });
 

@@ -9,6 +9,7 @@ import { AGENT_SETTING_DEFAULTS, AGENT_SETTING_ENV, AgentSettings, type AgentSet
 
 type Settings = Required<AgentSettings>;
 const KEYS = Object.keys(AGENT_SETTING_DEFAULTS) as AgentSettingKey[];
+const NUMERIC = new Set<AgentSettingKey>(["concurrency", "minFreeMb", "resticReadConcurrency", "resticPackSize"]);
 
 /** Settings an env var fixes, parsed and validated (an invalid value is ignored). */
 export function readEnvSettings(env: NodeJS.ProcessEnv = process.env): Partial<Settings> {
@@ -16,7 +17,7 @@ export function readEnvSettings(env: NodeJS.ProcessEnv = process.env): Partial<S
   for (const k of KEYS) {
     const v = env[AGENT_SETTING_ENV[k]];
     if (v === undefined || v === "") continue;
-    raw[k] = k === "concurrency" || k === "minFreeMb" ? Number(v) : v;
+    raw[k] = NUMERIC.has(k) ? Number(v) : v;
   }
   const out: Partial<Settings> = {};
   for (const k of KEYS) {

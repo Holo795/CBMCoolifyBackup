@@ -198,6 +198,9 @@ model Resource {
   // copied live without even a brief freeze (at the operator's risk); otherwise
   // the agent briefly freezes the writing containers for a consistent copy.
   liveBackup   Boolean       @default(false)
+  // Paths left out of the volume and host-folder copies (see normalizeExcludes
+  // in @cbm/shared): `/path` from each root, or a bare name at any depth.
+  backupExcludes String[]    @default([])
   // Optional pre/post-backup commands, one entry per container (so a multi-
   // container service can quiesce each part). JSON array of
   // { container: string; pre?: string; post?: string } — container "" = primary.

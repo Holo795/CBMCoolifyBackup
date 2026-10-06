@@ -1,11 +1,12 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { redactSecrets } from "@cbm/shared";
 import { docker, type RunResult, type SecretEnv } from "./docker.js";
 import { LOCK_WAIT, RESTIC_ENV_KEYS, backupSummaryId, resticForget, type ResticCtx } from "./restic.js";
+import { resticBackupExcludes, resticRestoreExcludes } from "./excludes.js";
 
 /*
  * restic run straight on a volume (or host folder): a throwaway container from
@@ -75,7 +76,8 @@ async function helper(
     args.push("--volumes-from", self.id, "--network", `container:${self.id}`);
   } else {
     args.push("--network", "host");
-    for (const p of new Set([...ctx.paths, workDir])) args.push("-v", `${p}:${p}`);
+    const cache = ctx.env.RESTIC_CACHE_DIR;
+    for (const p of new Set([...ctx.paths, workDir, ...(cache ? [cache] : [])])) args.push("-v", `${p}:${p}`);
   }
   // Values come from docker's own environment, never its arguments.
   const secrets: SecretEnv = {};
@@ -86,7 +88,6 @@ async function helper(
       args.push("-e", k);
     }
   }
-  args.push("-e", `RESTIC_CACHE_DIR=${join(workDir, "restic-cache")}`);
   for (const m of mounts) args.push("-v", m);
   if ("restic" in command) args.push("--entrypoint", "restic", image, ...ctx.args, ...command.restic);
   else args.push("--entrypoint", "sh", image, "-c", command.sh);
@@ -120,11 +121,25 @@ export async function resticBackupPath(
   source: string,
   path: string,
   tags: string[],
-  /** How long to wait for another command's lock (short while containers are frozen). */
-  lockWait = LOCK_WAIT,
+  opts: {
+    /** How long to wait for another command's lock (short while containers are frozen). */
+    lockWait?: string;
+    /** Paths left out (see excludes.ts). */
+    excludes?: string[];
+  } = {},
 ): Promise<PathBackup> {
   if (!SNAPSHOT_PATH.test(path)) throw new Error(`unsupported restic path: ${path}`);
-  const args = ["backup", path, "--host", "cbm", "--json", "--quiet", "--retry-lock", lockWait];
+  const args = [
+    "backup",
+    path,
+    "--host",
+    "cbm",
+    "--json",
+    "--quiet",
+    "--retry-lock",
+    opts.lockWait ?? LOCK_WAIT,
+    ...resticBackupExcludes(path, opts.excludes ?? []),
+  ];
   for (const t of tags) args.push("--tag", t);
   const r = await helper(ctx, workDir, [`${source}:${path}:ro`], { restic: args });
   const id = backupSummaryId(r.stdout);
@@ -167,8 +182,9 @@ function checkRef(id: string, path: string) {
 
 /**
  * Restore `path` of snapshot `id` into a volume (by name) or a host folder,
- * replacing its content: files absent from the snapshot are deleted, and the
- * root folder gets back its owner and mode.
+ * replacing its content: files absent from the snapshot are deleted - except
+ * the excluded paths, left as they are - and the root folder gets back its
+ * owner and mode.
  */
 export async function resticRestorePath(
   ctx: ResticCtx,
@@ -177,9 +193,11 @@ export async function resticRestorePath(
   path: string,
   target: string,
   root?: RootStat,
+  excludes: string[] = [],
 ): Promise<void> {
   checkRef(id, path);
-  const sh = `set -e; ${resticCmd(ctx)} restore ${id}:${path} --target /data --delete --quiet --retry-lock ${LOCK_WAIT}${rootFix("/data", root)}`;
+  const ex = resticRestoreExcludes(excludes).map(shq).join(" ");
+  const sh = `set -e; ${resticCmd(ctx)} restore ${id}:${path} --target /data --delete --quiet --retry-lock ${LOCK_WAIT}${ex ? ` ${ex}` : ""}${rootFix("/data", root)}`;
   const r = await helper(ctx, workDir, [`${target}:/data`], { sh });
   if (r.code !== 0) throw fail(`restic restore of ${path}`, r);
 }

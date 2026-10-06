@@ -25,12 +25,15 @@ import {
   TabsList,
   TabsTrigger,
   TabsContent,
+  Field,
+  Textarea,
   statusTone,
 } from "@/components/ui";
 import { ResourceToggles } from "@/components/resource-toggles";
 import { ResourceIcon } from "@/components/resource-icon";
 import { HooksForm } from "@/components/hooks-form";
-import { setResourceSchedule, removeResourceOverride, backupNow } from "@/app/actions";
+import { setResourceSchedule, removeResourceOverride, backupNow, updateResourceExcludes } from "@/app/actions";
+import { ActionForm } from "@/components/action-form";
 import { snapshotDeleteItems } from "@/components/snapshot-delete";
 import { ActionsMenu } from "@/components/actions-menu";
 import { RestoreActions } from "@/components/restore-actions";
@@ -367,6 +370,30 @@ export async function ResourceDetailView({
               </CardContent>
             </Card>
           </Gate>
+
+          {isAdmin && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{t("resources.excludesTitle")}</CardTitle>
+                <CardDescription>{t("resources.excludesDesc")}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ActionForm action={updateResourceExcludes.bind(null, resource.id)} resetOnSuccess={false}>
+                  <Field htmlFor="excludes" hint={t("resources.excludesHint")}>
+                    <Textarea
+                      id="excludes"
+                      name="excludes"
+                      rows={4}
+                      spellCheck={false}
+                      className="font-mono text-[13px]"
+                      placeholder={"/backups\n/logs\n*.tmp"}
+                      defaultValue={resource.backupExcludes.join("\n")}
+                    />
+                  </Field>
+                </ActionForm>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Hooks run arbitrary commands inside containers: configuration, admin-only.
               Decided here (server) rather than by <Gate> alone, whose children

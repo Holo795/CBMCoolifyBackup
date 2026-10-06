@@ -84,6 +84,42 @@ export function AgentSettingsFields({
           ))}
         </Select>
       </Field>
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <Field
+          label={t("agents.settings.resticReadConcurrency")}
+          htmlFor="as-restic-read"
+          hint={hint("resticReadConcurrency", t("agents.settings.resticReadConcurrencyHint"))}
+        >
+          {keep("resticReadConcurrency")}
+          <Input
+            id="as-restic-read"
+            name="resticReadConcurrency"
+            type="number"
+            min={1}
+            max={32}
+            defaultValue={values.resticReadConcurrency ?? ""}
+            placeholder={shown("resticReadConcurrency")}
+            disabled={isLocked("resticReadConcurrency")}
+          />
+        </Field>
+        <Field
+          label={t("agents.settings.resticPackSize")}
+          htmlFor="as-restic-pack"
+          hint={hint("resticPackSize", t("agents.settings.resticPackSizeHint"))}
+        >
+          {keep("resticPackSize")}
+          <Input
+            id="as-restic-pack"
+            name="resticPackSize"
+            type="number"
+            min={4}
+            max={128}
+            defaultValue={values.resticPackSize ?? ""}
+            placeholder={shown("resticPackSize")}
+            disabled={isLocked("resticPackSize")}
+          />
+        </Field>
+      </div>
       <Field label={t("agents.settings.logLevel")} htmlFor="as-log" hint={isLocked("logLevel") ? hint("logLevel", "") : undefined}>
         {keep("logLevel")}
         <Select id="as-log" name="logLevel" defaultValue={values.logLevel ?? ""} disabled={isLocked("logLevel")} className="sm:max-w-xs">

@@ -5,6 +5,7 @@ import { redactSecrets } from "@cbm/shared";
 import { randomBytes } from "node:crypto";
 import { docker, spawnDocker } from "./docker.js";
 import { HashCounter, encryptStream } from "./crypto.js";
+import { tarExcludes } from "./excludes.js";
 
 export interface CaptureResult {
   /** sha256 of the plaintext tar (what the manifest records, as before). */
@@ -26,6 +27,8 @@ export async function captureTar(
   source: string,
   sink: (body: Readable) => Promise<void>,
   encryptKey?: string,
+  /** Paths left out (see excludes.ts). */
+  excludes: string[] = [],
 ): Promise<CaptureResult> {
   // Named, so a failed copy can remove them: stopping `docker run` alone leaves
   // the container running (tar as PID 1 ignores SIGTERM, hence --init too).
@@ -33,7 +36,7 @@ export async function captureTar(
   const tarName = `cbm-capture-${id}`;
   const checkName = `cbm-capture-check-${id}`;
   const tar = spawnDocker(
-    ["run", "--rm", "--init", "--name", tarName, "-v", `${source}:/data:ro`, "alpine:3.24", "tar", "-cf", "-", "-C", "/data", "."],
+    ["run", "--rm", "--init", "--name", tarName, "-v", `${source}:/data:ro`, "alpine:3.24", "tar", "-cf", "-", "-C", "/data", ...tarExcludes(excludes), "."],
     ["ignore", "pipe", "pipe"],
   );
   const check = spawnDocker(

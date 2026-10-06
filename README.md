@@ -112,7 +112,9 @@ needs to actually come back to life isn't covered. CBM backs up the whole resour
   is **sent straight to the destination** instead of failing (or refused cleanly, your choice).
 - **restic reads volumes in place.** No copy on the host, only the files changed since the last
   backup are read, and a two-pass backup keeps the freeze to about a second — even for hundreds
-  of GB.
+  of GB. Its cache survives agent updates, and read concurrency / pack size are tunable per host.
+- **Excluded paths** per resource (logs, dumps already elsewhere, downloadable models…), left
+  untouched by a restore in place.
 - **Deletion-proof second copy.** Mirror copies can keep their own retention, a destination can
   be **protected** (CBM never deletes there), and CBM checks that an S3 bucket really refuses a
   permanent deletion by its key (versioning + no `DeleteObjectVersion`), alerting if that changes.

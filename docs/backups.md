@@ -142,15 +142,32 @@ to the backup's main snapshot (database dumps, configuration); CBM keeps them to
 restored, checked, mirrored and deleted as one backup. A restore writes straight into the volume
 (files that weren't in the backup are removed, and the folder's owner and permissions come back),
 and a restore drill reads the volume back from the repository without copying it to the host. A
-mirror copy turns each volume into a regular `.tar` for the target. restic keeps a cache of the
-repository's index in the work dir (`restic-cache`); it can be deleted at any time.
+mirror copy turns each volume into a regular `.tar` for the target. restic keeps a cache of each
+repository's index in the work dir (`restic-cache`), so it survives agent updates; it can be
+deleted at any time. How many files restic reads at once and the size of the packs it writes are
+agent settings (see [Agent settings](#agent-settings)).
 
 Copy mode **local** keeps the previous behaviour with restic (a `.tar` copy of each volume on the
 host, frozen for the whole copy), for hosts where that's preferred. Backups taken that way stay
 restorable as before.
 
+### Excluded paths
+Per resource (**Options** tab → **Excluded paths**, admin), list what its volume and host-folder
+copies leave out — data you can get back otherwise: dumps already stored elsewhere, logs, models
+re-downloaded from a registry… One per line:
+
+- `/path` starts at the root of **each** volume or folder of the resource (`/backups`, `/logs`);
+- a bare name, without a slash, is matched at **any depth** (`logs`, `*.tmp`);
+- `*` and `?` wildcards work. A path in the middle of a tree (`app/logs`) is refused: write
+  `/app/logs`.
+
+Both engines honour them, and the backup log lists them. A **restore in place leaves excluded
+paths as they are** on the target — it never deletes what it didn't back up. Database dumps
+aren't affected.
+
 ### Agent settings
-Admins can set the agents' concurrency, free space kept, copy mode and log level from CBM:
+Admins can set the agents' concurrency, free space kept, copy mode, log level and restic tuning
+(files read at once, pack size) from CBM:
 **Agents** → **Default settings** for all agents, or the gear on an agent's row to override
 them for that host (leave a field empty to keep the default). Changes apply on the agent's next
 heartbeat. A value set by environment variable on the host wins: the field is locked and shows

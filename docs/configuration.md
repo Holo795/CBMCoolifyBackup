@@ -80,7 +80,7 @@ needed). Full guide: **[Email (SMTP)](email.md)**.
 
 ## Agent environment variables
 
-Most are set by the install command; you rarely set them by hand. The four marked **(CBM)** can
+Most are set by the install command; you rarely set them by hand. The ones marked **(CBM)** can
 also be changed from CBM (**Agents** → **Default settings**, or the gear on an agent's row):
 CBM's values apply on the next heartbeat, without a restart. A variable set on the host wins
 over CBM — the field is then locked in the dialog and shows the host's value.
@@ -100,6 +100,9 @@ over CBM — the field is then locked in the dialog and shows the host's value.
 | `POLL_INTERVAL_MS` | `5000` | Job poll interval. |
 | `HEARTBEAT_INTERVAL_MS` | `30000` | Heartbeat interval. |
 | `LOG_LEVEL` **(CBM)** | `info` | `debug`, `info`, `warn` or `error`. |
+| `RESTIC_READ_CONCURRENCY` **(CBM)** | `2` | Files restic reads at once (1–32). Raise it on fast disks (NVMe), e.g. 4 to 8. |
+| `RESTIC_PACK_SIZE` **(CBM)** | `16` | Size of the packs restic writes, in MiB (4–128). Bigger packs mean fewer files on a remote (SFTP, S3), e.g. 64, at the cost of memory. |
+| `RESTIC_CACHE_DIR` | `<work dir>/restic-cache` | restic's cache of the repositories' index. In the work dir (a persistent volume), so it survives agent updates and restic doesn't download the index again on every run. |
 
 The agent container must mount the Docker socket and (for "local" destinations) a persistent
 `/backups` volume — the install command does both.

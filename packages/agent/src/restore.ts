@@ -69,8 +69,12 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
     // into the target (no local copy), with its root folder's owner and mode.
     const putVolume = async (v: Artifact, target: string, isHostPath: boolean) => {
       const part = v.meta[RESTIC_PART_META];
+      // Paths the backup left out stay as they are on the target.
+      const excludes = manifest.excludes ?? [];
       if (!part) {
-        await (isHostPath ? restoreToPath(target, localFiles[v.filename]) : restoreVolume(target, localFiles[v.filename]));
+        await (isHostPath
+          ? restoreToPath(target, localFiles[v.filename], excludes)
+          : restoreVolume(target, localFiles[v.filename], excludes));
         return;
       }
       if (!v.meta.resticPath) throw new Error(`${v.filename}: restic snapshot ${part} has no recorded path`);
@@ -79,7 +83,7 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
       await withResticCtx(
         job.source,
         job.storage.resticPassword!,
-        (ctx) => resticRestorePath(ctx, workDir, part, v.meta.resticPath!, target, root),
+        (ctx) => resticRestorePath(ctx, workDir, part, v.meta.resticPath!, target, root, excludes),
         workDir,
       );
     };
