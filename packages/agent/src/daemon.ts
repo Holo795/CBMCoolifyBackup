@@ -9,6 +9,7 @@ import {
 } from "./docker.js";
 import { groupContainersByResource, PS_FORMAT } from "./hooks.js";
 import { logger } from "./logger.js";
+import { applyCbmSettings, getSettings, lockedByEnv } from "./settings.js";
 import * as client from "./client.js";
 import { runJobForController } from "./runner.js";
 import { initHeldContainers } from "./held.js";
@@ -68,7 +69,7 @@ export async function startDaemon(): Promise<void> {
   // Background heartbeat.
   void heartbeatLoop(cfg);
 
-  logger.info(`Polling for jobs (concurrency=${cfg.concurrency})`);
+  logger.info(`Polling for jobs (concurrency=${getSettings().concurrency})`);
 
   // Main loop: keep up to `concurrency` jobs running at once. Each finished job
   // posts its result independently, so a slow backup doesn't block the others.
@@ -92,7 +93,8 @@ export async function startDaemon(): Promise<void> {
 
   for (;;) {
     // Fill free slots until the queue is empty or we're at capacity.
-    while (inFlight.size < cfg.concurrency) {
+    // Read every round: the concurrency can change from CBM while running.
+    while (inFlight.size < getSettings().concurrency) {
       let job = null;
       try {
         ({ job } = await client.poll(cfg));
@@ -117,14 +119,24 @@ export async function startDaemon(): Promise<void> {
 async function heartbeatLoop(cfg: AgentConfig): Promise<void> {
   for (;;) {
     try {
-      await client.heartbeat(cfg, {
+      const answer = await client.heartbeat(cfg, {
         dockerVersion: await dockerVersion(),
         containers: await countContainers(),
         resourceUuids: await detectCoolifyResourceUuids().catch(() => []),
         // Containers per resource (one `docker ps`), for per-container hook targets.
         resourceContainers: groupContainersByResource(await listContainersForDiscovery(PS_FORMAT).catch(() => "")),
         activeJobIds: [...activeJobs, ...(await pendingResultIds(cfg.workDir))],
+        settingsLockedByEnv: lockedByEnv(),
+        settingsInEffect: getSettings(),
       });
+      // Settings set in CBM apply from now on (env-fixed ones never change).
+      if (answer?.settings) {
+        const changed = applyCbmSettings(answer.settings);
+        if (changed.length) {
+          const s = getSettings();
+          logger.info(`Settings from CBM: ${changed.map((k) => `${k}=${s[k]}`).join(", ")}`);
+        }
+      }
     } catch {
       /* ignore */
     }

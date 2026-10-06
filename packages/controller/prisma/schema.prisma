@@ -165,6 +165,12 @@ model Agent {
   serverUuid    String?
   serverName    String?
   serverManual  Boolean         @default(false)
+  // Settings set in CBM for this agent only (over the defaults in Setting):
+  // { concurrency?, minFreeMb?, stagingMode?, logLevel? }. Null = defaults.
+  settings         Json?
+  // Reported by the agent: settings its host env fixes, and the values it runs with.
+  settingsLocked   String[]        @default([])
+  settingsInEffect Json?
   lastSeenAt    DateTime?
   createdAt     DateTime        @default(now())
   jobs          AgentJob[]
@@ -436,6 +442,8 @@ model Setting {
   // Two-factor sign-in requirement: "optional" (each user's choice), "admins"
   // (required for admin accounts) or "everyone".
   twoFactorPolicy          String    @default("optional")
+  // Agent settings for every agent, unless overridden per agent (Agent.settings).
+  agentDefaults            Json?
   updatedAt DateTime @updatedAt
 }
 

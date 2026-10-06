@@ -1,15 +1,26 @@
 import { readdir, rm, statfs } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getSettings } from "./settings.js";
 
 /**
  * Staging needs room on the agent host: fail early with a clear message rather
- * than half-way through a copy (or by filling the host's root disk).
- * AGENT_MIN_FREE_MB (default 1024) is kept free on top of what a step needs.
+ * than half-way through a copy (or by filling the host's root disk). The
+ * "space to keep free" setting (AGENT_MIN_FREE_MB or CBM, default 1024 MB) is
+ * kept free on top of what a step needs.
  */
 export function minFreeBytes(): number {
-  const mb = Number(process.env.AGENT_MIN_FREE_MB ?? 1024);
-  return Math.max(0, Number.isFinite(mb) ? mb : 1024) * 1024 * 1024;
+  return getSettings().minFreeMb * 1024 * 1024;
+}
+
+/** Free bytes on `dir`'s filesystem, or null when it can't be read. */
+export async function freeBytes(dir: string): Promise<number | null> {
+  try {
+    const s = await statfs(dir);
+    return Number(s.bavail) * Number(s.bsize);
+  } catch {
+    return null;
+  }
 }
 
 const fmt = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GiB`;
@@ -27,7 +38,7 @@ export async function assertFreeSpace(dir: string, needBytes = 0): Promise<void>
   if (free < need) {
     throw new Error(
       `Not enough free disk space on the agent host (${dir}): ${fmt(free)} free, ${fmt(need)} needed. ` +
-        `Free some space or mount a bigger work dir (AGENT_WORK_DIR, AGENT_MIN_FREE_MB).`,
+        `Free some space, mount a bigger work dir (AGENT_WORK_DIR) or lower the space kept free (agent settings in CBM).`,
     );
   }
 }

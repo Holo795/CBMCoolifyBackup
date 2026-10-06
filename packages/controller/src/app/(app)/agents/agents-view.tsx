@@ -1,23 +1,77 @@
 import Link from "next/link";
 import type { Prisma } from "@/generated/prisma/client";
 import { PageHeader } from "@/components/page-header";
-import { Badge, StatusDot, EmptyState, Table, THead, TH, TR, TD, List, ListItem, statusTone } from "@/components/ui";
-import { deleteAgent } from "@/app/actions";
+import { Badge, Button, StatusDot, EmptyState, Table, THead, TH, TR, TD, List, ListItem, statusTone } from "@/components/ui";
+import { deleteAgent, setAgentDefaults, setAgentSettings } from "@/app/actions";
 import { ActionsMenu } from "@/components/actions-menu";
 import { AgentServerSelect } from "@/components/agent-server-select";
 import { getT } from "@/lib/i18n";
 import { can, requireUser } from "@/lib/session";
 import { timeAgo } from "@/lib/cn";
-import { Cpu, Server, Trash2 } from "lucide-react";
+import { Cpu, Server, Settings2, SlidersHorizontal, Trash2 } from "lucide-react";
+import { AGENT_SETTING_DEFAULTS, type AgentSettings } from "@cbm/shared";
+import { FormDialog } from "@/components/form-dialog";
+import { AgentSettingsFields } from "@/components/agent-settings-fields";
+import { parseAgentSettings } from "@/lib/agent-settings";
 import { type AGENT_SECRETS, type INSTANCE_SECRETS } from "@/lib/public-fields";
 
 type AgentRow = Prisma.AgentGetPayload<{ omit: typeof AGENT_SECRETS; include: { instance: { omit: typeof INSTANCE_SECRETS } } }>;
 export type AgentItem = { agent: AgentRow; options: { uuid: string; name: string }[] };
 
 /** Presentation only: the Agents list markup. Data is fetched in ./page.tsx. */
-export async function AgentsView({ items }: { items: AgentItem[] }) {
+export async function AgentsView({ items, defaults }: { items: AgentItem[]; defaults: AgentSettings }) {
   const t = await getT();
   const isAdmin = can(await requireUser(), "admin");
+  // What an agent gets when it doesn't override a setting.
+  const inherited = { ...AGENT_SETTING_DEFAULTS, ...defaults };
+
+  const defaultsButton = isAdmin ? (
+    <FormDialog
+      trigger={
+        <Button>
+          <SlidersHorizontal /> {t("agents.settings.defaultsButton")}
+        </Button>
+      }
+      side="right"
+      title={t("agents.settings.defaultsTitle")}
+      description={t("agents.settings.defaultsDesc")}
+      action={setAgentDefaults}
+      submitLabel={t("common.save")}
+    >
+      <AgentSettingsFields values={defaults} inherited={AGENT_SETTING_DEFAULTS} />
+    </FormDialog>
+  ) : null;
+  const settingsButton = (a: AgentRow) => {
+    const own = parseAgentSettings(a.settings);
+    return (
+      <FormDialog
+        trigger={
+          <Button variant="ghost" size="icon-sm" aria-label={t("agents.settings.agentButton")}>
+            <Settings2 />
+          </Button>
+        }
+        side="right"
+        title={t("agents.settings.agentTitle", { host: a.hostname })}
+        description={t("agents.settings.agentDesc")}
+        action={setAgentSettings.bind(null, a.id)}
+        submitLabel={t("common.save")}
+      >
+        <AgentSettingsFields
+          values={own}
+          inherited={inherited}
+          locked={a.settingsLocked}
+          inEffect={a.settingsInEffect ? parseAgentSettings(a.settingsInEffect) : null}
+        />
+      </FormDialog>
+    );
+  };
+  // "2 at once · auto" from what the agent reports (older agents report nothing).
+  const summary = (a: AgentRow) => {
+    const s = a.settingsInEffect ? parseAgentSettings(a.settingsInEffect) : null;
+    if (!s?.concurrency) return null;
+    return `${t("agents.settings.jobs", { count: s.concurrency })} · ${s.stagingMode ?? "auto"}`;
+  };
+  const isCustom = (a: AgentRow) => Object.keys(parseAgentSettings(a.settings)).length > 0;
 
   const status = (a: AgentRow) => (
     <span className="inline-flex items-center gap-2 text-[13px]">
@@ -47,7 +101,9 @@ export async function AgentsView({ items }: { items: AgentItem[] }) {
     );
   const menu = (a: AgentRow) =>
     isAdmin ? (
-      <ActionsMenu
+      <span className="inline-flex items-center gap-0.5">
+        {settingsButton(a)}
+        <ActionsMenu
         items={[
           {
             kind: "delete",
@@ -65,7 +121,8 @@ export async function AgentsView({ items }: { items: AgentItem[] }) {
             ),
           },
         ]}
-      />
+        />
+      </span>
     ) : null;
   const hostTile = (
     <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-surface text-muted-foreground">
@@ -75,7 +132,7 @@ export async function AgentsView({ items }: { items: AgentItem[] }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={t("agents.title")} description={t("agents.description")} />
+      <PageHeader title={t("agents.title")} description={t("agents.description")} action={defaultsButton} />
 
       {items.length === 0 ? (
         <EmptyState icon={<Cpu />} title={t("agents.empty.title")} hint={t("agents.empty.hint")} />
@@ -103,9 +160,13 @@ export async function AgentsView({ items }: { items: AgentItem[] }) {
                         <div className="flex items-center gap-3">
                           {hostTile}
                           <div className="min-w-0">
-                            <p className="truncate font-medium">{a.hostname}</p>
+                            <p className="flex items-center gap-2 truncate font-medium">
+                              {a.hostname}
+                              {isCustom(a) && <Badge tone="accent">{t("agents.settings.custom")}</Badge>}
+                            </p>
                             <p className="text-xs text-muted-foreground">
                               {t("agents.docker")} {a.dockerVersion ?? "-"}
+                              {summary(a) && <> · {summary(a)}</>}
                             </p>
                           </div>
                         </div>

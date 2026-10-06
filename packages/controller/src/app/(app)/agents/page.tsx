@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { groupServersByInstance } from "@/lib/servers";
 import { AgentsView, type AgentItem } from "./agents-view";
 import { AGENT_SECRETS, INSTANCE_SECRETS } from "@/lib/public-fields";
+import { parseAgentSettings } from "@/lib/agent-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -26,5 +27,6 @@ export default async function AgentsPage() {
 
   const items: AgentItem[] = agents.map((agent) => ({ agent, options: serverOptionsFor(agent.instanceId) }));
 
-  return <AgentsView items={items} />;
+  const setting = await prisma.setting.findUnique({ where: { id: "global" }, select: { agentDefaults: true } });
+  return <AgentsView items={items} defaults={parseAgentSettings(setting?.agentDefaults)} />;
 }

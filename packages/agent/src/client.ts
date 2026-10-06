@@ -4,6 +4,7 @@ import {
   type JobEvent,
   type JobResult,
   type HeartbeatRequest,
+  HeartbeatResponse,
 } from "@cbm/shared";
 import { readFileSync } from "node:fs";
 import type { AgentConfig } from "./config.js";
@@ -70,8 +71,10 @@ export async function sendResult(cfg: AgentConfig, result: JobResult): Promise<v
   }
 }
 
-export async function heartbeat(cfg: AgentConfig, data: HeartbeatRequest): Promise<void> {
-  await req(cfg, "/api/agents/heartbeat", { method: "POST", body: JSON.stringify(data) }).catch(
-    () => undefined,
-  );
+/** Send a heartbeat; returns the controller's answer (settings), or null. */
+export async function heartbeat(cfg: AgentConfig, data: HeartbeatRequest): Promise<HeartbeatResponse | null> {
+  const res = await req(cfg, "/api/agents/heartbeat", { method: "POST", body: JSON.stringify(data) }).catch(() => null);
+  if (!res?.ok) return null;
+  const parsed = HeartbeatResponse.safeParse(await res.json().catch(() => null));
+  return parsed.success ? parsed.data : null;
 }

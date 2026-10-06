@@ -22,6 +22,7 @@ import { isValidCron } from "@/lib/cron";
 import { setTimezone, isValidTimezone } from "@/lib/settings";
 import { removeSnapshots } from "@/lib/snapshot-removal";
 import { resetTwoFactor, isTwoFactorPolicy } from "@/lib/two-factor";
+import { settingsFromForm } from "@/lib/agent-settings";
 
 function s(fd: FormData, key: string): string {
   return (fd.get(key) ?? "").toString().trim();
@@ -452,6 +453,41 @@ export async function deleteAgent(agentId: string) {
   await requireRole("admin");
   await prisma.agent.delete({ where: { id: agentId } });
   revalidatePath("/agents");
+}
+
+/**
+ * Agent settings for every agent (concurrency, space kept free, copy mode, log
+ * level). Empty fields fall back to the built-in defaults. Agents pick the
+ * change up with their next heartbeat (about 30 s); a value their host fixes
+ * with an environment variable still wins.
+ */
+export async function setAgentDefaults(fd: FormData): Promise<{ ok?: boolean; error?: string; detail?: string }> {
+  await requireRole("admin");
+  const t = await getT();
+  const { settings, error } = settingsFromForm(fd);
+  if (error || !settings) return { error: t("messages.agentSettingsInvalid", { field: error ?? "" }) };
+  const value = Object.keys(settings).length ? settings : Prisma.DbNull;
+  await prisma.setting.upsert({
+    where: { id: "global" },
+    update: { agentDefaults: value },
+    create: { id: "global", agentDefaults: value },
+  });
+  revalidatePath("/agents");
+  return { ok: true, detail: t("messages.agentSettingsSaved") };
+}
+
+/** One agent's own settings, over the defaults. Empty fields inherit. */
+export async function setAgentSettings(agentId: string, fd: FormData): Promise<{ ok?: boolean; error?: string; detail?: string }> {
+  await requireRole("admin");
+  const t = await getT();
+  const { settings, error } = settingsFromForm(fd);
+  if (error || !settings) return { error: t("messages.agentSettingsInvalid", { field: error ?? "" }) };
+  await prisma.agent.update({
+    where: { id: agentId },
+    data: { settings: Object.keys(settings).length ? settings : Prisma.DbNull },
+  });
+  revalidatePath("/agents");
+  return { ok: true, detail: t("messages.agentSettingsSaved") };
 }
 
 /**

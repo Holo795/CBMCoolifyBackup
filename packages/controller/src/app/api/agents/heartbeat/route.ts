@@ -3,6 +3,7 @@ import { HeartbeatRequest } from "@cbm/shared";
 import { prisma } from "@/lib/prisma";
 import { authenticateAgentFromRequest } from "@/lib/agent-auth";
 import { releaseLostJobs } from "@/lib/reaper";
+import { settingsForAgent, parseAgentSettings } from "@/lib/agent-settings";
 
 export async function POST(req: Request) {
   const agent = await authenticateAgentFromRequest(req);
@@ -69,7 +70,12 @@ export async function POST(req: Request) {
       dockerVersion: data.dockerVersion ?? agent.dockerVersion,
       containers: data.containers ?? agent.containers,
       ...(detected ? { serverUuid: detected.serverUuid, serverName: detected.serverName } : {}),
+      // What the agent runs with, shown on the Agents page (older agents: unchanged).
+      ...(data.settingsLockedByEnv ? { settingsLocked: data.settingsLockedByEnv } : {}),
+      ...(data.settingsInEffect ? { settingsInEffect: parseAgentSettings(data.settingsInEffect) } : {}),
     },
   });
-  return NextResponse.json({ ok: true });
+  // The settings set in CBM for this agent (defaults + its overrides).
+  const setting = await prisma.setting.findUnique({ where: { id: "global" }, select: { agentDefaults: true } }).catch(() => null);
+  return NextResponse.json({ ok: true, settings: settingsForAgent(setting?.agentDefaults, agent.settings) });
 }

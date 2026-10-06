@@ -80,7 +80,10 @@ needed). Full guide: **[Email (SMTP)](email.md)**.
 
 ## Agent environment variables
 
-Most are set by the install command; you rarely set them by hand.
+Most are set by the install command; you rarely set them by hand. The four marked **(CBM)** can
+also be changed from CBM (**Agents** → **Default settings**, or the gear on an agent's row):
+CBM's values apply on the next heartbeat, without a restart. A variable set on the host wins
+over CBM — the field is then locked in the dialog and shows the host's value.
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -89,13 +92,14 @@ Most are set by the install command; you rarely set them by hand.
 | `AGENT_TOKEN` | — | Bearer token (set automatically after enrollment). |
 | `AGENT_HOSTNAME` | OS hostname | Identifies this agent (one agent per instance + hostname). |
 | `AGENT_SERVER_UUID` | — | Pin this agent to a Coolify server (disables auto-detection). Usually left unset. |
-| `AGENT_CONCURRENCY` | `2` | How many jobs the agent runs at once. |
+| `AGENT_CONCURRENCY` **(CBM)** | `2` | How many jobs the agent runs at once (1–16). |
 | `AGENT_WORK_DIR` | `/var/lib/cbm-agent` (image) | Local staging directory for artifacts before upload (`/tmp/cbm-agent` when run outside the image). |
-| `AGENT_MIN_FREE_MB` | `1024` | Free space kept on the work dir's disk: a backup checks it before freezing anything, and a restore/mirror/drill needs twice the snapshot size on top. |
+| `AGENT_MIN_FREE_MB` **(CBM)** | `1024` | Free space kept on the work dir's disk: a backup checks it before freezing anything, a local copy never eats into it, and a restore/mirror/drill needs twice the snapshot size on top. |
+| `AGENT_STAGING_MODE` **(CBM)** | `auto` | Where volume copies go on their way to a **tar** destination: `auto` (through the work dir when it has room, otherwise straight to the destination), `local` (always through the work dir; refuse when it doesn't fit) or `direct` (always straight to the destination). See [Backups → Disk space on the agent host](backups.md#disk-space-on-the-agent-host). |
 | `DOCKER_BIN` | `docker` | Path to the Docker CLI. |
 | `POLL_INTERVAL_MS` | `5000` | Job poll interval. |
 | `HEARTBEAT_INTERVAL_MS` | `30000` | Heartbeat interval. |
-| `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
+| `LOG_LEVEL` **(CBM)** | `info` | `debug`, `info`, `warn` or `error`. |
 
 The agent container must mount the Docker socket and (for "local" destinations) a persistent
 `/backups` volume — the install command does both.

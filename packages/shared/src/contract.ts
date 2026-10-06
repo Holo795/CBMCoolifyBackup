@@ -400,6 +400,54 @@ export const DiscoveredContainer = z.object({
 });
 export type DiscoveredContainer = z.infer<typeof DiscoveredContainer>;
 
+/* ------------------------------------------------------------------ *
+ * Agent settings (set in CBM, sent with each heartbeat answer)        *
+ * ------------------------------------------------------------------ */
+
+/**
+ * Where a volume copy goes before reaching the destination:
+ *  - "auto"  : on the agent host when it fits (short freeze), else straight to
+ *              the destination (tar engine; the freeze lasts the upload);
+ *  - "local" : always on the host (fails cleanly when it doesn't fit);
+ *  - "direct": always straight to the destination (tar engine; restic keeps a
+ *              local copy).
+ */
+export const StagingMode = z.enum(["auto", "local", "direct"]);
+export type StagingMode = z.infer<typeof StagingMode>;
+
+export const AgentLogLevel = z.enum(["debug", "info", "warn", "error"]);
+export type AgentLogLevel = z.infer<typeof AgentLogLevel>;
+
+export const AgentSettings = z.object({
+  /** Jobs run at once (AGENT_CONCURRENCY). */
+  concurrency: z.number().int().min(1).max(16).optional(),
+  /** Space always left free on the host's work dir (AGENT_MIN_FREE_MB). */
+  minFreeMb: z.number().int().min(0).max(10_000_000).optional(),
+  /** See StagingMode (AGENT_STAGING_MODE). */
+  stagingMode: StagingMode.optional(),
+  /** Agent log verbosity (LOG_LEVEL). */
+  logLevel: AgentLogLevel.optional(),
+});
+export type AgentSettings = z.infer<typeof AgentSettings>;
+export const AgentSettingKey = z.enum(["concurrency", "minFreeMb", "stagingMode", "logLevel"]);
+export type AgentSettingKey = z.infer<typeof AgentSettingKey>;
+
+/** Built-in values, used when neither CBM nor the host sets one. */
+export const AGENT_SETTING_DEFAULTS: Required<AgentSettings> = {
+  concurrency: 2,
+  minFreeMb: 1024,
+  stagingMode: "auto",
+  logLevel: "info",
+};
+
+/** The host environment variable behind each setting (it wins over CBM). */
+export const AGENT_SETTING_ENV: Record<AgentSettingKey, string> = {
+  concurrency: "AGENT_CONCURRENCY",
+  minFreeMb: "AGENT_MIN_FREE_MB",
+  stagingMode: "AGENT_STAGING_MODE",
+  logLevel: "LOG_LEVEL",
+};
+
 export const HeartbeatRequest = z.object({
   dockerVersion: z.string().optional(),
   containers: z.number().int().nonnegative().optional(),
@@ -415,8 +463,20 @@ export const HeartbeatRequest = z.object({
    * (e.g. after an agent restart) instead of leaving it "running" for hours.
    * Absent (older agents): no such check. */
   activeJobIds: z.array(z.string()).max(1000).optional(),
+  /** Settings fixed by an environment variable on the host (CBM can't change
+   * them), and the values the agent actually runs with. */
+  settingsLockedByEnv: z.array(AgentSettingKey).optional(),
+  settingsInEffect: AgentSettings.optional(),
 });
 export type HeartbeatRequest = z.infer<typeof HeartbeatRequest>;
+
+/** The controller's answer to a heartbeat: the settings this agent should use. */
+export const HeartbeatResponse = z.object({
+  ok: z.boolean(),
+  /** Absent from older controllers: the agent keeps its own (env / defaults). */
+  settings: AgentSettings.optional(),
+});
+export type HeartbeatResponse = z.infer<typeof HeartbeatResponse>;
 
 /** Long-poll response: a job to run, or null when idle. */
 export const PollResponse = z.object({
