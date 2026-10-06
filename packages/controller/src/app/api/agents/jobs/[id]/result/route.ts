@@ -117,7 +117,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       // (no alert).
       await prisma.snapshot.update({
         where: { id: job.snapshotId },
-        data: { status: "skipped", finishedAt: new Date(), error: result.error ?? "Ignored: nothing on the host" },
+        // Nothing was captured: drop the capture mode guessed when it was queued.
+        data: {
+          status: "skipped",
+          captureMode: "none",
+          finishedAt: new Date(),
+          error: result.error ?? "Ignored: nothing on the host",
+        },
       });
     } else {
       await prisma.snapshot.update({
