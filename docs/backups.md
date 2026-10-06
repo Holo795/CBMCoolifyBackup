@@ -114,19 +114,40 @@ Before copying a volume or host folder, the agent measures it and compares it wi
 on its work dir (minus `AGENT_MIN_FREE_MB`, kept free on top). What happens next depends on the
 agent's **copy mode** (`AGENT_STAGING_MODE`, default `auto`):
 
-| Mode | Fits | Doesn't fit |
-| --- | --- | --- |
-| **auto** | Copied to the work dir, then uploaded | **Sent straight to the destination** |
-| **local** | Copied to the work dir, then uploaded | The backup fails with the sizes involved |
-| **direct** | Always sent straight to the destination | — |
+| Mode | tar: fits | tar: doesn't fit | restic |
+| --- | --- | --- | --- |
+| **auto** | Copied to the work dir, then uploaded | **Sent straight to the destination** | **Read in place** (below) |
+| **local** | Copied to the work dir, then uploaded | The backup fails with the sizes involved | Copied to the work dir as a `.tar` (fails the same way when it doesn't fit) |
+| **direct** | Always sent straight to the destination | — | **Read in place** |
 
 A copy made on the host ends the freeze as soon as it's written; a **direct** send keeps the
 containers frozen until the upload finishes (the backup log warns when that happens), so it
 trades a longer pause for no local space. Encryption is applied while copying, so an encrypted
 backup needs no more room than a plain one. Database dumps always go through the work dir.
 
-The **restic** engine backs up a local folder: it always needs the copy on the host, so with
-too little room the backup fails with the sizes involved, whatever the mode.
+### restic: volumes read in place
+With the **restic** engine (copy mode **auto** or **direct**), the agent doesn't copy a volume or
+host folder at all: restic reads it where it is, from a short-lived container started from the
+agent's own image with the volume mounted read-only. restic remembers the previous backup of the
+same volume, so it only reads the files that changed since — a large volume that changes little
+backs up in seconds, and needs no room on the host.
+
+When containers must be frozen, the agent makes **two passes**: a first one **without freezing**
+carries the bulk of the changes, then a short **frozen** pass reads only what moved in between —
+typically about a second, even for the very first backup of a large volume. The backup log shows
+what each pass read (`12 new, 3 changed, 4 210 unchanged files - 1.2 MiB added`).
+
+Each volume is stored as its own restic snapshot (tagged with the backup and `part:volume`), next
+to the backup's main snapshot (database dumps, configuration); CBM keeps them together: they are
+restored, checked, mirrored and deleted as one backup. A restore writes straight into the volume
+(files that weren't in the backup are removed, and the folder's owner and permissions come back),
+and a restore drill reads the volume back from the repository without copying it to the host. A
+mirror copy turns each volume into a regular `.tar` for the target. restic keeps a cache of the
+repository's index in the work dir (`restic-cache`); it can be deleted at any time.
+
+Copy mode **local** keeps the previous behaviour with restic (a `.tar` copy of each volume on the
+host, frozen for the whole copy), for hosts where that's preferred. Backups taken that way stay
+restorable as before.
 
 ### Agent settings
 Admins can set the agents' concurrency, free space kept, copy mode and log level from CBM:

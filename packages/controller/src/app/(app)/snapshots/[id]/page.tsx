@@ -11,7 +11,12 @@ export default async function SnapshotDetail({ params }: { params: Promise<{ id:
   const { id } = await params;
   const snapshot = await prisma.snapshot.findUnique({
     where: { id },
-    include: { resource: true, destination: { omit: DESTINATION_SECRETS }, artifacts: true },
+    include: {
+      resource: true,
+      destination: { omit: DESTINATION_SECRETS },
+      artifacts: true,
+      _count: { select: { mirrors: true } },
+    },
   });
   if (!snapshot) notFound();
 

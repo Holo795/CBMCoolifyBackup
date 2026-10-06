@@ -110,6 +110,12 @@ needs to actually come back to life isn't covered. CBM backs up the whole resour
 - **Agents managed from CBM.** Concurrency, free space kept, copy mode and log level are set
   from the UI, for all agents or per host — no reinstall. A volume too big for the host's disk
   is **sent straight to the destination** instead of failing (or refused cleanly, your choice).
+- **restic reads volumes in place.** No copy on the host, only the files changed since the last
+  backup are read, and a two-pass backup keeps the freeze to about a second — even for hundreds
+  of GB.
+- **Deletion-proof second copy.** Mirror copies can keep their own retention, a destination can
+  be **protected** (CBM never deletes there), and CBM checks that an S3 bucket really refuses a
+  permanent deletion by its key (versioning + no `DeleteObjectVersion`), alerting if that changes.
 - **Scheduling** with grandfather‑father‑son retention, in a **configurable timezone**.
 - **Team access with roles.** Invite people as **admin / operator / viewer** via one‑time
   invitation links (copy‑paste or emailed). Operators run backups/restores; only admins

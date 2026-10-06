@@ -607,13 +607,21 @@ export async function deleteDestination(id: string): Promise<{ ok?: boolean; err
     };
   }
   const dest = await prisma.destination.findUnique({ where: { id } });
+  if (dest?.protected) return { error: (await getT())("messages.destinationProtectedDelete") };
   if (dest) {
     // Delete the actual files first, before the records cascade away with the
     // destination. For a "local" destination the files live on each producing
     // agent's host, so group by agent; ssh/s3 group by instance (any agent).
     const snaps = await prisma.snapshot.findMany({
       where: { destinationId: id },
-      select: { id: true, destinationDir: true, agentId: true, resticSnapshotId: true, resource: { select: { instanceId: true } } },
+      select: {
+        id: true,
+        destinationDir: true,
+        agentId: true,
+        resticSnapshotId: true,
+        resticPartIds: true,
+        resource: { select: { instanceId: true } },
+      },
     });
     const groups = groupSnapshotsForPrune(
       snaps.map((s) => ({
@@ -621,6 +629,7 @@ export async function deleteDestination(id: string): Promise<{ ok?: boolean; err
         destinationDir: s.destinationDir,
         agentId: s.agentId,
         resticSnapshotId: s.resticSnapshotId,
+        resticPartIds: s.resticPartIds,
         instanceId: s.resource.instanceId,
         destination: dest,
       })),
@@ -671,23 +680,28 @@ export async function cancelSnapshot(snapshotId: string): Promise<void> {
   revalidatePath("/snapshots");
 }
 
-/** Delete a snapshot: removes its files from the destination (via the agent),
- * then drops the record. If no agent is online the record is still removed and
- * the files are left in place. */
 /**
- * Delete a snapshot (and its mirror copies): the files are deleted by an agent
- * first and the rows removed once that succeeded; meanwhile it shows "deleting".
+ * Delete a snapshot - and its mirror copies only when asked: the files are
+ * deleted by an agent first and the rows removed once that succeeded;
+ * meanwhile it shows "deleting". Nothing goes on a protected destination.
  */
-export async function deleteSnapshot(snapshotId: string): Promise<{ ok?: boolean; error?: string }> {
+export async function deleteSnapshot(snapshotId: string, withMirrors = false): Promise<{ ok?: boolean; error?: string; detail?: string }> {
   await requireRole("operator");
-  const snap = await prisma.snapshot.findUnique({ where: { id: snapshotId }, select: { resourceId: true, status: true } });
+  const t = await getT();
+  const snap = await prisma.snapshot.findUnique({
+    where: { id: snapshotId },
+    select: { resourceId: true, status: true, destination: { select: { protected: true } } },
+  });
   if (!snap) return { ok: true };
-  if (snap.status === "running") return { error: (await getT())("messages.snapshotStillRunning") };
-  await removeSnapshots([snapshotId]);
+  if (snap.status === "running") return { error: t("messages.snapshotStillRunning") };
+  if (snap.destination.protected) return { error: t("messages.snapshotOnProtected") };
+  const res = await removeSnapshots([snapshotId], withMirrors ? "all" : "none");
   revalidatePath("/snapshots");
   revalidatePath("/destinations");
   revalidatePath(`/resources/${snap.resourceId}`);
-  return { ok: true };
+  return { ok: true, detail: res.kept
+      ? t(res.kept === 1 ? "messages.mirrorCopiesKeptProtectedOne" : "messages.mirrorCopiesKeptProtectedMany", { count: res.kept })
+      : undefined };
 }
 
 /** Re-pin a Git app to the commit captured in a snapshot, then redeploy. */
@@ -866,6 +880,65 @@ export async function setDestinationMirror(
     await prisma.destination.update({ where: { id: destinationId }, data: { mirrorToId } });
     revalidatePath("/destinations");
     return { ok: true };
+  } catch (e) {
+    return { error: errorText(e, t) };
+  }
+}
+
+/**
+ * Deletion protection of a destination: protected (CBM never deletes there),
+ * and how the mirror copies it receives are kept. Turning protection on for an
+ * S3 destination also checks the storage enforces it.
+ */
+export async function setDestinationProtection(destinationId: string, fd: FormData): Promise<{ ok?: boolean; error?: string; detail?: string }> {
+  const t = await getT();
+  try {
+    await requireRole("admin");
+    const isProtected = fd.get("protected") === "on";
+    const mirrorRetention = fd.get("mirrorRetention") === "own" ? "own" : "source";
+    const keep = (k: string) => {
+      const n = Number(fd.get(k) ?? 0);
+      return Number.isInteger(n) && n >= 0 && n <= 1000 ? n : null;
+    };
+    const [daily, weekly, monthly] = [keep("mirrorKeepDaily"), keep("mirrorKeepWeekly"), keep("mirrorKeepMonthly")];
+    if (mirrorRetention === "own" && (daily == null || weekly == null || monthly == null || daily + weekly + monthly === 0)) {
+      return { error: t("messages.mirrorKeepInvalid") };
+    }
+    const dest = await prisma.destination.update({
+      where: { id: destinationId },
+      data: {
+        protected: isProtected,
+        mirrorRetention,
+        ...(mirrorRetention === "own" ? { mirrorKeepDaily: daily!, mirrorKeepWeekly: weekly!, mirrorKeepMonthly: monthly! } : {}),
+      },
+      select: { type: true, protected: true },
+    });
+    let detail = t("messages.protectionSaved");
+    if (dest.protected && dest.type === "s3") {
+      const { runProtectionCheck } = await import("@/lib/protection-check");
+      const { protectionResultText } = await import("@/lib/protection-text");
+      const res = await runProtectionCheck(destinationId);
+      if (res) detail = `${detail} ${protectionResultText(t, res)}`;
+    }
+    revalidatePath("/destinations");
+    return { ok: true, detail };
+  } catch (e) {
+    return { error: errorText(e, t) };
+  }
+}
+
+/** Check now that an S3 destination is protected from deletion by CBM's own key. */
+export async function checkDestinationProtection(destinationId: string): Promise<{ ok?: boolean; error?: string; detail?: string }> {
+  const t = await getT();
+  try {
+    await requireRole("admin");
+    const { runProtectionCheck } = await import("@/lib/protection-check");
+    const { protectionResultText } = await import("@/lib/protection-text");
+    const res = await runProtectionCheck(destinationId);
+    revalidatePath("/destinations");
+    if (!res) return { error: t("messages.protectionS3Only") };
+    const text = protectionResultText(t, res);
+    return res.status === "protected" ? { ok: true, detail: text } : { error: text };
   } catch (e) {
     return { error: errorText(e, t) };
   }

@@ -29,6 +29,14 @@ export const en = {
   deleteBodyPlain: "Permanently removes this snapshot ({size}), including",
   deleteBodyFiles: "its files on the destination",
   deleteBodyEnd: "(deleted by the agent).",
+  deleteProtected: "Delete (protected destination)",
+  mirrorCopy: "mirror copy",
+  mirrorsKeptOne: "Its mirror copy is kept.",
+  mirrorsKeptMany: "Its {count} mirror copies are kept.",
+  deleteWithMirrors: "Delete with its mirror copies",
+  deleteWithMirrorsTitle: "Delete this snapshot and its mirror copies?",
+  deleteWithMirrorsBodyOne: "Its mirror copy is deleted too.",
+  deleteWithMirrorsBodyMany: "Its {count} mirror copies are deleted too.",
 
   // Status labels.
   status: {
@@ -145,6 +153,14 @@ export const fr: typeof en = {
   deleteBodyPlain: "Supprime définitivement ce snapshot ({size}), y compris",
   deleteBodyFiles: "ses fichiers sur la destination",
   deleteBodyEnd: "(supprimés par l'agent).",
+  deleteProtected: "Supprimer (destination protégée)",
+  mirrorCopy: "copie miroir",
+  mirrorsKeptOne: "Sa copie miroir est conservée.",
+  mirrorsKeptMany: "Ses {count} copies miroir sont conservées.",
+  deleteWithMirrors: "Supprimer avec ses copies miroir",
+  deleteWithMirrorsTitle: "Supprimer ce snapshot et ses copies miroir ?",
+  deleteWithMirrorsBodyOne: "Sa copie miroir est supprimée aussi.",
+  deleteWithMirrorsBodyMany: "Ses {count} copies miroir sont supprimées aussi.",
 
   status: {
     queued: "en file",

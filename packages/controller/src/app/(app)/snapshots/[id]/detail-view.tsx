@@ -1,7 +1,8 @@
 import type { Prisma, RestoreJob, RestoreDrill } from "@/generated/prisma/client";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, Badge, Meta, Code, statusTone } from "@/components/ui";
-import { repinDeployment, deleteSnapshot, drillSnapshotNow } from "@/app/actions";
+import { repinDeployment, drillSnapshotNow } from "@/app/actions";
+import { snapshotDeleteItems } from "@/components/snapshot-delete";
 import { ActionButton } from "@/components/action-button";
 import { ActionsMenu, type MenuAction } from "@/components/actions-menu";
 import { RestoreActions } from "@/components/restore-actions";
@@ -11,7 +12,7 @@ import { getT } from "@/lib/i18n";
 import { can, requireUser } from "@/lib/session";
 import { modeLabel, captureLabel } from "@/lib/schedule";
 import { formatBytes, formatDateTime } from "@/lib/cn";
-import { GitCommitHorizontal, Info, ShieldCheck, Check, X, AlertCircle, Boxes, Trash2, FileArchive, Lock, Database } from "lucide-react";
+import { GitCommitHorizontal, Info, ShieldCheck, Check, X, AlertCircle, Boxes, FileArchive, Lock, Database } from "lucide-react";
 import { drillTone } from "@/lib/status";
 import { type DESTINATION_SECRETS } from "@/lib/public-fields";
 import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
@@ -20,7 +21,12 @@ import { localizeDrillDetail } from "@/lib/drill-detail";
 type DrillCheckRow = { artifact: string; kind: string; engine?: string; ok: boolean; detail: string };
 
 type SnapshotDetail = Prisma.SnapshotGetPayload<{
-  include: { resource: true; destination: { omit: typeof DESTINATION_SECRETS }; artifacts: true };
+  include: {
+    resource: true;
+    destination: { omit: typeof DESTINATION_SECRETS };
+    artifacts: true;
+    _count: { select: { mirrors: true } };
+  };
 }>;
 
 /** Presentation only: the snapshot-detail markup. Data is fetched in ./page.tsx. */
@@ -67,21 +73,21 @@ export async function SnapshotDetailView({
     ...(isOperator
       ? ([
           { kind: "separator" },
-          {
-            kind: "delete",
-            label: t("common.delete"),
-            icon: <Trash2 />,
-            action: deleteSnapshot.bind(null, snapshot.id),
-            confirmWord: "DELETE",
-            title: t("snapshots.deleteTitle"),
-            redirectTo: "/snapshots",
-            body: (
-              <>
-                {t("snapshots.deleteBodyPlain", { size: formatBytes(snapshot.sizeBytes) })}{" "}
-                <b className="text-foreground">{t("snapshots.deleteBodyFiles")}</b> {t("snapshots.deleteBodyEnd")}
-              </>
-            ),
-          },
+          ...snapshotDeleteItems(
+            t,
+            { id: snapshot.id, mirrors: snapshot._count.mirrors, protectedDest: snapshot.destination.protected },
+            {
+              confirmWord: "DELETE",
+              title: t("snapshots.deleteTitle"),
+              redirectTo: "/snapshots",
+              body: (
+                <>
+                  {t("snapshots.deleteBodyPlain", { size: formatBytes(snapshot.sizeBytes) })}{" "}
+                  <b className="text-foreground">{t("snapshots.deleteBodyFiles")}</b> {t("snapshots.deleteBodyEnd")}
+                </>
+              ),
+            },
+          ),
         ] satisfies MenuAction[])
       : []),
   ];

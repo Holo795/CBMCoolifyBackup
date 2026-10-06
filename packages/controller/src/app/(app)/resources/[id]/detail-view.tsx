@@ -30,7 +30,8 @@ import {
 import { ResourceToggles } from "@/components/resource-toggles";
 import { ResourceIcon } from "@/components/resource-icon";
 import { HooksForm } from "@/components/hooks-form";
-import { setResourceSchedule, removeResourceOverride, backupNow, deleteSnapshot } from "@/app/actions";
+import { setResourceSchedule, removeResourceOverride, backupNow } from "@/app/actions";
+import { snapshotDeleteItems } from "@/components/snapshot-delete";
 import { ActionsMenu } from "@/components/actions-menu";
 import { RestoreActions } from "@/components/restore-actions";
 import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
@@ -39,12 +40,14 @@ import { getT } from "@/lib/i18n";
 import { effectivePolicy, describeCron, cronToFrequency, modeLabel, captureLabel } from "@/lib/schedule";
 import { resourceStatusLabel, resourceStatusTone } from "@/lib/status";
 import { formatBytes, formatDateTime, timeAgo } from "@/lib/cn";
-import { Play, Unplug, Archive, CalendarClock, HardDrive, Clock, Trash2, ExternalLink, Undo2, Trash } from "lucide-react";
+import { Play, Unplug, Archive, CalendarClock, HardDrive, Clock, ExternalLink, Undo2, Trash } from "lucide-react";
 import { type DESTINATION_SECRETS, type INSTANCE_SECRETS, type PublicDestination } from "@/lib/public-fields";
 
 type ResourceRow = Prisma.ResourceGetPayload<{ include: { instance: { omit: typeof INSTANCE_SECRETS } } }>;
 type OverrideRow = Prisma.BackupPolicyGetPayload<{ include: { destination: { omit: typeof DESTINATION_SECRETS } } }>;
-type SnapshotRow = Prisma.SnapshotGetPayload<{ include: { destination: { omit: typeof DESTINATION_SECRETS } } }>;
+type SnapshotRow = Prisma.SnapshotGetPayload<{
+  include: { destination: { omit: typeof DESTINATION_SECRETS }; _count: { select: { mirrors: true } } };
+}>;
 type Eff = Awaited<ReturnType<typeof effectivePolicy>>;
 
 /** Presentation only: the resource-detail markup. Data is fetched in ./page.tsx. */
@@ -84,21 +87,22 @@ export async function ResourceDetailView({
   const succeeded = snapshots.filter((s) => s.status === "succeeded");
   const last = snapshots[0];
   const stored = succeeded.reduce((n, s) => n + Number(s.sizeBytes), 0);
-  const deleteItem = (s: SnapshotRow) => ({
-    kind: "delete" as const,
-    label: t("common.delete"),
-    icon: <Trash2 />,
-    action: deleteSnapshot.bind(null, s.id),
-    confirmWord: t("resources.deleteConfirmWord"),
-    title: t("resources.deleteSnapshotTitle"),
-    body: (
-      <>
-        {t("resources.deleteSnapshotBodyPre", { size: formatBytes(s.sizeBytes) })}
-        <b className="text-foreground">{t("resources.deleteSnapshotBodyBold")}</b>
-        {t("resources.deleteSnapshotBodyPost")}
-      </>
-    ),
-  });
+  const deleteItems = (s: SnapshotRow) =>
+    snapshotDeleteItems(
+      t,
+      { id: s.id, mirrors: s._count.mirrors, protectedDest: s.destination.protected },
+      {
+        confirmWord: t("resources.deleteConfirmWord"),
+        title: t("resources.deleteSnapshotTitle"),
+        body: (
+          <>
+            {t("resources.deleteSnapshotBodyPre", { size: formatBytes(s.sizeBytes) })}
+            <b className="text-foreground">{t("resources.deleteSnapshotBodyBold")}</b>
+            {t("resources.deleteSnapshotBodyPost")}
+          </>
+        ),
+      },
+    );
 
   return (
     <div className="flex flex-col gap-6">
@@ -239,7 +243,7 @@ export async function ResourceDetailView({
                                 items={[
                                   { kind: "link", label: t("resources.viewSnapshot"), icon: <ExternalLink />, href: `/snapshots/${s.id}` },
                                   { kind: "separator" },
-                                  deleteItem(s),
+                                  ...deleteItems(s),
                                 ]}
                               />
                             </Gate>

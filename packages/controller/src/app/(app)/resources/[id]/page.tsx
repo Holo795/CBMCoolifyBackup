@@ -21,7 +21,7 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
       where: { resourceId: id },
       orderBy: { startedAt: "desc" },
       take: 30,
-      include: { destination: { omit: DESTINATION_SECRETS } },
+      include: { destination: { omit: DESTINATION_SECRETS }, _count: { select: { mirrors: true } } },
     }),
     effectivePolicy(id),
   ]);

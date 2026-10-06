@@ -29,11 +29,22 @@ agent's host is down). Check the destination and run **Verify** from its **…**
 
 ### "Not enough free space on the agent host"
 A volume didn't fit in the agent's work dir (minus `AGENT_MIN_FREE_MB`). The message gives the
-size needed and the space usable. Free some space on the host, lower **Free space kept**, or —
-for a **tar** destination — set the agent's **copy mode** to `auto` or `direct` (**Agents** →
-gear on the agent's row) so large volumes go straight to the destination. A **restic**
-destination always needs the local copy. See
+size needed and the space usable. Free some space on the host, lower **Free space kept**, or set
+the agent's **copy mode** to `auto` or `direct` (**Agents** → gear on the agent's row): a **tar**
+destination then sends large volumes straight to the destination, and a **restic** one reads
+them in place without any copy. See
 [Backups → Disk space on the agent host](backups.md#disk-space-on-the-agent-host).
+
+### "restic on a volume needs the agent to run in Docker"
+restic reads volumes in place from a container started from the agent's own image, which the
+agent finds by inspecting its own container. An agent started outside Docker can't: install it
+with the install command, or set the copy mode to `local`.
+
+### A destination shows "not deletion-proof"
+The deletion-protection check found the S3 bucket doesn't stop CBM's own key from deleting
+backups for good: versioning is off or suspended, or the key may delete old versions
+(`s3:DeleteObjectVersion`). Its tooltip says which. See
+[Retention → Protection against deletion](reconciliation-retention.md#protection-against-deletion).
 
 ### A setting is greyed out in an agent's settings
 That setting is set by an environment variable on the host (e.g. `AGENT_CONCURRENCY`), which

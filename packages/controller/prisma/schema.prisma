@@ -245,6 +245,20 @@ model Destination {
   mirrorToId      String?
   mirrorTo        Destination?  @relation("DestinationMirror", fields: [mirrorToId], references: [id], onDelete: SetNull)
   mirrorFrom      Destination[] @relation("DestinationMirror")
+  // Protected: CBM never deletes anything here (no retention, no manual or
+  // sync deletion, no prune). Cleaning up is left to the storage itself.
+  protected       Boolean       @default(false)
+  // Mirror copies received here: "source" = deleted with their source (by its
+  // retention), "own" = kept by the counts below, whatever happens to the source.
+  mirrorRetention String        @default("source")
+  mirrorKeepDaily   Int         @default(7)
+  mirrorKeepWeekly  Int         @default(4)
+  mirrorKeepMonthly Int         @default(6)
+  // S3 deletion-protection check: versioning on, and CBM's key can't remove a
+  // version for good. "protected" | "unprotected" | "error".
+  protectionStatus    String?
+  protectionDetail    String?
+  protectionCheckedAt DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   policies        BackupPolicy[]
@@ -299,6 +313,12 @@ model Snapshot {
   runId         String?      // groups snapshots from one scheduled run
   // restic snapshot id when the destination uses the restic engine.
   resticSnapshotId String?
+  // restic: one more restic snapshot per volume read in place by restic (see
+  // RESTIC_PART_META); forgotten and checked together with resticSnapshotId.
+  resticPartIds String[]     @default([])
+  // A copy written by a mirror. Stays set once its source is gone: a mirror
+  // with its own retention keeps copies after their source was deleted.
+  isMirror      Boolean      @default(false)
   // Last time a destination reconciliation confirmed (or missed) these files.
   lastCheckedAt DateTime?
   startedAt     DateTime     @default(now())

@@ -13,7 +13,8 @@ import {
 import { enqueueMirror } from "@/lib/jobs";
 import { scrubPayload } from "@/lib/scrub";
 import { removeSnapshots, settlePrune } from "@/lib/snapshot-removal";
-import { applyRetention } from "@/lib/retention";
+import { resticPartIds } from "@cbm/shared";
+import { applyRetention, applyMirrorRetention } from "@/lib/retention";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const agent = await authenticateAgentFromRequest(req);
@@ -61,6 +62,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           // (e.g. a Redis resource dumped logically, not frozen).
           captureMode: m.captureMode,
           resticSnapshotId: result.resticSnapshotId ?? m.resticSnapshotId ?? undefined,
+          resticPartIds: resticPartIds(m),
           sizeBytes: BigInt(totalSize),
           artifacts: {
             create: m.artifacts.map((a) => ({
@@ -94,14 +96,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             resourceId: done.resourceId,
             destinationId: done.destinationId,
             mode: "sync",
-            mirrorOfId: null,
+            isMirror: false,
             id: { not: done.id },
             status: { notIn: ["running", "deleting"] },
           },
           select: { id: true },
         });
         if (older.length > 0) {
-          await removeSnapshots(older.map((o) => o.id)).catch((e) =>
+          await removeSnapshots(
+            older.map((o) => o.id),
+            "follow",
+          ).catch((e) =>
             console.error("[sync] removing the previous copy failed:", (e as Error).message),
           );
         }
@@ -159,6 +164,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             resticSnapshotId: result.resticSnapshotId ?? undefined,
             runId: src.runId,
             mirrorOfId: src.id,
+            isMirror: true,
+            // Dated like its source, so a mirror's own retention counts days of
+            // capture, not of copying.
+            startedAt: src.startedAt,
             finishedAt: new Date(),
             artifacts: {
               create: m.artifacts.map((a) => ({
@@ -171,6 +180,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             },
           },
         });
+        // A mirror keeping its own retention trims its copies as they arrive.
+        await applyMirrorRetention(payload.targetDestinationId).catch((e) =>
+          console.error("[retention] mirror copies:", (e as Error).message),
+        );
       }
     } else if (!succeeded) {
       console.error(`[mirror] job ${id} failed: ${result.error ?? "unknown error"}`);
@@ -230,17 +243,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const missing = result.verify.missing;
     const corrupt = result.verify.corrupt ?? [];
     const integrityError = result.verify.integrityError;
-    // present/missing carry restic snapshot ids (restic engine) or snapshot
-    // directories (tar engine) - match snapshots on the matching column.
-    const match = (vals: string[]) =>
-      isRestic ? { resticSnapshotId: { in: vals } } : { destinationDir: { in: vals } };
+    // present/missing carry restic snapshot ids (restic engine: the main one
+    // and those of volumes read in place) or snapshot directories (tar engine) -
+    // match snapshots on the matching column(s).
+    const match = (vals: string[]): Prisma.SnapshotWhereInput =>
+      isRestic
+        ? { OR: [{ resticSnapshotId: { in: vals } }, { resticPartIds: { hasSome: vals } }] }
+        : { destinationDir: { in: vals } };
     if (destinationId) {
       if (present.length) {
         // Confirmed present (and, on a deep check, intact): refresh the check
-        // time and un-flag any that had been missing/corrupt but recovered.
-        await prisma.snapshot.updateMany({ where: { destinationId, ...match(present) }, data: { lastCheckedAt: now } });
+        // time and un-flag any that had been missing/corrupt but recovered. A
+        // restic snapshot is present only when none of its parts is missing.
+        const whole: Prisma.SnapshotWhereInput = {
+          destinationId,
+          AND: [match(present), ...(missing.length ? [{ NOT: match(missing) }] : [])],
+        };
+        await prisma.snapshot.updateMany({ where: whole, data: { lastCheckedAt: now } });
         await prisma.snapshot.updateMany({
-          where: { destinationId, ...match(present), status: { in: ["missing", "corrupt"] } },
+          where: { ...whole, status: { in: ["missing", "corrupt"] } },
           data: { status: "succeeded" },
         });
       }

@@ -17,6 +17,14 @@ repository passwords — are **AES-256-GCM encrypted at rest** with your `MASTER
 - **restic engine** — the repository is always encrypted with a random per-destination password
   (also stored encrypted with `MASTER_KEY`).
 
+## Protection against deletion
+
+CBM holds every destination's credentials, so a compromised CBM could delete backups. Mark the
+destinations holding your second copy **Protected** (CBM never deletes there), and give S3
+destinations a versioned bucket with a key that can't delete old versions — CBM checks it and
+alerts if it stops being true. See
+[Retention → Protection against deletion](reconciliation-retention.md#protection-against-deletion).
+
 ## Agents & enrollment
 
 - Agents authenticate to the controller with a **bearer token**, stored only as a sha256 hash in

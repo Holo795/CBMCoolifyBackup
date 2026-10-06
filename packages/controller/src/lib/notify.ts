@@ -101,6 +101,14 @@ export async function notifyIntegrityFailure(destinationName: string, detail: st
   await sendAlert(`🧪 Integrity check FAILED for destination **${destinationName}**:\n${detail.slice(0, 500)}${link}`);
 }
 
+/** Notify that an S3 destination lost its deletion protection (versioning off,
+ * or CBM's key may now delete old versions). */
+export async function notifyProtectionLost(destinationName: string, detail: string): Promise<void> {
+  const base = (env.authUrl || "").replace(/\/$/, "");
+  const link = base ? `\n${base}/destinations` : "";
+  await sendAlert(`🛡️ Destination **${destinationName}** is no longer protected from deletion: ${detail.slice(0, 300)}${link}`);
+}
+
 /** Notify that the controller's metadata self-backup failed or is overdue
  * (disaster recovery: without it, a dead machine takes the "brain" with it). */
 export async function notifySelfBackupProblem(reason: string): Promise<void> {

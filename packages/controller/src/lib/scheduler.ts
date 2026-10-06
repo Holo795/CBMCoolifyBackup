@@ -3,7 +3,8 @@ import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
 import { prisma } from "./prisma";
 import { cronMatches } from "./cron";
 import { enqueueBackup, enqueueVerifyDestination, enqueueDrill } from "./jobs";
-import { applyRetention } from "./retention";
+import { applyRetention, applyAllMirrorRetention } from "./retention";
+import { checkAllProtection } from "./protection-check";
 import { reaper } from "./reaper";
 import { checkOverdue } from "./overdue";
 import { maybeSelfBackup, checkSelfBackupOverdue } from "./self-backup";
@@ -68,7 +69,7 @@ async function drillAllResources(): Promise<void> {
   for (const r of resources) {
     const latest = await prisma.snapshot.findFirst({
       // A configuration-only snapshot has nothing to test.
-      where: { resourceId: r.id, status: "succeeded", mirrorOfId: null, captureMode: { not: CONFIG_ONLY_CAPTURE } },
+      where: { resourceId: r.id, status: "succeeded", isMirror: false, captureMode: { not: CONFIG_ONLY_CAPTURE } },
       orderBy: { startedAt: "desc" },
       select: { id: true, drills: { where: { status: { in: ["passed", "failed", "running"] } }, select: { id: true }, take: 1 } },
     });
@@ -269,6 +270,8 @@ const TASKS: Array<{ name: string; cron: string; run: () => Promise<unknown>; de
   { name: "self-backup overdue check", cron: "11 * * * *", run: () => checkSelfBackupOverdue(new Date()), detached: true },
   { name: "job history cleanup", cron: "45 2 * * *", run: () => cleanupJobHistory(new Date()), detached: true },
   { name: "deletion retry", cron: "20 */6 * * *", run: () => retryStuckDeletions(new Date()), detached: true },
+  { name: "mirror retention", cron: "40 3 * * *", run: () => applyAllMirrorRetention(), detached: true },
+  { name: "protection check", cron: "30 4 * * 0", run: () => checkAllProtection(), detached: true },
 ];
 const taskInFlight = new Set<string>();
 

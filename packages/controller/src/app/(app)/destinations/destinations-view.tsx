@@ -2,15 +2,40 @@ import Link from "next/link";
 import type { Prisma } from "@/generated/prisma/client";
 import { PageHeader } from "@/components/page-header";
 import { AddDestinationButton } from "@/components/destination-form";
-import { Card, Badge, EmptyState, Tooltip } from "@/components/ui";
-import { testDestinationAction, deleteDestination, verifyDestinationNow, checkIntegrityNow } from "@/app/actions";
+import { Card, Badge, Button, EmptyState, Tooltip } from "@/components/ui";
+import {
+  testDestinationAction,
+  deleteDestination,
+  verifyDestinationNow,
+  checkIntegrityNow,
+  setDestinationProtection,
+  checkDestinationProtection,
+} from "@/app/actions";
 import { ActionsMenu, type MenuAction } from "@/components/actions-menu";
 import { IntegrityToggle } from "@/components/integrity-toggle";
 import { MirrorPicker } from "@/components/mirror-picker";
+import { FormDialog } from "@/components/form-dialog";
+import { DestinationProtectionFields } from "@/components/destination-protection";
+import { parseProtectionDetail } from "@/lib/protection-check";
+import { protectionDetailText } from "@/lib/protection-text";
 import { getT } from "@/lib/i18n";
 import { can, requireUser } from "@/lib/session";
 import { formatBytes } from "@/lib/cn";
-import { Cloud, FolderOpen, Server, HardDrive, Lock, PlugZap, ShieldCheck, AlertTriangle, FileCheck2, Copy, Trash2 } from "lucide-react";
+import {
+  Cloud,
+  FolderOpen,
+  Server,
+  HardDrive,
+  Lock,
+  PlugZap,
+  ShieldCheck,
+  ShieldAlert,
+  ShieldHalf,
+  AlertTriangle,
+  FileCheck2,
+  Copy,
+  Trash2,
+} from "lucide-react";
 import type { DESTINATION_SECRETS } from "@/lib/public-fields";
 
 type DestinationRow = Prisma.DestinationGetPayload<{
@@ -78,9 +103,13 @@ export async function DestinationsView({ items, globalBytes }: { items: Destinat
               ...(isAdmin
                 ? ([
                     { label: t("common.test"), icon: <PlugZap />, action: testDestinationAction.bind(null, d.id), successMsg: t("destinations.reachable") },
+                    ...(d.type === "s3"
+                      ? [{ label: t("destinations.protection.check"), icon: <ShieldCheck />, action: checkDestinationProtection.bind(null, d.id) }]
+                      : []),
                     { kind: "separator" },
                     {
                       kind: "delete",
+                      disabled: d.protected,
                       label: t("common.delete"),
                       icon: <Trash2 />,
                       action: deleteDestination.bind(null, d.id),
@@ -103,6 +132,33 @@ export async function DestinationsView({ items, globalBytes }: { items: Destinat
             ];
             const integrityFailed =
               d.lastIntegrityStatus != null && d.lastIntegrityStatus !== "ok" && d.lastIntegrityStatus !== "no-agent";
+            const receivesMirrors = items.some((i) => i.dest.mirrorToId === d.id);
+            const protection = d.protectionCheckedAt
+              ? protectionDetailText(t, parseProtectionDetail(d.protectionDetail), d.protectionCheckedAt)
+              : null;
+            const protectionButton = isAdmin ? (
+              <FormDialog
+                trigger={
+                  <Button variant="ghost" size="icon-sm" aria-label={t("destinations.protection.button")}>
+                    <ShieldHalf />
+                  </Button>
+                }
+                side="right"
+                title={t("destinations.protection.title", { name: d.name })}
+                description={t("destinations.protection.desc")}
+                action={setDestinationProtection.bind(null, d.id)}
+                submitLabel={t("common.save")}
+                openKey={`protection-${d.id}`}
+              >
+                <DestinationProtectionFields
+                  isProtected={d.protected}
+                  mirrorRetention={d.mirrorRetention}
+                  keep={{ daily: d.mirrorKeepDaily, weekly: d.mirrorKeepWeekly, monthly: d.mirrorKeepMonthly }}
+                  receivesMirrors={receivesMirrors}
+                  isS3={d.type === "s3"}
+                />
+              </FormDialog>
+            ) : null;
             return (
               <Card key={d.id} className="flex flex-col">
                 <div className="flex items-start gap-3 p-5 pb-4">
@@ -126,7 +182,10 @@ export async function DestinationsView({ items, globalBytes }: { items: Destinat
                       )}
                     </p>
                   </div>
-                  {menu.length > 0 && <ActionsMenu items={menu} />}
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    {protectionButton}
+                    {menu.length > 0 && <ActionsMenu items={menu} />}
+                  </div>
                 </div>
 
                 <div className="flex flex-1 flex-wrap items-end justify-between gap-3 px-5 pb-4">
@@ -138,6 +197,40 @@ export async function DestinationsView({ items, globalBytes }: { items: Destinat
                     </div>
                   </div>
                   <div className="flex flex-wrap justify-end gap-1.5">
+                    {d.protected && (
+                      <Badge tone="accent">
+                        <Lock /> {t("destinations.protection.badge.protected")}
+                      </Badge>
+                    )}
+                    {d.protectionStatus && (
+                      <Tooltip content={protection ?? ""}>
+                        <span tabIndex={0}>
+                          {d.protectionStatus === "protected" ? (
+                            <Badge tone="success">
+                              <ShieldCheck /> {t("destinations.protection.badge.proof")}
+                            </Badge>
+                          ) : d.protectionStatus === "unprotected" ? (
+                            <Badge tone="warning">
+                              <ShieldAlert /> {t("destinations.protection.badge.notProof")}
+                            </Badge>
+                          ) : (
+                            <Badge tone="danger">
+                              <ShieldAlert /> {t("destinations.protection.badge.checkError")}
+                            </Badge>
+                          )}
+                        </span>
+                      </Tooltip>
+                    )}
+                    {receivesMirrors && d.mirrorRetention === "own" && (
+                      <Badge tone="neutral">
+                        <Copy />{" "}
+                        {t("destinations.protection.badge.mirrorKeep", {
+                          daily: d.mirrorKeepDaily,
+                          weekly: d.mirrorKeepWeekly,
+                          monthly: d.mirrorKeepMonthly,
+                        })}
+                      </Badge>
+                    )}
                     {missing > 0 && (
                       <Badge tone="danger">
                         <AlertTriangle /> {t("destinations.badge.missing", { count: missing })}

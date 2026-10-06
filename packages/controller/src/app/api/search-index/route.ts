@@ -23,7 +23,7 @@ export async function GET() {
     prisma.coolifyInstance.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.agent.findMany({ select: { id: true, hostname: true }, orderBy: { hostname: "asc" } }),
     prisma.snapshot.findMany({
-      where: { mirrorOfId: null },
+      where: { isMirror: false },
       orderBy: { startedAt: "desc" },
       take: 30,
       select: { id: true, status: true, startedAt: true, resource: { select: { name: true } } },

@@ -30,7 +30,7 @@ export default async function SnapshotsPage({
       include: {
         resource: true,
         destination: { omit: DESTINATION_SECRETS },
-        _count: { select: { artifacts: true } },
+        _count: { select: { artifacts: true, mirrors: true } },
         // Latest test-restore, for the "restore verified" badge.
         drills: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } },
       },

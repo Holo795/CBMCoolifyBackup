@@ -18,6 +18,8 @@ const SNAP_SELECT = {
   runId: true,
   resticSnapshotId: true,
   mirrorOfId: true,
+  isMirror: true,
+  resticPartIds: true,
   startedAt: true,
   finishedAt: true,
   lastCheckedAt: true,

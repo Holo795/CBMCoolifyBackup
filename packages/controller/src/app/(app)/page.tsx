@@ -39,7 +39,7 @@ export default async function OverviewPage() {
     }),
     // What was backed up per day (originals only, so a mirror isn't counted twice).
     prisma.snapshot.findMany({
-      where: { status: "succeeded", mirrorOfId: null, finishedAt: { gte: since } },
+      where: { status: "succeeded", isMirror: false, finishedAt: { gte: since } },
       select: { finishedAt: true, sizeBytes: true },
     }),
     prisma.destination.findMany({ select: { id: true, name: true, type: true, engine: true } }),

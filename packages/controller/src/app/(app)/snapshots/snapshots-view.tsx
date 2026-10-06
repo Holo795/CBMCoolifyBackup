@@ -3,7 +3,8 @@ import type { Prisma } from "@/generated/prisma/client";
 import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
 import { PageHeader } from "@/components/page-header";
 import { Badge, StatusDot, EmptyState, List, Tooltip, buttonClass, statusTone } from "@/components/ui";
-import { retrySnapshot, cancelSnapshot, deleteSnapshot } from "@/app/actions";
+import { retrySnapshot, cancelSnapshot } from "@/app/actions";
+import { snapshotDeleteItems } from "@/components/snapshot-delete";
 import { ActionButton } from "@/components/action-button";
 import { ActionsMenu } from "@/components/actions-menu";
 import { RestoreActions } from "@/components/restore-actions";
@@ -13,14 +14,14 @@ import { getT, getLocale } from "@/lib/i18n";
 import { formatBytes } from "@/lib/cn";
 import { drillTone } from "@/lib/status";
 import { modeLabel, captureLabel } from "@/lib/schedule";
-import { Archive, RefreshCw, X, ShieldCheck, Trash2, ExternalLink, Boxes, ChevronLeft, ChevronRight } from "lucide-react";
+import { Archive, RefreshCw, X, ShieldCheck, ExternalLink, Boxes, ChevronLeft, ChevronRight } from "lucide-react";
 import { type DESTINATION_SECRETS } from "@/lib/public-fields";
 
 type SnapshotRow = Prisma.SnapshotGetPayload<{
   include: {
     resource: true;
     destination: { omit: typeof DESTINATION_SECRETS };
-    _count: { select: { artifacts: true } };
+    _count: { select: { artifacts: true; mirrors: true } };
     drills: { select: { status: true } };
   };
 }>;
@@ -107,21 +108,21 @@ export async function SnapshotsView({
           { kind: "link", label: t("snapshots.openSnapshot"), icon: <ExternalLink />, href: `/snapshots/${s.id}` },
           { kind: "link", label: t("snapshots.openResource"), icon: <Boxes />, href: `/resources/${s.resourceId}` },
           { kind: "separator" },
-          {
-            kind: "delete",
-            label: t("common.delete"),
-            icon: <Trash2 />,
-            action: deleteSnapshot.bind(null, s.id),
-            confirmWord: "DELETE",
-            title: t("snapshots.deleteTitle"),
-            body: (
-              <>
-                {t("snapshots.deleteBodyBefore")} <b className="text-foreground">{s.resource.name}</b>{" "}
-                {t("snapshots.deleteBodyAfterName", { size: formatBytes(s.sizeBytes) })}{" "}
-                <b className="text-foreground">{t("snapshots.deleteBodyFiles")}</b> {t("snapshots.deleteBodyEnd")}
-              </>
-            ),
-          },
+          ...snapshotDeleteItems(
+            t,
+            { id: s.id, mirrors: s._count.mirrors, protectedDest: s.destination.protected },
+            {
+              confirmWord: "DELETE",
+              title: t("snapshots.deleteTitle"),
+              body: (
+                <>
+                  {t("snapshots.deleteBodyBefore")} <b className="text-foreground">{s.resource.name}</b>{" "}
+                  {t("snapshots.deleteBodyAfterName", { size: formatBytes(s.sizeBytes) })}{" "}
+                  <b className="text-foreground">{t("snapshots.deleteBodyFiles")}</b> {t("snapshots.deleteBodyEnd")}
+                </>
+              ),
+            },
+          ),
         ]}
       />
     </Gate>
@@ -177,6 +178,7 @@ export async function SnapshotsView({
                         </div>
                         <p className="truncate text-xs text-muted-foreground">
                           {modeLabel(s.mode, t)} · {captureLabel(s.captureMode, t)} · {s.destination.name}
+                          {s.isMirror && <> · {t("snapshots.mirrorCopy")}</>}
                           {s.status === "succeeded" && <> · {formatBytes(s.sizeBytes)}</>}
                         </p>
                       </div>

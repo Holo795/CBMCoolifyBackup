@@ -27,6 +27,7 @@ export const en = {
     actions: {
       connectInstance: "Connect a Coolify instance",
       addDestination: "Add a destination",
+      protection: "Deletion protection - {name}",
       inviteUser: "Invite a user",
       newApiToken: "New API token (MCP)",
       theme: "Theme: {name}",
@@ -81,6 +82,7 @@ export const fr: typeof en = {
     actions: {
       connectInstance: "Connecter une instance Coolify",
       addDestination: "Ajouter une destination",
+      protection: "Protection contre la suppression - {name}",
       inviteUser: "Inviter un utilisateur",
       newApiToken: "Nouveau jeton API (MCP)",
       theme: "Thème : {name}",

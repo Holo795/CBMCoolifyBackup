@@ -95,7 +95,7 @@ over CBM — the field is then locked in the dialog and shows the host's value.
 | `AGENT_CONCURRENCY` **(CBM)** | `2` | How many jobs the agent runs at once (1–16). |
 | `AGENT_WORK_DIR` | `/var/lib/cbm-agent` (image) | Local staging directory for artifacts before upload (`/tmp/cbm-agent` when run outside the image). |
 | `AGENT_MIN_FREE_MB` **(CBM)** | `1024` | Free space kept on the work dir's disk: a backup checks it before freezing anything, a local copy never eats into it, and a restore/mirror/drill needs twice the snapshot size on top. |
-| `AGENT_STAGING_MODE` **(CBM)** | `auto` | Where volume copies go on their way to a **tar** destination: `auto` (through the work dir when it has room, otherwise straight to the destination), `local` (always through the work dir; refuse when it doesn't fit) or `direct` (always straight to the destination). See [Backups → Disk space on the agent host](backups.md#disk-space-on-the-agent-host). |
+| `AGENT_STAGING_MODE` **(CBM)** | `auto` | How volumes are copied. **tar**: `auto` (through the work dir when it has room, otherwise straight to the destination), `local` (always through the work dir; refuse when it doesn't fit) or `direct` (always straight to the destination). **restic**: `auto` and `direct` read each volume in place (no copy, only changed files), `local` copies it to the work dir first. See [Backups → Disk space on the agent host](backups.md#disk-space-on-the-agent-host). |
 | `DOCKER_BIN` | `docker` | Path to the Docker CLI. |
 | `POLL_INTERVAL_MS` | `5000` | Job poll interval. |
 | `HEARTBEAT_INTERVAL_MS` | `30000` | Heartbeat interval. |

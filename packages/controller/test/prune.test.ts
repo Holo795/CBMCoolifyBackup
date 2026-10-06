@@ -13,6 +13,7 @@ function snap(over: {
   destinationDir?: string;
   agentId?: string | null;
   resticSnapshotId?: string | null;
+  resticPartIds?: string[];
   instanceId?: string | null;
   destination: Destination;
 }) {
@@ -68,4 +69,16 @@ test("different destinations never share a group", () => {
     snap({ id: "s2", instanceId: "i1", destination: dest("d2", "s3") }),
   ]);
   assert.equal(groups.length, 2);
+});
+
+test("a restic snapshot's parts (volumes read in place) are forgotten with it", () => {
+  const d = dest("d4", "s3");
+  const groups = groupSnapshotsForPrune([
+    snap({ id: "s1", instanceId: "i1", resticSnapshotId: "r1", resticPartIds: ["p1", "p2"], destination: d }),
+    snap({ id: "s2", instanceId: "i1", resticSnapshotId: "r2", destination: d }),
+    // No main snapshot (a failed run): nothing to forget, parts or not.
+    snap({ id: "s3", instanceId: "i1", resticSnapshotId: null, resticPartIds: ["p3"], destination: d }),
+  ]);
+  assert.equal(groups.length, 1);
+  assert.deepEqual(groups[0].resticSnapshotIds.sort(), ["p1", "p2", "r1", "r2"]);
 });

@@ -26,6 +26,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       runId: true,
       resticSnapshotId: true,
       mirrorOfId: true,
+      isMirror: true,
+      resticPartIds: true,
       destinationDir: true,
       startedAt: true,
       finishedAt: true,

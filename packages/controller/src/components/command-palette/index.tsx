@@ -33,6 +33,7 @@ import {
   Archive,
   Users,
   ShieldCheck,
+  ShieldHalf,
 } from "lucide-react";
 import { navFor } from "@/components/nav";
 import { useT, useLocale } from "@/components/i18n-provider";
@@ -60,7 +61,7 @@ const NAV_KEYWORDS: Record<string, string[]> = {
   "/": ["overview", "dashboard", "home", "accueil", "tableau de bord"],
   "/instances": ["instance", "coolify", "panel", "server", "serveur"],
   "/resources": ["resource", "app", "application", "database", "service", "ressource", "base de données"],
-  "/destinations": ["destination", "storage", "s3", "ssh", "sftp", "local", "restic", "backup target", "stockage"],
+  "/destinations": ["destination", "storage", "s3", "ssh", "sftp", "local", "restic", "backup target", "stockage", "mirror", "miroir", "protection"],
   "/snapshots": ["snapshot", "backup", "restore", "sauvegarde", "restauration", "clone"],
   "/agents": ["agent", "host", "hôte", "docker"],
   "/users": ["users", "members", "team", "roles", "invite", "invitation", "utilisateurs", "équipe", "rôle"],
@@ -349,8 +350,19 @@ export function CommandPalette({ role }: { role: string }) {
           keywords: ["snapshot", "backup", "sauvegarde", s.status],
           icon: Archive,
         });
-      for (const d of index.destinations)
+      for (const d of index.destinations) {
         dyn.push({ id: `d:${d.id}`, label: d.name, sub: d.type, href: `/destinations/${d.id}`, group: "Destinations", icon: HardDrive });
+        if (isAdmin)
+          dyn.push({
+            id: `dp:${d.id}`,
+            label: t("components.palette.actions.protection", { name: d.name }),
+            href: "/destinations",
+            openKey: `protection-${d.id}`,
+            group: "Actions",
+            keywords: ["protection", "protected", "delete", "versioning", "mirror", "retention", "immutable", "protégée", "suppression", "miroir", "rétention"],
+            icon: ShieldHalf,
+          });
+      }
       for (const i of index.instances)
         dyn.push({ id: `i:${i.id}`, label: i.name, href: `/instances`, group: "Instances", icon: Server });
       for (const a of index.agents) dyn.push({ id: `a:${a.id}`, label: a.hostname, href: `/agents`, group: "Agents", icon: Cpu });
@@ -372,8 +384,13 @@ export function CommandPalette({ role }: { role: string }) {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    // Every word must appear, in any order ("protection vault").
+    const words = q.split(/\s+/).filter(Boolean);
     const match = q
-      ? entries.filter((e) => [e.label, e.sub ?? "", e.group, ...(e.keywords ?? [])].join(" ").toLowerCase().includes(q))
+      ? entries.filter((e) => {
+          const text = [e.label, e.sub ?? "", e.group, ...(e.keywords ?? [])].join(" ").toLowerCase();
+          return words.every((w) => text.includes(w));
+        })
       : entries.filter((e) => e.group === "Pages" || e.group === "Actions" || e.group === "Settings");
     // Group order first (the list is grouped); inside a group, entries whose
     // label contains the query come before keyword-only matches.

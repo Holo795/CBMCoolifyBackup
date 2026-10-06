@@ -55,7 +55,11 @@ Pick a **storage engine** per destination (the form calls tar **Standard**):
 The agent bundles the `restic` binary and stores everything in a `restic-repo` under the
 destination path/bucket. Only changed blocks are uploaded each run, the repo is encrypted with
 a per-destination password (kept encrypted with your `MASTER_KEY`), and retention is handled by
-restic. Restore works both in place and to a new resource.
+restic. Restore works both in place and to a new resource. Volumes are read in place (only the
+files changed since the previous backup, no copy on the host) — see
+[Backups → restic: volumes read in place](backups.md#restic-volumes-read-in-place). A command that
+finds the repository locked by another one (a prune, a mirror reading it) waits for it rather
+than failing.
 
 Over **SSH/SFTP**, restic uses an SSH connection built by the agent (key or password, and a
 jump host if configured). Password auth uses `sshpass`; the base path must already exist on the

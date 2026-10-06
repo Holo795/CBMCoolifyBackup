@@ -34,7 +34,7 @@ type RunAction = {
 export type MenuAction =
   | RunAction
   | { kind: "link"; label: string; icon?: ReactNode; href: string; external?: boolean }
-  | ({ kind: "delete"; label: string; icon?: ReactNode } & ConfirmDeleteProps)
+  | ({ kind: "delete"; label: string; icon?: ReactNode; disabled?: boolean } & ConfirmDeleteProps)
   /** Opens a dialog showing `content` (e.g. a form with its own submit). */
   | { kind: "dialog"; label: string; icon?: ReactNode; title: string; description?: string; content: ReactNode; wide?: boolean }
   | { kind: "separator" };
@@ -93,7 +93,7 @@ export function ActionsMenu({ items, size = "icon-sm", label }: { items: MenuAct
               );
             if (it.kind === "delete")
               return (
-                <DropdownMenuItem key={key} tone="danger" onSelect={() => setConfirm(it)}>
+                <DropdownMenuItem key={key} tone="danger" disabled={it.disabled} onSelect={() => setConfirm(it)}>
                   {it.icon} {it.label}
                 </DropdownMenuItem>
               );

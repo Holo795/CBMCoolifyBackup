@@ -145,7 +145,7 @@ async function agentById(agentId: string | null | undefined) {
  */
 async function assertResourceIdle(resourceId: string, resourceName: string): Promise<void> {
   const [backup, restore] = await Promise.all([
-    prisma.snapshot.findFirst({ where: { resourceId, status: "running", mirrorOfId: null }, select: { id: true } }),
+    prisma.snapshot.findFirst({ where: { resourceId, status: "running", isMirror: false }, select: { id: true } }),
     prisma.restoreJob.findFirst({
       where: { status: "running", target: "in_place", snapshot: { resourceId } },
       select: { id: true },
@@ -942,6 +942,8 @@ export function groupSnapshotsForPrune(
     destinationDir: string;
     agentId: string | null;
     resticSnapshotId: string | null;
+    /** restic: the snapshots of volumes read in place, forgotten with it. */
+    resticPartIds?: string[];
     instanceId: string | null;
     destination: Destination;
   }>,
@@ -956,7 +958,7 @@ export function groupSnapshotsForPrune(
       { destination: s.destination, instanceId: s.instanceId, agentId, dirs: [], resticSnapshotIds: [], snapshotIds: [] };
     g.dirs.push(s.destinationDir);
     g.snapshotIds.push(s.id);
-    if (s.resticSnapshotId) g.resticSnapshotIds.push(s.resticSnapshotId);
+    if (s.resticSnapshotId) g.resticSnapshotIds.push(s.resticSnapshotId, ...(s.resticPartIds ?? []));
     groups.set(key, g);
   }
   return [...groups.values()];
@@ -998,7 +1000,7 @@ export async function enqueueVerifyDestination(
       status: { in: ["succeeded", "missing", "corrupt"] },
       ...(isRestic ? { resticSnapshotId: { not: null } } : {}),
     },
-    select: { destinationDir: true, agentId: true, resticSnapshotId: true },
+    select: { destinationDir: true, agentId: true, resticSnapshotId: true, resticPartIds: true },
   });
   if (snaps.length === 0) return { queued: 0, reason: "empty" };
 
@@ -1043,7 +1045,7 @@ export async function enqueueVerifyDestination(
       storage,
       dirs: groupSnaps.map((s) => s.destinationDir),
       resticSnapshotIds: isRestic
-        ? groupSnaps.map((s) => s.resticSnapshotId).filter((x): x is string => !!x)
+        ? groupSnaps.flatMap((s) => [s.resticSnapshotId, ...s.resticPartIds]).filter((x): x is string => !!x)
         : undefined,
       deep,
       readDataSubset,
@@ -1071,7 +1073,7 @@ export async function enqueueMirror(sourceSnapshotId: string): Promise<{ queued:
     where: { id: sourceSnapshotId },
     include: { destination: { include: { mirrorTo: true } } },
   });
-  if (!snap || snap.status !== "succeeded" || snap.mirrorOfId) return { queued: false };
+  if (!snap || snap.status !== "succeeded" || snap.isMirror) return { queued: false };
   if (!snap.manifest) return { queued: false, reason: "no-manifest" };
   const source = snap.destination;
   const target = source.mirrorTo;

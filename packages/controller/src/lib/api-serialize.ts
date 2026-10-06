@@ -61,7 +61,9 @@ export function serializeSnapshot(s: {
   error: string | null;
   runId: string | null;
   resticSnapshotId: string | null;
+  resticPartIds?: string[];
   mirrorOfId: string | null;
+  isMirror: boolean;
   startedAt: Date;
   finishedAt: Date | null;
   lastCheckedAt: Date | null;
@@ -82,7 +84,9 @@ export function serializeSnapshot(s: {
     error: s.error,
     runId: s.runId,
     resticSnapshotId: s.resticSnapshotId,
-    isMirror: s.mirrorOfId != null,
+    resticPartIds: s.resticPartIds ?? [],
+    isMirror: s.isMirror,
+    mirrorOfId: s.mirrorOfId,
     artifactCount: s._count?.artifacts ?? null,
     startedAt: iso(s.startedAt),
     finishedAt: iso(s.finishedAt),
@@ -100,6 +104,13 @@ export function serializeDestination(d: {
   lastIntegrityAt: Date | null;
   lastIntegrityStatus: string | null;
   mirrorToId: string | null;
+  protected: boolean;
+  mirrorRetention: string;
+  mirrorKeepDaily: number;
+  mirrorKeepWeekly: number;
+  mirrorKeepMonthly: number;
+  protectionStatus: string | null;
+  protectionCheckedAt: Date | null;
 }) {
   return {
     id: d.id,
@@ -111,6 +122,12 @@ export function serializeDestination(d: {
     lastIntegrityAt: iso(d.lastIntegrityAt),
     lastIntegrityStatus: d.lastIntegrityStatus,
     mirrorToId: d.mirrorToId,
+    protected: d.protected,
+    mirrorCopies:
+      d.mirrorRetention === "own"
+        ? { retention: "own", keepDaily: d.mirrorKeepDaily, keepWeekly: d.mirrorKeepWeekly, keepMonthly: d.mirrorKeepMonthly }
+        : { retention: "source" },
+    protectionCheck: d.protectionCheckedAt ? { status: d.protectionStatus, checkedAt: iso(d.protectionCheckedAt) } : null,
   };
 }
 
