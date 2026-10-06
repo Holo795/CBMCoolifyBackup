@@ -97,30 +97,63 @@ const globalForSched = globalThis as unknown as {
  *
  * As a backstop against an accidental second replica, we hold a Postgres
  * session-level advisory lock: only the replica that grabs it runs scheduled
- * work; the other's loop stays dormant. Best-effort — if the lock can't be
- * evaluated (no DB URL / error), we assume leadership so a single-instance
- * deploy is never left without a scheduler.
+ * work; the other's loop stays dormant. Leadership is re-checked every minute:
+ * a lock connection that dropped (database restart, network blip) means the
+ * lock is gone and must be won again, and a dormant replica keeps trying, so
+ * it takes over when the leader dies. Best-effort - if the lock can't be
+ * evaluated (no DB URL / error), we act as leader for that minute so a
+ * single-instance deploy is never left without a scheduler.
  */
 const SCHEDULER_ADVISORY_LOCK_KEY = 4242000001;
 let isSchedulerLeader = true;
+
+/** Forget a lock connection that died: its lock is gone with it. */
+function dropLockClient(): void {
+  const c = globalForSched.cbmSchedulerLockClient;
+  globalForSched.cbmSchedulerLockClient = undefined;
+  isSchedulerLeader = false;
+  c?.end().catch(() => undefined);
+}
+
+/** Are we (still) the scheduler leader? Re-validates a held lock, else tries to win it. */
+async function ensureSchedulerLeadership(): Promise<boolean> {
+  const held = globalForSched.cbmSchedulerLockClient;
+  if (held) {
+    try {
+      await held.query("SELECT 1");
+      return true;
+    } catch {
+      console.warn("[scheduler] lost the scheduler lock connection - competing for it again");
+      dropLockClient();
+    }
+  }
+  await acquireSchedulerLeadership();
+  return isSchedulerLeader;
+}
 
 async function acquireSchedulerLeadership(): Promise<void> {
   if (!process.env.DATABASE_URL) return; // assume leader (dev / no DB)
   try {
     const { Client } = await import("pg");
     const client = new Client({ connectionString: process.env.DATABASE_URL });
+    // A dropped connection (database restart…) releases the lock: stop leading
+    // instead of crashing on the unhandled error.
+    client.on("error", () => {
+      if (globalForSched.cbmSchedulerLockClient === client) dropLockClient();
+    });
     await client.connect();
     const res = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [
       SCHEDULER_ADVISORY_LOCK_KEY,
     ]);
     if (res.rows[0]?.ok === true) {
-      // Hold the connection (and the lock) for the process lifetime.
+      // Hold the connection (and the lock) while it lives.
       globalForSched.cbmSchedulerLockClient = client;
+      if (!isSchedulerLeader) console.log("[scheduler] won the scheduler lock - this replica runs scheduled work");
       isSchedulerLeader = true;
     } else {
       await client.end().catch(() => undefined);
+      if (isSchedulerLeader) console.warn("[scheduler] another replica holds the scheduler lock - this one stays dormant");
       isSchedulerLeader = false;
-      console.warn("[scheduler] another replica holds the scheduler lock - this one stays dormant");
     }
   } catch (e) {
     // Never leave a single-instance deploy without a scheduler over a lock hiccup.
@@ -330,7 +363,7 @@ export function startScheduler(): void {
     const msToNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
     setTimeout(async () => {
       // Only the leader replica runs scheduled work (see the advisory lock above).
-      if (isSchedulerLeader) await loop().catch((e) => console.error("[scheduler] loop error", e));
+      if (await ensureSchedulerLeadership()) await loop().catch((e) => console.error("[scheduler] loop error", e));
       schedule();
     }, msToNextMinute);
   };
