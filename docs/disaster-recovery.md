@@ -106,6 +106,9 @@ Machine (Coolify + CBM) is gone. To fully recover:
    fetches the latest self-backup from its destination, restores it, and
    re-encrypts every secret under the new install's master key. You are signed
    out — **sign back in with your OLD credentials** (the imported accounts).
+   Two-factor authentication is turned off for every account (its secrets were
+   encrypted with the old install's `BETTER_AUTH_SECRET`): set it up again from
+   Profile — accounts the policy requires it from are asked at sign-in.
 3. **Re-point the instance** at your new, blank Coolify (instance "…" menu →
    **Re-point the instance**).
 4. **Re-install the agent** on the new Coolify host (same per-instance install

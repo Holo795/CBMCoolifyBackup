@@ -3,10 +3,10 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { ShieldOff, Trash2 } from "lucide-react";
 import { Select } from "@/components/ui";
 import { ActionsMenu } from "@/components/actions-menu";
-import { setUserRole, removeUser } from "@/app/actions";
+import { setUserRole, removeUser, resetUserTwoFactor } from "@/app/actions";
 import { ROLES } from "@/lib/roles";
 import { useT } from "@/components/i18n-provider";
 
@@ -18,12 +18,14 @@ export function UserRowActions({
   role,
   isSelf,
   isLastAdmin,
+  twoFactorEnabled,
 }: {
   userId: string;
   email: string;
   role: string;
   isSelf: boolean;
   isLastAdmin: boolean;
+  twoFactorEnabled: boolean;
 }) {
   const t = useT();
   const router = useRouter();
@@ -47,6 +49,43 @@ export function UserRowActions({
   }
 
   const removable = !isSelf && !isLastAdmin;
+  const resettable = !isSelf && twoFactorEnabled;
+  const items = [
+    ...(resettable
+      ? [
+          {
+            kind: "delete" as const,
+            label: t("twofactor.reset"),
+            icon: <ShieldOff />,
+            action: () => resetUserTwoFactor(userId),
+            confirmWord: email,
+            title: t("twofactor.resetTitle", { email }),
+            body: t("twofactor.resetBody"),
+            confirmLabel: t("twofactor.reset"),
+            doneMsg: t("messages.twoFactorReset"),
+          },
+        ]
+      : []),
+    ...(removable
+      ? [
+          {
+            kind: "delete" as const,
+            label: t("common.delete"),
+            icon: <Trash2 />,
+            action: () => removeUser(userId),
+            confirmWord: email,
+            title: t("users.remove.title", { email }),
+            body: (
+              <>
+                {t("users.remove.bodyBefore")}
+                <b className="text-foreground">{email}</b>
+                {t("users.remove.bodyAfter")}
+              </>
+            ),
+          },
+        ]
+      : []),
+  ];
   return (
     <div className="flex items-center justify-end gap-1">
       <Select
@@ -62,29 +101,7 @@ export function UserRowActions({
           </option>
         ))}
       </Select>
-      {removable ? (
-        <ActionsMenu
-          items={[
-            {
-              kind: "delete",
-              label: t("common.delete"),
-              icon: <Trash2 />,
-              action: () => removeUser(userId),
-              confirmWord: email,
-              title: t("users.remove.title", { email }),
-              body: (
-                <>
-                  {t("users.remove.bodyBefore")}
-                  <b className="text-foreground">{email}</b>
-                  {t("users.remove.bodyAfter")}
-                </>
-              ),
-            },
-          ]}
-        />
-      ) : (
-        <span className="size-7 shrink-0" aria-hidden />
-      )}
+      {items.length > 0 ? <ActionsMenu items={items} /> : <span className="size-7 shrink-0" aria-hidden />}
     </div>
   );
 }

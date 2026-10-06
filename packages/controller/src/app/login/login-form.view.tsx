@@ -1,14 +1,10 @@
 "use client";
 
 import { Button, Input, Field } from "@/components/ui";
-import { GithubIcon } from "@/components/icons/github";
-import { GoogleIcon } from "@/components/icons/google";
-import { GitlabIcon } from "@/components/icons/gitlab";
+import { OAuthButtons } from "@/components/oauth-buttons";
 import type { OAuthProvider } from "@/lib/auth";
 import { useT } from "@/components/i18n-provider";
 import { AuthShell, AuthMessage } from "@/components/auth-shell";
-
-const PROVIDER_ICON = { github: GithubIcon, google: GoogleIcon, gitlab: GitlabIcon };
 
 /** Presentation only: the login / forgot-password card. Logic in ./login-form.tsx. */
 export function LoginFormView({
@@ -106,23 +102,7 @@ export function LoginFormView({
           </Button>
         </form>
 
-        {providers.length > 0 && !forgot && (
-          <>
-            <div className="flex items-center gap-3 text-xs text-subtle-foreground">
-              <div className="h-px flex-1 bg-border" /> {t("auth.or")} <div className="h-px flex-1 bg-border" />
-            </div>
-            <div className="flex flex-col gap-2">
-              {providers.map((p) => {
-                const Icon = PROVIDER_ICON[p];
-                return (
-                  <Button key={p} type="button" onClick={() => onProvider(p)} className="w-full">
-                    <Icon className="size-4" /> {t(`auth.continueWith.${p}`)}
-                  </Button>
-                );
-              })}
-            </div>
-          </>
-        )}
+        {!forgot && <OAuthButtons providers={providers} onProvider={onProvider} />}
       </div>
     </AuthShell>
   );

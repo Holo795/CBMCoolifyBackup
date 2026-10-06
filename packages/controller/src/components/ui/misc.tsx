@@ -155,7 +155,7 @@ export function OptionCards<V extends string>({
     <div
       role="radiogroup"
       aria-label={label}
-      className={cn("grid gap-2", columns === 3 ? "grid-cols-3" : columns === 2 ? "grid-cols-2" : "grid-cols-1")}
+      className={cn("grid gap-2", columns === 3 ? "grid-cols-1 sm:grid-cols-3" : columns === 2 ? "grid-cols-2" : "grid-cols-1")}
     >
       {options.map((o) => {
         const checked = o.value === value;

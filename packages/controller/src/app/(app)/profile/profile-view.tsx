@@ -3,16 +3,19 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, Input, Field
 import { ActionForm } from "@/components/action-form";
 import { changeEmail, changePassword, updateProfileName } from "@/app/actions";
 import { getT } from "@/lib/i18n";
+import { TwoFactorCard } from "@/components/two-factor/profile-card";
 
 /** Presentation only: the Profile page markup. Data is fetched in ./page.tsx. */
 export async function ProfileView({
   email,
   firstName,
   lastName,
+  twoFactor,
 }: {
   email: string;
   firstName: string;
   lastName: string;
+  twoFactor: { enabled: boolean; required: boolean; hasPassword: boolean };
 }) {
   const t = await getT();
   return (
@@ -75,6 +78,8 @@ export async function ProfileView({
             </ActionForm>
           </CardContent>
         </Card>
+
+        <TwoFactorCard {...twoFactor} />
       </div>
     </div>
   );

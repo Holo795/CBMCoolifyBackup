@@ -21,6 +21,7 @@ import { freqToCron } from "@/lib/schedule";
 import { isValidCron } from "@/lib/cron";
 import { setTimezone, isValidTimezone } from "@/lib/settings";
 import { removeSnapshots } from "@/lib/snapshot-removal";
+import { resetTwoFactor, isTwoFactorPolicy } from "@/lib/two-factor";
 
 function s(fd: FormData, key: string): string {
   return (fd.get(key) ?? "").toString().trim();
@@ -1067,6 +1068,43 @@ export async function removeUser(userId: string): Promise<{ ok?: boolean; error?
   await prisma.user.delete({ where: { id: userId } });
   revalidatePath("/users");
   return { ok: true };
+}
+
+/* --------------------------- two-factor authentication --------------------------- */
+
+/**
+ * Reset another user's two-factor sign-in (lost phone and backup codes): their
+ * TOTP secret, backup codes, trusted devices and sessions go. They set it up
+ * again at their next sign-in if the policy requires it. Your own 2FA is
+ * managed from Profile.
+ */
+export async function resetUserTwoFactor(userId: string): Promise<{ ok?: boolean; error?: string; detail?: string }> {
+  const me = await requireRole("admin");
+  const t = await getT();
+  if (userId === me.id) return { error: t("messages.twoFactorResetSelf") };
+  const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!target) return { error: t("messages.userNotFound") };
+  await resetTwoFactor([userId]);
+  revalidatePath("/users");
+  return { ok: true, detail: t("messages.twoFactorReset") };
+}
+
+/** Who must use two-factor sign-in: "optional", "admins" or "everyone". */
+export async function setTwoFactorPolicy(policy: string): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    await requireRole("admin");
+    if (!isTwoFactorPolicy(policy)) return { error: (await getT())("messages.twoFactorPolicyInvalid") };
+    await prisma.setting.upsert({
+      where: { id: "global" },
+      update: { twoFactorPolicy: policy },
+      create: { id: "global", twoFactorPolicy: policy },
+    });
+    revalidatePath("/settings");
+    revalidatePath("/users");
+    return { ok: true };
+  } catch (e) {
+    return { error: errorText(e, await getT()) };
+  }
 }
 
 /* ----------------------------- API tokens (MCP) ----------------------------- */

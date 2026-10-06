@@ -17,6 +17,7 @@ import {
 import { resolveDestination } from "./jobs";
 import { dumpMetadataDb, downloadFileFromDestination, SELF_BACKUP_PATH } from "./self-backup";
 import { version as CBM_VERSION } from "../../package.json";
+import { resetTwoFactor } from "./two-factor";
 
 /**
  * The recovery file: a single, self-sufficient bootstrap seed held by the
@@ -199,6 +200,11 @@ export async function importRecoveryFile(file: RecoveryFile): Promise<{ source: 
 
     // 3. Re-encrypt every master-key secret under THIS install's env key.
     await reencryptAllSecrets(oldKey);
+    // TOTP secrets are encrypted with the OLD install's auth secret, which the
+    // recovery file doesn't carry: turn two-factor off for everyone so nobody
+    // is locked out. Accounts the policy requires it from set it up again at
+    // their next sign-in.
+    await resetTwoFactor();
 
     // 4. Refresh bookkeeping so the staleness check reflects THIS install.
     await prisma.setting

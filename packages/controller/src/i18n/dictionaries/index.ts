@@ -18,6 +18,7 @@ import * as components from "./components";
 import * as activity from "./activity";
 import * as apitokens from "./apitokens";
 import * as messages from "./messages";
+import * as twofactor from "./twofactor";
 
 export const dictionaries = {
   en: {
@@ -38,6 +39,7 @@ export const dictionaries = {
     activity: activity.en,
     apitokens: apitokens.en,
     messages: messages.en,
+    twofactor: twofactor.en,
   },
   fr: {
     common: common.fr,
@@ -57,6 +59,7 @@ export const dictionaries = {
     activity: activity.fr,
     apitokens: apitokens.fr,
     messages: messages.fr,
+    twofactor: twofactor.fr,
   },
 };
 

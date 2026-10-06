@@ -88,8 +88,20 @@ export default async function SettingsPage() {
     createdAt: formatDateTime(tok.createdAt, tz),
   }));
 
+  // Two-factor policy, and how many accounts don't use it yet.
+  const [usersTotal, usersWithout2fa] = await Promise.all([
+    prisma.user.count(),
+    prisma.user.count({ where: { twoFactorEnabled: false } }),
+  ]);
+  const twoFactor = {
+    policy: (["optional", "admins", "everyone"] as const).find((p) => p === setting?.twoFactorPolicy) ?? "optional",
+    total: usersTotal,
+    without: usersWithout2fa,
+  };
+
   return (
     <SettingsView
+      twoFactor={twoFactor}
       tz={tz}
       alertWebhookUrl={setting?.alertWebhookUrl ?? ""}
       requireEmailVerification={setting?.requireEmailVerification ?? false}

@@ -52,6 +52,8 @@ export function LoginForm({
       const signUpBody = { email, password, name, firstName, lastName };
       const res = await (needsSetup ? authClient.signUp.email(signUpBody) : authClient.signIn.email({ email, password }));
       if (res.error) setError(authErrorText(res.error, t, "auth.authFailed"));
+      // A second factor is due: the auth client is already on its way to /two-factor.
+      else if (res.data && "twoFactorRedirect" in res.data) return;
       else router.push("/");
     } catch (err) {
       setError((err as Error).message);

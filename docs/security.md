@@ -55,5 +55,12 @@ can't use, as a convenience). Invitation links are **single-use**, **expire afte
 shown once and never persisted. The last admin can't be demoted or removed. Full details:
 [Accounts & roles](accounts.md).
 
+**Two-factor authentication** (authenticator app + single-use backup codes) can be turned on
+per account and required by an admin for admins or for everyone. It is enforced after a
+password sign-in **and after a GitHub / Google / GitLab sign-in** (no session exists until the
+code is checked), wrong codes are rate-limited and lock the account for a while, and a code
+can't be replayed. TOTP secrets are encrypted with `BETTER_AUTH_SECRET`; backup codes are stored
+encrypted too. See [Accounts & roles](accounts.md#two-factor-authentication).
+
 Email-bearing flows (password reset, verification, emailed invites) require SMTP; the SMTP
 password is encrypted at rest like every other secret. See [Email](email.md).

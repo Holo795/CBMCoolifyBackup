@@ -112,6 +112,9 @@ needs to actually come back to life isn't covered. CBM backs up the whole resour
   invitation links (copy‑paste or emailed). Operators run backups/restores; only admins
   configure instances, destinations, schedules, and settings — enforced server‑side, with the
   UI hiding what a role can't use.
+- **Two-factor authentication.** Authenticator app + backup codes, asked after a password
+  **and** after GitHub / Google / GitLab sign-in; admins can require it for admins or everyone,
+  and reset it for someone who lost their phone.
 - **Email (SMTP).** Optional self‑service **password reset** and **account verification**;
   configured from Settings (or env), with a built‑in test that verifies the connection.
 - **MCP server.** An [MCP](https://modelcontextprotocol.io) server lets any AI agent (Claude
@@ -259,6 +262,8 @@ Being upfront so you don't lose data by surprise.
   once and stored only as a hash.
 - **Role‑based access** (admin / operator / viewer) is enforced on every mutating action
   server‑side; invitation links are single‑use, expiring, and stored only as a sha256 hash.
+- Optional or required **two-factor authentication** (TOTP + backup codes), including after
+  social sign-in.
 - The Docker socket grants root‑equivalent access — agents run trusted on each host.
 
 More in [docs/security.md](docs/security.md).

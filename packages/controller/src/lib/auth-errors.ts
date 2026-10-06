@@ -19,6 +19,12 @@ const KNOWN = new Set([
   "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL",
   "INVALID_TOKEN",
   "TOKEN_EXPIRED",
+  // Two-factor plugin
+  "INVALID_CODE",
+  "INVALID_BACKUP_CODE",
+  "INVALID_TWO_FACTOR_COOKIE",
+  "ACCOUNT_TEMPORARILY_LOCKED",
+  "TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE",
 ]);
 
 export type AuthErrorLike = { code?: string; message?: string; status?: number } | null | undefined;

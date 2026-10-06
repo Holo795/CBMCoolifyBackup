@@ -6,6 +6,7 @@ import { authClient } from "@/lib/auth-client";
 import { authErrorText } from "@/lib/auth-errors";
 import { useT } from "@/components/i18n-provider";
 import { claimInvitation } from "@/app/actions";
+import type { OAuthProvider } from "@/lib/auth";
 import { AcceptInviteFormView } from "./accept-form.view";
 
 /**
@@ -13,7 +14,18 @@ import { AcceptInviteFormView } from "./accept-form.view";
  * registration gate open for this email), then sign up. Markup lives in
  * ./accept-form.view.tsx.
  */
-export function AcceptInviteForm({ token, email, role }: { token: string; email: string; role: string }) {
+export function AcceptInviteForm({
+  token,
+  email,
+  role,
+  providers,
+}: {
+  token: string;
+  email: string;
+  role: string;
+  /** Social providers the invitee can sign up with instead of a password. */
+  providers: OAuthProvider[];
+}) {
   const t = useT();
   const router = useRouter();
   const [password, setPassword] = useState("");
@@ -49,8 +61,19 @@ export function AcceptInviteForm({ token, email, role }: { token: string; email:
     }
   }
 
+  // Social sign-up: claim the invite first (the registration gate needs it),
+  // then hand over to the provider; it must return this invite's email.
+  async function onProvider(provider: OAuthProvider) {
+    setError(null);
+    const claim = await claimInvitation(token);
+    if (claim.error) return setError(claim.error);
+    await authClient.signIn.social({ provider, callbackURL: "/" });
+  }
+
   return (
     <AcceptInviteFormView
+      providers={providers}
+      onProvider={onProvider}
       email={email}
       role={role}
       password={password}

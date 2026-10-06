@@ -23,11 +23,31 @@ model User {
   emailVerified Boolean   @default(false)
   image         String?
   role          String    @default("admin")
+  // Set by Better Auth's two-factor plugin once a TOTP app is verified.
+  twoFactorEnabled Boolean @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   sessions      Session[]
   accounts      Account[]
   apiTokens     ApiToken[]
+  twoFactors    TwoFactor[]
+}
+
+// Better Auth two-factor plugin: the TOTP secret (encrypted with the auth
+// secret) and the hashed/encrypted backup codes of one user, plus its lockout
+// counters after repeated wrong codes.
+model TwoFactor {
+  id                      String    @id
+  secret                  String
+  backupCodes             String
+  userId                  String
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verified                Boolean   @default(true)
+  failedVerificationCount Int       @default(0)
+  lockedUntil             DateTime?
+
+  @@index([secret])
+  @@index([userId])
 }
 
 model Session {
@@ -413,6 +433,9 @@ model Setting {
   // snapshot is restored into an agent-side sandbox to prove it's restorable.
   // Opt-in (drills use CPU/disk on the agent hosts).
   drillsEnabled           Boolean   @default(false)
+  // Two-factor sign-in requirement: "optional" (each user's choice), "admins"
+  // (required for admin accounts) or "everyone".
+  twoFactorPolicy          String    @default("optional")
   updatedAt DateTime @updatedAt
 }
 

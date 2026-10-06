@@ -32,6 +32,7 @@ import {
   Bug,
   Archive,
   Users,
+  ShieldCheck,
 } from "lucide-react";
 import { navFor } from "@/components/nav";
 import { useT, useLocale } from "@/components/i18n-provider";
@@ -107,6 +108,15 @@ const staticEntries = (t: T, isAdmin: boolean): Entry[] => [
     keywords: ["profile", "account", "name", "password", "email", "credentials", "profil", "compte", "mot de passe"],
     icon: User,
   },
+  {
+    id: "profile:two-factor",
+    label: t("twofactor.cardTitle"),
+    sub: t("common.profile"),
+    href: "/profile#two-factor",
+    group: "Pages",
+    keywords: ["2fa", "mfa", "totp", "otp", "authenticator", "two-factor", "backup codes", "double authentification", "codes de secours"],
+    icon: ShieldCheck,
+  },
   ...(isAdmin
     ? [
         {
@@ -177,6 +187,13 @@ const staticEntries = (t: T, isAdmin: boolean): Entry[] => [
           t("settings.drillsTitle"),
           ["drill", "test restore", "verify backup", "sandbox", "test de restauration", "vérifier"],
           FlaskConical,
+        ),
+        settingsEntry(
+          t,
+          "two-factor",
+          t("twofactor.policyTitle"),
+          ["2fa", "mfa", "totp", "two-factor", "policy", "require", "security", "double authentification", "sécurité", "obligatoire"],
+          ShieldCheck,
         ),
         settingsEntry(
           t,

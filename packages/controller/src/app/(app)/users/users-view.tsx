@@ -3,11 +3,11 @@ import { Badge, List, ListItem, Section } from "@/components/ui";
 import { ActionButton } from "@/components/action-button";
 import { revokeInvitation } from "@/app/actions";
 import { getT } from "@/lib/i18n";
-import { Mail, X } from "lucide-react";
+import { Mail, ShieldCheck, X } from "lucide-react";
 import { InviteButton, type PendingInvite } from "./invite-panel";
 import { UserRowActions } from "./user-row-actions";
 
-export type UserRow = { id: string; name: string; email: string; role: string };
+export type UserRow = { id: string; name: string; email: string; role: string; twoFactorEnabled: boolean };
 
 function initials(u: UserRow) {
   const src = (u.name || u.email).trim();
@@ -47,6 +47,11 @@ export async function UsersView({
                 <p className="flex items-center gap-2 truncate text-sm font-medium">
                   {u.name || u.email}
                   {u.id === meId && <Badge>{t("users.you")}</Badge>}
+                  {u.twoFactorEnabled && (
+                    <Badge tone="success">
+                      <ShieldCheck /> {t("twofactor.badge")}
+                    </Badge>
+                  )}
                 </p>
                 <p className="truncate text-xs text-muted-foreground">{u.email}</p>
               </div>
@@ -56,6 +61,7 @@ export async function UsersView({
                 role={u.role}
                 isSelf={u.id === meId}
                 isLastAdmin={lastAdmin(u)}
+                twoFactorEnabled={u.twoFactorEnabled}
               />
             </ListItem>
           ))}

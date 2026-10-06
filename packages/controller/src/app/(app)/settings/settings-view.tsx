@@ -8,6 +8,7 @@ import { RecoveryFilePanel } from "@/components/recovery-file-panel";
 import { ApiTokens, CreateApiTokenButton, type ApiTokenRow } from "@/components/api-tokens";
 import { DrillsToggle } from "@/components/drills-toggle";
 import { SectionNav } from "@/components/section-nav";
+import { TwoFactorPolicyForm } from "@/components/two-factor-policy";
 import { CheckCircle2, Circle, AlertTriangle } from "lucide-react";
 import { getT, type T } from "@/lib/i18n";
 
@@ -23,6 +24,7 @@ export async function SettingsView({
   recoveryFile,
   drillsEnabled,
   apiTokens,
+  twoFactor,
 }: {
   tz: string;
   alertWebhookUrl: string;
@@ -34,6 +36,7 @@ export async function SettingsView({
   recoveryFile: { generation: number; at: string | null; stale: boolean; staleReason: string | null; hasSelfBackup: boolean };
   drillsEnabled: boolean;
   apiTokens: ApiTokenRow[];
+  twoFactor: { policy: "optional" | "admins" | "everyone"; total: number; without: number };
 }) {
   const t = await getT();
   const sections = [
@@ -42,6 +45,7 @@ export async function SettingsView({
     { id: "email", label: t("settings.emailTitle") },
     { id: "disaster-recovery", label: t("settings.drTitle") },
     { id: "restore-drills", label: t("settings.drillsTitle") },
+    { id: "two-factor", label: t("twofactor.policyTitle") },
     { id: "api-tokens", label: t("settings.apiTokensTitle") },
   ];
 
@@ -126,6 +130,16 @@ export async function SettingsView({
             </CardHeader>
             <CardContent>
               <DrillsToggle enabled={drillsEnabled} />
+            </CardContent>
+          </Card>
+
+          <Card id="two-factor" className="scroll-mt-8">
+            <CardHeader>
+              <CardTitle>{t("twofactor.policyTitle")}</CardTitle>
+              <CardDescription>{t("twofactor.policyDesc")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TwoFactorPolicyForm {...twoFactor} />
             </CardContent>
           </Card>
 

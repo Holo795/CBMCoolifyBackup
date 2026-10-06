@@ -2,11 +2,13 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { isPasswordCompromised } from "better-auth/plugins/haveibeenpwned";
+import { twoFactor } from "better-auth/plugins/two-factor";
 import { prisma } from "./prisma";
 import { env } from "./env";
 import { sendMail } from "./email";
 import { decideInviteSignup } from "./invitations";
 import { PASSWORD_BREACHED, REGISTRATION_CLOSED } from "./auth-errors";
+import { oauthTwoFactorGate, TRUST_DEVICE_MAX_AGE, CHALLENGE_MAX_AGE } from "./two-factor";
 
 const socialProviders: Record<string, { clientId: string; clientSecret: string; issuer?: string }> = {};
 if (env.oauth.githubClientId && env.oauth.githubClientSecret) {
@@ -49,6 +51,8 @@ async function passwordBreached(password: string): Promise<boolean> {
 }
 
 export const auth = betterAuth({
+  // Shown as the issuer in authenticator apps.
+  appName: "CBM",
   database: prismaAdapter(prisma, { provider: "postgresql" }),
   secret: env.authSecret,
   baseURL: env.authUrl,
@@ -127,9 +131,25 @@ export const auth = betterAuth({
     },
   },
   socialProviders,
+  plugins: [
+    // Two-factor sign-in: an authenticator app (TOTP) plus single-use backup
+    // codes. allowPasswordless lets an account that only signs in with GitHub /
+    // Google / GitLab set it up too. The challenge after a social sign-in and
+    // the admin policy live in lib/two-factor.ts.
+    twoFactor({
+      issuer: "CBM",
+      allowPasswordless: true,
+      trustDeviceMaxAge: TRUST_DEVICE_MAX_AGE,
+      twoFactorCookieMaxAge: CHALLENGE_MAX_AGE,
+      // Encrypted like the TOTP secret, so they never sit readable in the database
+      // or the metadata self-backup (the plugin's current default; kept explicit).
+      backupCodeOptions: { storeBackupCodes: "encrypted" },
+    }),
+  ],
   // localhost:3000 is the dev server; in production only the configured URL.
   trustedOrigins: env.isProd ? [env.authUrl] : [env.authUrl, "http://localhost:3000"],
   hooks: {
+    after: oauthTwoFactorGate,
     before: createAuthMiddleware(async (ctx) => {
       if (!env.passwordBreachCheck || !NEW_PASSWORD_PATHS.has(ctx.path)) return;
       const body = ctx.body as { password?: unknown; newPassword?: unknown } | undefined;
