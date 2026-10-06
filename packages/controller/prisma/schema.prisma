@@ -220,6 +220,7 @@ model Resource {
   volumes       String[]      @default([])
   policies     BackupPolicy[]
   snapshots    Snapshot[]
+  usage        ResourceUsage[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -266,6 +267,8 @@ model Destination {
   updatedAt       DateTime      @updatedAt
   policies        BackupPolicy[]
   snapshots       Snapshot[]
+  repoUsage       RepoUsage[]
+  resourceUsage   ResourceUsage[]
 }
 
 model BackupPolicy {
@@ -497,4 +500,31 @@ model RestoreDrill {
 model SchedulerState {
   id         String @id @default("global")
   lastMinute Int
+}
+
+// restic: bytes a repository really stores (deduplicated, compressed), measured
+// by the daily reconciliation. `scope` is the agent whose host holds the repo
+// for a "local" destination (one repo per host), "" for ssh/s3 (one repo).
+model RepoUsage {
+  destinationId String
+  destination   Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+  scope         String
+  bytes         BigInt
+  measuredAt    DateTime    @default(now())
+
+  @@id([destinationId, scope])
+}
+
+// restic: what a resource's snapshots really use in a destination's repository
+// (data shared with other resources counts for each).
+model ResourceUsage {
+  resourceId    String
+  resource      Resource    @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  destinationId String
+  destination   Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+  bytes         BigInt
+  measuredAt    DateTime    @default(now())
+
+  @@id([resourceId, destinationId])
+  @@index([destinationId])
 }

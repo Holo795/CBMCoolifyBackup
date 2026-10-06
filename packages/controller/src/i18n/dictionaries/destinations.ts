@@ -1,7 +1,11 @@
 // destinations — translations.
 export const en = {
   title: "Destinations",
-  subtitle: "Where backups are stored - local, SSH/SFTP, or S3 · {size} stored across all destinations",
+  subtitle: "Where backups are stored - local, SSH/SFTP, or S3 · {size} on disk across all destinations",
+  usage: {
+    onDisk: "on disk · {logical} backed up (identical data stored once) · measured {when}",
+    logical: "backed up (logical size) · space on disk measured by the next check",
+  },
   open: "Open destination",
   checking: "Checking…",
   reachable: "Reachable ✓",
@@ -109,6 +113,7 @@ export const en = {
   detail: {
     subtitle: "{type} · {size} across {count} resources",
     subtitleOne: "{type} · {size} across {count} resource",
+    subtitleDisk: "{type} · {size} on disk for {count} resource(s) · {logical} backed up - identical data is stored once, and a resource counts the data it shares with others.",
     missing: {
       one: "backup can no longer be found at this destination (files deleted at rest). It is flagged",
       many: "backups can no longer be found at this destination (files deleted at rest). They are flagged",
@@ -191,7 +196,11 @@ export const en = {
 
 export const fr: typeof en = {
   title: "Destinations",
-  subtitle: "Où sont stockées les sauvegardes - local, SSH/SFTP ou S3 · {size} stockés sur l'ensemble des destinations",
+  subtitle: "Où sont stockées les sauvegardes - local, SSH/SFTP ou S3 · {size} sur disque sur l'ensemble des destinations",
+  usage: {
+    onDisk: "sur disque · {logical} sauvegardés (données identiques stockées une fois) · mesuré {when}",
+    logical: "sauvegardés (taille logique) · place sur disque mesurée à la prochaine vérification",
+  },
   open: "Ouvrir la destination",
   checking: "Vérification…",
   reachable: "Joignable ✓",
@@ -298,6 +307,7 @@ export const fr: typeof en = {
   deletedResource: "(ressource supprimée)",
   detail: {
     subtitle: "{type} · {size} répartis sur {count} ressources",
+    subtitleDisk: "{type} · {size} sur disque pour {count} ressource(s) · {logical} sauvegardés - les données identiques ne sont stockées qu'une fois, et une ressource compte les données qu'elle partage avec d'autres.",
     subtitleOne: "{type} · {size} sur {count} ressource",
     missing: {
       one: "sauvegarde est introuvable sur cette destination (fichiers supprimés au repos). Elle est signalée",

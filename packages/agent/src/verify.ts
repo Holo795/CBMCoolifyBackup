@@ -4,11 +4,17 @@ import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeTransfer } from "./transfer.js";
-import { resticListSnapshotIds, resticCheck, withResticCtx } from "./restic.js";
+import { resticListSnapshotIds, resticCheck, resticRawSize, withResticCtx } from "./restic.js";
 import { sha256File, decryptFile } from "./crypto.js";
 import type { Emit } from "./backup.js";
 
-type VerifyResult = { present: string[]; missing: string[]; corrupt: string[]; integrityError?: string };
+type VerifyResult = {
+  present: string[];
+  missing: string[];
+  corrupt: string[];
+  integrityError?: string;
+  usage?: { repoBytes: number; byTag: Record<string, number> };
+};
 
 /** One stored artifact as recorded in the manifest. */
 type ManifestArtifact = { filename: string; sha256?: string; encrypted?: boolean };
@@ -47,7 +53,18 @@ export async function runVerifyDestination(job: VerifyDestinationJob, emit: Emit
       } else {
         emit("info", `Reconciliation done: ${present.length} present, ${missing.length} missing`, 100);
       }
-      return { present, missing, corrupt, integrityError };
+      // Real size on disk (deduplicated): best-effort, never fails the check.
+      let usage: VerifyResult["usage"];
+      if (job.usageTags) {
+        try {
+          const byTag: Record<string, number> = {};
+          for (const uuid of job.usageTags) byTag[uuid] = await resticRawSize(ctx, `res:${uuid}`);
+          usage = { repoBytes: await resticRawSize(ctx), byTag };
+        } catch (e) {
+          emit("warn", `Could not measure the space used: ${(e as Error).message}`);
+        }
+      }
+      return { present, missing, corrupt, integrityError, usage };
     });
   }
 

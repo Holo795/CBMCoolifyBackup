@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile, realpath, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { docker } from "../src/docker.js";
-import { resticContext, resticEnsureRepo, resticForget, resticListSnapshotIds, setResticBin } from "../src/restic.js";
+import { resticContext, resticEnsureRepo, resticForget, resticListSnapshotIds, resticRawSize, setResticBin } from "../src/restic.js";
 import { resticBackupPath, resticCountPath, resticRestorePath, resticTarPath, snapshotPath } from "../src/restic-helper.js";
 
 const DOCKER = process.env.CBM_DOCKER_TESTS === "1";
@@ -53,6 +53,13 @@ test("restic in place: incremental passes, read-back, restore and tar copy", { s
     assert.equal(second.filesNew, 1, "only the new file is new");
     assert.equal(second.filesUnmodified, 2, "unchanged files aren't read again");
     assert.ok(second.added < 100_000, `small increment (${second.added})`);
+
+    // Real size: the two snapshots share big.bin, stored once.
+    const repoBytes = await resticRawSize(ctx);
+    const tagged = await resticRawSize(ctx, "snap:t1");
+    assert.ok(tagged > 5_000_000 && tagged < 7_000_000, `deduplicated (${tagged})`);
+    assert.ok(repoBytes >= tagged);
+    assert.equal(await resticRawSize(ctx, "res:none"), 0);
 
     // Read back end to end: ., sub, sub/a.txt, sub/b.txt, big.bin, link (+ the root)
     assert.ok((await resticCountPath(ctx, work, second.id, path)) >= 5);

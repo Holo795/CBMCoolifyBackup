@@ -6,6 +6,7 @@ import type { DayVolume } from "@/lib/storage-stats";
 /** Presentation only: the overview storage card. Scaling is derived in ./index.tsx. */
 export async function StorageTrendsView({
   total,
+  logicalTotal,
   windowTotal,
   daily,
   maxDaily,
@@ -13,10 +14,11 @@ export async function StorageTrendsView({
   maxDest,
 }: {
   total: number;
+  logicalTotal: number;
   windowTotal: number;
   daily: DayVolume[];
   maxDaily: number;
-  destinations: Array<{ id: string; name: string; type: string; engine: string; bytes: number; count: number }>;
+  destinations: Array<{ id: string; name: string; type: string; engine: string; bytes: number; logical: number; measured: boolean; count: number }>;
   maxDest: number;
 }) {
   const t = await getT();
@@ -36,6 +38,11 @@ export async function StorageTrendsView({
           <div>
             <div className="tabular text-2xl font-semibold tracking-tight">{formatBytes(total)}</div>
             <div className="mt-1 text-xs text-muted-foreground">{t("overview.storageTotal")}</div>
+            {logicalTotal > total && (
+              <div className="mt-0.5 text-xs text-subtle-foreground">
+                {t("overview.storageLogical", { size: formatBytes(logicalTotal) })}
+              </div>
+            )}
           </div>
           <div>
             <div className="tabular text-2xl font-semibold tracking-tight">{formatBytes(windowTotal)}</div>
@@ -91,6 +98,13 @@ export async function StorageTrendsView({
                           style={{ width: `${maxDest > 0 ? Math.max((d.bytes / maxDest) * 100, d.bytes > 0 ? 2 : 0) : 0}%` }}
                         />
                       </div>
+                      {d.engine === "restic" && (
+                        <p className="mt-1 text-xs text-subtle-foreground">
+                          {d.measured
+                            ? t("overview.storageDeduped", { size: formatBytes(d.logical) })
+                            : t("overview.storageUnmeasured")}
+                        </p>
+                      )}
                     </li>
                   ))}
                 </ul>

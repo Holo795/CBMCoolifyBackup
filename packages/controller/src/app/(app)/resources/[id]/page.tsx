@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { resourceUsage } from "@/lib/storage-usage";
 import { prisma } from "@/lib/prisma";
 import { liveAgentWhere } from "@/lib/agent-status";
 import { effectivePolicy } from "@/lib/schedule";
@@ -14,7 +15,7 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
   const resource = await prisma.resource.findUnique({ where: { id }, include: { instance: { omit: INSTANCE_SECRETS } } });
   if (!resource) notFound();
 
-  const [destinations, override, snapshots, eff] = await Promise.all([
+  const [destinations, override, snapshots, eff, usage] = await Promise.all([
     prisma.destination.findMany({ orderBy: { name: "asc" }, omit: DESTINATION_SECRETS }),
     prisma.backupPolicy.findFirst({ where: { resourceId: id }, include: { destination: { omit: DESTINATION_SECRETS } } }),
     prisma.snapshot.findMany({
@@ -24,6 +25,7 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
       include: { destination: { omit: DESTINATION_SECRETS }, _count: { select: { mirrors: true } } },
     }),
     effectivePolicy(id),
+    resourceUsage(id),
   ]);
 
   // Backups/restores need a live agent on this resource's instance.
@@ -48,6 +50,7 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
       removed={removed}
       tz={tz}
       isAdmin={isAdmin}
+      usage={usage}
     />
   );
 }

@@ -289,6 +289,21 @@ export async function resticCheck(ctx: ResticCtx, readDataSubset?: string): Prom
   return { ok: r.code === 0, detail: r.code === 0 ? "no errors" : detail || "restic check failed" };
 }
 
+/**
+ * Bytes the repository really stores for its snapshots (deduplicated and
+ * compressed: `restic stats --mode raw-data`) - all of them, or those tagged
+ * `tag`. Data shared by several snapshots counts once.
+ */
+export async function resticRawSize(ctx: ResticCtx, tag?: string): Promise<number> {
+  const args = ["stats", "--mode", "raw-data", "--json", "--no-lock", ...(tag ? ["--tag", tag, "--host", "cbm"] : [])];
+  const r = await restic(ctx, args);
+  if (r.code !== 0) throw new Error(`restic stats failed: ${r.stderr.slice(0, 300)}`);
+  const line = r.stdout.trim().split("\n").reverse().find((l) => l.trim().startsWith("{"));
+  const size = line ? Number((JSON.parse(line) as { total_size?: number }).total_size ?? 0) : NaN;
+  if (!Number.isFinite(size)) throw new Error("restic stats reported no size");
+  return size;
+}
+
 /** List all snapshot ids currently in the repo (full + short ids). */
 export async function resticListSnapshotIds(ctx: ResticCtx): Promise<Set<string>> {
   const r = await restic(ctx, ["snapshots", "--no-lock", "--json"]);

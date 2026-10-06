@@ -35,6 +35,7 @@ import { HooksForm } from "@/components/hooks-form";
 import { setResourceSchedule, removeResourceOverride, backupNow, updateResourceExcludes } from "@/app/actions";
 import { ActionForm } from "@/components/action-form";
 import { snapshotDeleteItems } from "@/components/snapshot-delete";
+import type { Usage } from "@/lib/storage-usage";
 import { ActionsMenu } from "@/components/actions-menu";
 import { RestoreActions } from "@/components/restore-actions";
 import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
@@ -64,6 +65,7 @@ export async function ResourceDetailView({
   removed,
   tz,
   isAdmin,
+  usage,
 }: {
   resource: ResourceRow;
   destinations: PublicDestination[];
@@ -75,6 +77,8 @@ export async function ResourceDetailView({
   tz: string;
   /** Hook commands are admin-only: not even serialized for other roles. */
   isAdmin: boolean;
+  /** Logical size of the backups and what they really take (see lib/storage-usage). */
+  usage: Usage;
 }) {
   const t = await getT();
   // Coolify's own control plane can only be restored in place, never "→ new".
@@ -87,9 +91,7 @@ export async function ResourceDetailView({
         ? t("resources.scheduleFromInstance", { name: resource.instance.name })
         : null;
   const active = override ?? (inheritedFrom ? eff.policy : null);
-  const succeeded = snapshots.filter((s) => s.status === "succeeded");
   const last = snapshots[0];
-  const stored = succeeded.reduce((n, s) => n + Number(s.sizeBytes), 0);
   const deleteItems = (s: SnapshotRow) =>
     snapshotDeleteItems(
       t,
@@ -177,8 +179,14 @@ export async function ResourceDetailView({
         <Stat
           label={t("resources.storedTotal")}
           icon={<HardDrive />}
-          value={formatBytes(stored)}
-          hint={t("resources.storedHint", { count: succeeded.length })}
+          value={formatBytes(usage.disk ?? usage.logical)}
+          hint={
+            usage.disk == null
+              ? t("resources.storedLogical", { count: usage.snapshots })
+              : usage.disk < usage.logical
+                ? t("resources.storedDeduped", { logical: formatBytes(usage.logical), count: usage.snapshots })
+                : t("resources.storedHint", { count: usage.snapshots })
+          }
           className="[&_.tabular]:text-xl"
         />
       </div>

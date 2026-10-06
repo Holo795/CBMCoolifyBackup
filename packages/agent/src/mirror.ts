@@ -72,7 +72,7 @@ export async function runMirror(
       await writeFile(join(outDir, MANIFEST_FILE), JSON.stringify(manifest, null, 2));
       const id = await withResticCtx(job.target, job.targetStorage.resticPassword, async (ctx) => {
         await resticEnsureRepo(ctx);
-        return resticBackupDir(ctx, outDir, [`mirror:${job.id}`]);
+        return resticBackupDir(ctx, outDir, [`mirror:${job.id}`, `res:${job.manifest.resource.coolifyUuid}`]);
       });
       manifest.resticSnapshotId = id;
       emit("info", "Mirror complete (restic)", 100);

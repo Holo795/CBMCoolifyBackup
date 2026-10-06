@@ -13,6 +13,9 @@ only find out at restore time. Reconciliation closes that gap.
   **Verify** in the destination card's **…** menu (operators; disabled when the destination has
   no backups yet).
 - **Self-healing:** if a previously-missing backup reappears, it flips back to *succeeded*.
+- **Space on disk (restic):** the same pass measures what the repository really stores, in total
+  and per resource, so pages show the space taken on disk rather than the sum of the snapshots
+  (see [Destinations](destinations.md#restic)).
 - **Routing:** for an SSH/S3 destination, any online agent runs the check; for a **local**
   destination, each producing agent checks its own files. If no agent can run it, the card shows
   *no agent to verify*.

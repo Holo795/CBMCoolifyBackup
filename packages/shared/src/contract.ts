@@ -340,6 +340,10 @@ export const VerifyDestinationJob = z.object({
   /** For the restic engine: the restic snapshot ids (main and parts) to confirm still exist. The
    * agent reports the present/missing sets using these ids as the keys. */
   resticSnapshotIds: z.array(z.string()).optional(),
+  /** For the restic engine: resources (Coolify uuids, tagged `res:<uuid>` on
+   * their snapshots) whose real size in the repository to measure, with the
+   * repository's own. Reported in the result's `usage`. */
+  usageTags: z.array(z.string()).optional(),
   /** Deep integrity check (not just presence): tar re-downloads each artifact and
    * compares its sha256 to the manifest; restic runs `restic check`. Expensive,
    * so it's opt-in per destination and scheduled less often than reconciliation. */
@@ -587,6 +591,12 @@ export const JobResult = z.object({
       /** Deep check: a repo-level integrity failure (restic `check`), which isn't
        * attributable to a single snapshot. */
       integrityError: z.string().optional(),
+      /** restic: bytes really stored (deduplicated, compressed) - the whole
+       * repository, and what each measured resource's snapshots use (data
+       * shared between resources counts for each). */
+      usage: z
+        .object({ repoBytes: z.number().nonnegative(), byTag: z.record(z.string(), z.number().nonnegative()).default({}) })
+        .optional(),
     })
     .optional(),
   /** For a restore-drill job: the per-artifact outcome. */

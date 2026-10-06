@@ -65,8 +65,12 @@ Over **SSH/SFTP**, restic uses an SSH connection built by the agent (key or pass
 jump host if configured). Password auth uses `sshpass`; the base path must already exist on the
 target.
 
-> The size shown on the destination page is the **logical** size of the artifacts, not the
-> deduplicated on-disk size of the restic repo.
+> **Sizes.** A restic repository stores identical data once, so it takes much less than the sum
+> of its snapshots. Every night, reconciliation measures what it really stores (`restic stats`):
+> the whole repository, and each resource's share (data a resource shares with others counts for
+> each). Pages then show the space **on disk** first and the size **backed up** (the sum of the
+> snapshots, before deduplication) beside it; until the first measurement, the backed-up size is
+> shown and labelled as such. A tar destination stores each snapshot whole: both are the same.
 
 ---
 

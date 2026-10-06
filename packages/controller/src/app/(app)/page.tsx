@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { repoUsageByDestination } from "@/lib/storage-usage";
 import { getTimezone } from "@/lib/settings";
 import { dailyVolume } from "@/lib/storage-stats";
 import type { StorageData } from "@/components/storage-trends";
@@ -46,17 +47,22 @@ export default async function OverviewPage() {
   ]);
 
   const destById = new Map(dests.map((d) => [d.id, d]));
+  // restic stores identical data once: its repositories count what they really take.
+  const repoUsage = await repoUsageByDestination();
+  const perDestination = byDest
+    .map((g) => {
+      const d = destById.get(g.destinationId);
+      if (!d) return null;
+      const logical = Number(g._sum.sizeBytes ?? 0n);
+      const disk = d.engine === "restic" ? repoUsage.get(d.id)?.bytes : logical;
+      return { id: d.id, name: d.name, type: d.type, engine: d.engine, bytes: disk ?? logical, logical, measured: disk != null, count: g._count._all };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
   const storage: StorageData = {
-    total: byDest.reduce((n, g) => n + Number(g._sum.sizeBytes ?? 0n), 0),
+    total: perDestination.reduce((n, d) => n + d.bytes, 0),
+    logicalTotal: perDestination.reduce((n, d) => n + d.logical, 0),
     daily: dailyVolume(windowRows, TREND_DAYS, tz, now),
-    perDestination: byDest
-      .map((g) => {
-        const d = destById.get(g.destinationId);
-        return d
-          ? { id: d.id, name: d.name, type: d.type, engine: d.engine, bytes: Number(g._sum.sizeBytes ?? 0n), count: g._count._all }
-          : null;
-      })
-      .filter((x): x is NonNullable<typeof x> => x !== null),
+    perDestination,
   };
 
   return (

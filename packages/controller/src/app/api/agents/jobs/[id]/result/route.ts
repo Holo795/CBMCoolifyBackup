@@ -234,7 +234,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   if (job.type === "verify-destination" && result.verify) {
-    const payload = job.payload as { destinationId?: string; engine?: string; isDeep?: boolean } | null;
+    const payload = job.payload as {
+      destinationId?: string;
+      engine?: string;
+      isDeep?: boolean;
+      usageScope?: string;
+      usageResources?: Record<string, string[]>;
+    } | null;
     const destinationId = payload?.destinationId;
     const isRestic = payload?.engine === "restic";
     const isDeep = !!payload?.isDeep;
@@ -288,6 +294,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           data: { status: "corrupt", lastCheckedAt: now },
         });
         if (newly.length) await notifyCorruptBackups(newly.map((s) => s.id)).catch(() => undefined);
+      }
+      // restic: what the repository - and each resource in it - really stores.
+      const usage = result.verify.usage;
+      if (usage) {
+        const scope = payload?.usageScope ?? "";
+        await prisma.repoUsage.upsert({
+          where: { destinationId_scope: { destinationId, scope } },
+          create: { destinationId, scope, bytes: BigInt(Math.round(usage.repoBytes)), measuredAt: now },
+          update: { bytes: BigInt(Math.round(usage.repoBytes)), measuredAt: now },
+        });
+        for (const [uuid, bytes] of Object.entries(usage.byTag)) {
+          for (const resourceId of payload?.usageResources?.[uuid] ?? []) {
+            await prisma.resourceUsage.upsert({
+              where: { resourceId_destinationId: { resourceId, destinationId } },
+              create: { resourceId, destinationId, bytes: BigInt(Math.round(bytes)), measuredAt: now },
+              update: { bytes: BigInt(Math.round(bytes)), measuredAt: now },
+            });
+          }
+        }
       }
       // Deep check: record the destination's integrity status + alert on failure
       // (restic's check is repo-level, not attributable to one snapshot).

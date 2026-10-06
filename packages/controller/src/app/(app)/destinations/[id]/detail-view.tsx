@@ -7,7 +7,8 @@ import { formatBytes } from "@/lib/cn";
 import { HardDrive, Lock, AlertTriangle, Server } from "lucide-react";
 
 export type ServerRow = { key: string; label: string; bytes: number; count: number };
-export type ResourceRow = { id: string; bytes: number; count: number; name: string; type?: string | null };
+/** `bytes`: on disk where measured (restic), else `logical`. */
+export type ResourceRow = { id: string; bytes: number; logical: number; count: number; name: string; type?: string | null };
 
 /** Presentation only: the destination-detail markup. Data is fetched in ./page.tsx. */
 export async function DestinationDetailView({
@@ -15,6 +16,7 @@ export async function DestinationDetailView({
   type,
   encryptionEnabled,
   total,
+  logicalTotal,
   missingCount,
   showByServer,
   serverRows,
@@ -24,6 +26,8 @@ export async function DestinationDetailView({
   type: string;
   encryptionEnabled: boolean;
   total: number;
+  /** restic, once measured: the logical size behind `total` (on disk). */
+  logicalTotal: number | null;
   missingCount: number;
   showByServer: boolean;
   serverRows: ServerRow[];
@@ -47,9 +51,11 @@ export async function DestinationDetailView({
           ) : undefined
         }
         description={
-          rows.length === 1
-            ? t("destinations.detail.subtitleOne", { type, size: formatBytes(total), count: rows.length })
-            : t("destinations.detail.subtitle", { type, size: formatBytes(total), count: rows.length })
+          logicalTotal != null
+            ? t("destinations.detail.subtitleDisk", { type, size: formatBytes(total), count: rows.length, logical: formatBytes(logicalTotal) })
+            : rows.length === 1
+              ? t("destinations.detail.subtitleOne", { type, size: formatBytes(total), count: rows.length })
+              : t("destinations.detail.subtitle", { type, size: formatBytes(total), count: rows.length })
         }
       />
 

@@ -2,11 +2,25 @@ import type { DayVolume } from "@/lib/storage-stats";
 import { StorageTrendsView } from "./view";
 
 export type StorageData = {
-  /** Bytes held by succeeded snapshots across every destination (mirrors included). */
+  /** Space taken on disk across every destination (mirrors included): measured
+   * for a restic repository, the snapshots' size elsewhere. */
   total: number;
+  /** The logical size behind `total` (each snapshot counted whole). */
+  logicalTotal: number;
   /** Per-day backed-up volume over the trend window (mirror copies excluded). */
   daily: DayVolume[];
-  perDestination: Array<{ id: string; name: string; type: string; engine: string; bytes: number; count: number }>;
+  /** `bytes` on disk as above; `logical` the snapshots' size; `measured`
+   * false for a restic repository not measured yet (then bytes = logical). */
+  perDestination: Array<{
+    id: string;
+    name: string;
+    type: string;
+    engine: string;
+    bytes: number;
+    logical: number;
+    measured: boolean;
+    count: number;
+  }>;
 };
 
 /**
@@ -21,6 +35,7 @@ export function StorageTrends({ data }: { data: StorageData }) {
   return (
     <StorageTrendsView
       total={data.total}
+      logicalTotal={data.logicalTotal}
       windowTotal={windowTotal}
       daily={data.daily}
       maxDaily={maxDaily}

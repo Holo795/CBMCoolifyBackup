@@ -20,7 +20,7 @@ import { parseProtectionDetail } from "@/lib/protection-check";
 import { protectionDetailText } from "@/lib/protection-text";
 import { getT } from "@/lib/i18n";
 import { can, requireUser } from "@/lib/session";
-import { formatBytes } from "@/lib/cn";
+import { formatBytes, timeAgo } from "@/lib/cn";
 import {
   Cloud,
   FolderOpen,
@@ -43,7 +43,14 @@ type DestinationRow = Prisma.DestinationGetPayload<{
   include: { _count: { select: { snapshots: true; policies: true } } };
 }>;
 
-export type DestinationItem = { dest: DestinationRow; bytes: bigint; missing: number };
+export type DestinationItem = {
+  dest: DestinationRow;
+  /** Logical size of its successful snapshots. */
+  bytes: bigint;
+  /** restic: what the repository really stores, once measured. */
+  disk: { bytes: number; measuredAt: Date } | null;
+  missing: number;
+};
 
 const TYPE_ICON = { local: FolderOpen, ssh: Server, s3: Cloud } as const;
 
@@ -78,7 +85,7 @@ export async function DestinationsView({ items, globalBytes }: { items: Destinat
         />
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
-          {items.map(({ dest: d, bytes, missing }) => {
+          {items.map(({ dest: d, bytes, disk, missing }) => {
             const Icon = TYPE_ICON[d.type as keyof typeof TYPE_ICON] ?? HardDrive;
             const empty = d._count.snapshots === 0;
             const menu: MenuAction[] = [
@@ -190,7 +197,14 @@ export async function DestinationsView({ items, globalBytes }: { items: Destinat
 
                 <div className="flex flex-1 flex-wrap items-end justify-between gap-3 px-5 pb-4">
                   <div>
-                    <div className="tabular text-2xl font-semibold tracking-tight">{formatBytes(bytes)}</div>
+                    <div className="tabular text-2xl font-semibold tracking-tight">{formatBytes(disk ? disk.bytes : bytes)}</div>
+                    {d.engine === "restic" && (
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        {disk
+                          ? t("destinations.usage.onDisk", { logical: formatBytes(bytes), when: timeAgo(disk.measuredAt, t) })
+                          : t("destinations.usage.logical")}
+                      </div>
+                    )}
                     <div className="mt-0.5 text-xs text-muted-foreground">
                       {d._count.snapshots} {t("destinations.word.snapshots")} · {d._count.policies}{" "}
                       {d._count.policies === 1 ? t("destinations.word.schedule") : t("destinations.word.schedules")}

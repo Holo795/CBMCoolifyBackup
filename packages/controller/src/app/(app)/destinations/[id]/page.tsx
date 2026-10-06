@@ -33,13 +33,23 @@ export default async function DestinationDetail({ params }: { params: Promise<{ 
     select: { id: true, hostname: true, serverName: true },
   });
   const agentById = new Map(agentRows.map((a) => [a.id, a]));
+  // restic stores identical data once: show what it really takes, once measured.
+  const isRestic = dest.engine === "restic";
+  const [resourceUsage, repoUsage] = isRestic
+    ? await Promise.all([
+        prisma.resourceUsage.findMany({ where: { destinationId: id } }),
+        prisma.repoUsage.findMany({ where: { destinationId: id } }),
+      ])
+    : [[], []];
+  const usageByResource = new Map(resourceUsage.map((u) => [u.resourceId, Number(u.bytes)]));
+  const usageByScope = new Map(repoUsage.map((u) => [u.scope, Number(u.bytes)]));
   const serverRows = serverGroups
     .map((g) => {
       const a = g.agentId ? agentById.get(g.agentId) : undefined;
       return {
         key: g.agentId ?? "unknown",
         label: a?.serverName ?? a?.hostname ?? t("destinations.unknownHost"),
-        bytes: Number(g._sum.sizeBytes ?? 0n),
+        bytes: usageByScope.get(g.agentId ?? "") ?? Number(g._sum.sizeBytes ?? 0n),
         count: g._count,
       };
     })
@@ -56,14 +66,17 @@ export default async function DestinationDetail({ params }: { params: Promise<{ 
   const rows = groups
     .map((g) => ({
       id: g.resourceId,
-      bytes: Number(g._sum.sizeBytes ?? 0n),
+      bytes: usageByResource.get(g.resourceId) ?? Number(g._sum.sizeBytes ?? 0n),
+      logical: Number(g._sum.sizeBytes ?? 0n),
       count: g._count,
       name: byId.get(g.resourceId)?.name ?? t("destinations.deletedResource"),
       type: byId.get(g.resourceId)?.type,
     }))
     .sort((a, b) => b.bytes - a.bytes);
 
-  const total = rows.reduce((acc, r) => acc + r.bytes, 0);
+  const logicalTotal = rows.reduce((acc, r) => acc + r.logical, 0);
+  // The repository as a whole (resources share data, so not the sum of rows).
+  const total = repoUsage.length ? [...usageByScope.values()].reduce((a, b) => a + b, 0) : logicalTotal;
 
   return (
     <DestinationDetailView
@@ -71,6 +84,7 @@ export default async function DestinationDetail({ params }: { params: Promise<{ 
       type={dest.type}
       encryptionEnabled={dest.encryptionEnabled}
       total={total}
+      logicalTotal={isRestic && repoUsage.length ? logicalTotal : null}
       missingCount={missingCount}
       showByServer={showByServer}
       serverRows={serverRows}

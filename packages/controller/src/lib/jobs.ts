@@ -1001,7 +1001,14 @@ export async function enqueueVerifyDestination(
       status: { in: ["succeeded", "missing", "corrupt"] },
       ...(isRestic ? { resticSnapshotId: { not: null } } : {}),
     },
-    select: { destinationDir: true, agentId: true, resticSnapshotId: true, resticPartIds: true },
+    select: {
+      destinationDir: true,
+      agentId: true,
+      resticSnapshotId: true,
+      resticPartIds: true,
+      resourceId: true,
+      resource: { select: { coolifyUuid: true } },
+    },
   });
   if (snaps.length === 0) return { queued: 0, reason: "empty" };
 
@@ -1048,6 +1055,8 @@ export async function enqueueVerifyDestination(
       resticSnapshotIds: isRestic
         ? groupSnaps.flatMap((s) => [s.resticSnapshotId, ...s.resticPartIds]).filter((x): x is string => !!x)
         : undefined,
+      // restic: measure what each resource really uses (snapshots tagged res:<uuid>).
+      usageTags: isRestic ? [...new Set(groupSnaps.map((s) => s.resource.coolifyUuid))] : undefined,
       deep,
       readDataSubset,
       decryptionKey,
@@ -1056,6 +1065,15 @@ export async function enqueueVerifyDestination(
       destinationId,
       engine: dest.engine,
       isDeep: deep,
+      // Where the measured usage belongs: the repo of this agent's host for a
+      // "local" destination, the one repo otherwise; and uuid -> resource rows.
+      usageScope: dest.type === "local" ? (key ?? "") : "",
+      usageResources: Object.fromEntries(
+        [...new Set(groupSnaps.map((s) => s.resource.coolifyUuid))].map((u) => [
+          u,
+          [...new Set(groupSnaps.filter((s) => s.resource.coolifyUuid === u).map((s) => s.resourceId))],
+        ]),
+      ),
     };
     await createAgentJob({ id: jobId, agentId: agent.id, type: "verify-destination", payload: job });
     queued++;
