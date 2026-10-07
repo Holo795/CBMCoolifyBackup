@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { restoreSnapshot } from "@/app/actions";
+import { restoreSnapshot, restoreVersions } from "@/app/actions";
+import type { ImageChoice } from "@/lib/image-pin";
 import { RestoreActionsView } from "./view";
 
 /**
@@ -39,6 +40,24 @@ export function RestoreActions({
   const [dialog, setDialog] = useState<"in_place" | "new_resource" | null>(null);
   const [targetId, setTargetId] = useState(currentInstanceId ?? "");
   const canPickTarget = (instances?.length ?? 0) > 1 && !!currentInstanceId;
+  // The image versions the restore would run, read when a dialog opens.
+  const [versions, setVersions] = useState<Awaited<ReturnType<typeof restoreVersions>> | null | "loading">(null);
+  const [imageChoice, setImageChoice] = useState<ImageChoice>("snapshot");
+  useEffect(() => {
+    if (!dialog) return;
+    let live = true;
+    setVersions("loading");
+    setImageChoice("snapshot");
+    restoreVersions(snapshotId)
+      .then((v) => live && setVersions(v))
+      .catch(() => live && setVersions(null));
+    return () => {
+      live = false;
+    };
+  }, [dialog, snapshotId]);
+  const v = versions && versions !== "loading" ? versions : null;
+  // In place, the choice only exists when the running version differs and CBM can put the snapshot's back.
+  const choiceOffered = dialog === "new_resource" ? !!v?.pinnable : !!(v?.mismatch && v.canRedeploy);
 
   const run = (target: "in_place" | "new_resource") => {
     if (!hasAgent || pending) return;
@@ -47,6 +66,7 @@ export function RestoreActions({
         snapshotId,
         target,
         target === "new_resource" && targetId && targetId !== currentInstanceId ? targetId : undefined,
+        choiceOffered ? imageChoice : undefined,
       );
       if (r?.error) {
         toast.error(r.error);
@@ -68,6 +88,10 @@ export function RestoreActions({
       onDialog={setDialog}
       onConfirm={run}
       picker={canPickTarget ? { instances: instances!, targetId, onTargetChange: setTargetId } : undefined}
+      versions={versions}
+      choiceOffered={choiceOffered}
+      imageChoice={imageChoice}
+      onImageChoice={setImageChoice}
     />
   );
 }

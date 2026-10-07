@@ -1,5 +1,5 @@
-import type { Provenance } from "@cbm/shared";
-import { inspectContainer, inspectImage } from "./docker.js";
+import { imageVersion, pickRepoDigest, type ImageProvenance, type Provenance } from "@cbm/shared";
+import { inspectContainer, inspectImage, type DockerInspect } from "./docker.js";
 
 /**
  * Capture git commit / image provenance for a resource by inspecting its
@@ -17,17 +17,13 @@ export async function captureProvenance(container: string): Promise<Provenance> 
   const labels: Record<string, string> = c.Config?.Labels ?? {};
   prov.gitCommitSha = findCommit(labels);
 
-  const imageName = imageRef ?? c.Image;
-  if (imageName) {
-    const img = await inspectImage(imageName);
-    if (img) {
-      // Prefer a pullable repo digest (name@sha256:…) over the local image id,
-      // so a "latest"/floating tag can be re-pinned to the exact deployed image.
-      const digest: string | undefined = (img.RepoDigests ?? [])[0];
-      prov.imageDigest = digest ?? img.Id;
-      if (!prov.gitCommitSha) {
-        prov.gitCommitSha = findCommit(img.Config?.Labels ?? {});
-      }
+  const img = await containerImage(c);
+  if (img) {
+    // Prefer a pullable repo digest (name@sha256:…) over the local image id,
+    // so a "latest"/floating tag can be re-pinned to the exact deployed image.
+    prov.imageDigest = pickRepoDigest(img.RepoDigests, imageRef) ?? img.Id;
+    if (!prov.gitCommitSha) {
+      prov.gitCommitSha = findCommit(img.Config?.Labels ?? {});
     }
   }
 
@@ -39,6 +35,38 @@ export async function captureProvenance(container: string): Promise<Provenance> 
     if (tag && /^[0-9a-f]{7,40}$/i.test(tag)) prov.gitCommitSha = tag;
   }
   return prov;
+}
+
+/**
+ * The image each container runs: as written, its digest, its local id and its
+ * version, so a restore can bring back exactly that version. Best effort: a
+ * container that can't be inspected is left out.
+ */
+export async function captureImages(containers: string[]): Promise<ImageProvenance[]> {
+  const out: ImageProvenance[] = [];
+  for (const name of containers.slice(0, 50)) {
+    const c = await inspectContainer(name).catch(() => null);
+    const ref = c?.Config?.Image;
+    if (!c || !ref) continue;
+    const img = await containerImage(c);
+    const service = c.Config?.Labels?.["com.docker.compose.service"];
+    out.push({
+      container: name,
+      ...(service ? { service } : {}),
+      ref,
+      digest: pickRepoDigest(img?.RepoDigests, ref),
+      id: img?.Id ?? c.Image,
+      version: imageVersion(img?.Config?.Labels, img?.RepoTags, ref),
+    });
+  }
+  return out;
+}
+
+/** The image the container actually runs: by id, since its tag ("latest") may
+ * point to a newer image pulled since it started. */
+async function containerImage(c: DockerInspect): Promise<DockerInspect | null> {
+  const byId = c.Image ? await inspectImage(c.Image).catch(() => null) : null;
+  return byId ?? (c.Config?.Image ? await inspectImage(c.Config.Image).catch(() => null) : null);
 }
 
 function findCommit(labels: Record<string, string>): string | undefined {

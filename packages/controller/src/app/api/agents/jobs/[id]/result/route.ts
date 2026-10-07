@@ -10,7 +10,7 @@ import {
   notifyIntegrityFailure,
   notifyDrillFailed,
 } from "@/lib/notify";
-import { enqueueMirror } from "@/lib/jobs";
+import { enqueueMirror, redeployOnSnapshotVersion } from "@/lib/jobs";
 import { scrubPayload } from "@/lib/scrub";
 import { removeSnapshots, settlePrune } from "@/lib/snapshot-removal";
 import { resticPartIds } from "@cbm/shared";
@@ -191,13 +191,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   if (job.type === "restore" && job.restoreId) {
+    let status = succeeded ? "succeeded" : "failed";
+    let error = result.error;
+    // The containers were left stopped: bring them back on the snapshot's version.
+    const p = job.payload as { target?: string; restart?: boolean } | null;
+    if (succeeded && p?.target === "in_place" && p.restart === false) {
+      try {
+        await redeployOnSnapshotVersion(job.restoreId, id);
+      } catch (e) {
+        status = "failed";
+        error = `Data restored, but the redeploy on the snapshot's version failed (${(e as Error).message}): the containers are stopped, deploy the resource from Coolify`;
+      }
+    }
     await prisma.restoreJob.update({
       where: { id: job.restoreId },
-      data: {
-        status: succeeded ? "succeeded" : "failed",
-        error: result.error,
-        finishedAt: new Date(),
-      },
+      data: { status, error, finishedAt: new Date() },
     });
   }
 

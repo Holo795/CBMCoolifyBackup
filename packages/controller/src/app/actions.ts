@@ -16,14 +16,15 @@ import { isRole, inviteExpiry } from "@/lib/invitations";
 import { encryptSecret, decryptSecret, generateAesKeyB64, randomToken, sha256Hex } from "@/lib/crypto";
 import { CoolifyClient } from "@/lib/coolify";
 import { syncInstance } from "@/lib/discovery";
-import { enqueueBackup, enqueueRestore, enqueuePrune, enqueueVerifyDestination, enqueueDrill, resolveDestination, groupSnapshotsForPrune } from "@/lib/jobs";
+import { canRedeployOnSnapshot, enqueueBackup, enqueueRestore, enqueuePrune, enqueueVerifyDestination, enqueueDrill, resolveDestination, groupSnapshotsForPrune } from "@/lib/jobs";
 import { freqToCron } from "@/lib/schedule";
 import { isValidCron } from "@/lib/cron";
 import { setTimezone, isValidTimezone } from "@/lib/settings";
 import { removeSnapshots } from "@/lib/snapshot-removal";
 import { resetTwoFactor, isTwoFactorPolicy } from "@/lib/two-factor";
 import { settingsFromForm } from "@/lib/agent-settings";
-import { MAX_EXCLUDES, excludeError, normalizeExcludes, normalizePrivateKey } from "@cbm/shared";
+import { MAX_EXCLUDES, excludeError, isFloatingImage, normalizeExcludes, normalizePrivateKey, type SnapshotManifest } from "@cbm/shared";
+import { snapshotImages, versionRows, type ImageChoice, type VersionRow } from "@/lib/image-pin";
 
 function s(fd: FormData, key: string): string {
   return (fd.get(key) ?? "").toString().trim();
@@ -1077,17 +1078,56 @@ export async function restoreSnapshot(
   target: "in_place" | "new_resource",
   /** Restore "→ new" onto a DIFFERENT connected Coolify (migration). */
   targetInstanceId?: string,
+  /** Image versions to run (see lib/image-pin). */
+  imageChoice?: ImageChoice,
 ): Promise<{ ok?: boolean; error?: string; detail?: string }> {
   await requireRole("operator");
   const t = await getT();
   try {
-    await enqueueRestore(snapshotId, target, targetInstanceId);
+    await enqueueRestore(
+      snapshotId,
+      target,
+      targetInstanceId,
+      imageChoice === "snapshot" || imageChoice === "current" ? imageChoice : undefined,
+    );
   } catch (e) {
     return { error: errorText(e, t) };
   }
   revalidatePath("/snapshots");
   revalidatePath(`/snapshots/${snapshotId}`);
   return { ok: true, detail: t(target === "in_place" ? "messages.restoreQueued" : "messages.restoreNewQueued") };
+}
+
+/** The image versions a restore of this snapshot would run, for its dialog. */
+export async function restoreVersions(snapshotId: string): Promise<{
+  rows: VersionRow[];
+  /** The git commit the snapshot ran (git applications). */
+  commit?: string;
+  /** "→ new": there is a version to pin (else no choice to offer). */
+  pinnable: boolean;
+  /** In place: a container runs another image than the snapshot's. */
+  mismatch: boolean;
+  /** In place: CBM can redeploy the resource on the snapshot's version. */
+  canRedeploy: boolean;
+}> {
+  await requireRole("operator");
+  const snapshot = await prisma.snapshot.findUniqueOrThrow({ where: { id: snapshotId }, include: { resource: true } });
+  const manifest = snapshot.manifest as unknown as SnapshotManifest | null;
+  const empty = { rows: [], pinnable: false, mismatch: false, canRedeploy: false };
+  if (!manifest) return empty;
+  const type = snapshot.resource.type;
+  const images = snapshotImages(manifest.provenance);
+  const sha = manifest.provenance?.gitCommitSha;
+  const isGit = type === "application" && !!sha && sha !== "HEAD" && manifest.capturedConfig?.raw?.build_pack !== "dockerimage";
+  if (type !== "service" && type !== "application") return empty;
+  const rows = versionRows(images, snapshot.resource.containers as Array<{ name: string; service?: string; imageId?: string }> | null);
+  return {
+    rows: isGit ? rows.map((r) => ({ ...r, version: sha.slice(0, 12), digest: undefined })) : rows,
+    commit: isGit ? sha : undefined,
+    pinnable: isGit || (type === "service" ? images.some((i) => i.digest) : images.some((i) => i.digest && isFloatingImage(i.ref))),
+    mismatch: rows.some((r) => r.running === "different"),
+    canRedeploy: canRedeployOnSnapshot(type, manifest),
+  };
 }
 
 /* ----------------------------- users & invitations ----------------------------- */

@@ -159,6 +159,7 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
       // in place: stop the resource, overwrite its volumes / drop the RDB, restart.
       const containers = resourceContainers(manifest.resource);
       const stopped: string[] = [];
+      let restored = false;
       try {
         for (const c of containers) {
           if (await containerExists(c)) {
@@ -198,7 +199,14 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
           emit("info", `Restoring ${d.meta.engine} snapshot into ${d.meta.volume}`, 72);
           await restoreRdbIntoVolume(d.meta.volume, localFiles[d.filename]);
         }
+        restored = true;
       } finally {
+        if (restored && job.restart === false && stopped.length > 0) {
+          // The controller redeploys them on the snapshot's image version: the
+          // version they ran must not start on the restored data first.
+          emit("info", `Leaving ${stopped.length} container(s) stopped: they are redeployed on the snapshot's version`);
+          stopped.length = 0;
+        }
         for (const c of stopped.reverse()) {
           emit("info", `Restarting ${c}`);
           await startContainer(c).catch((e) => emit("error", `Failed to restart ${c}: ${(e as Error).message}`));
@@ -209,7 +217,9 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
     // Service-internal logical dumps (in-place only): load each into its own
     // container after it's back up. Best-effort - the volume copy already
     // restored the data, so a failure here isn't fatal.
-    if (!isNew && serviceDumps.length > 0) {
+    if (!isNew && serviceDumps.length > 0 && job.restart === false) {
+      emit("info", `${serviceDumps.length} service-internal database dump(s) not loaded: the containers are redeployed first, their volumes hold the data.`);
+    } else if (!isNew && serviceDumps.length > 0) {
       for (const d of serviceDumps) {
         const container = d.meta.container as string;
         if (!(await containerExists(container))) {

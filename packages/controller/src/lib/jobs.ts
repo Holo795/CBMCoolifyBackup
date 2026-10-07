@@ -15,6 +15,7 @@ import {
   CONFIG_ONLY_CAPTURE,
   redactSecrets,
   normalizePrivateKey,
+  isFloatingImage,
 } from "@cbm/shared";
 import { randomUUID } from "node:crypto";
 import { prisma } from "./prisma";
@@ -24,6 +25,7 @@ import { CoolifyClient, GENERATED_SECRET, type AppVolume, type DbEngine, type Cl
 import { syncInstance } from "./discovery";
 import { remapEnv, type RemapChange } from "./remap";
 import { UserError } from "./user-error";
+import { composePicker, imageExists, pinCompose, resolveImages, snapshotImages, type ImageChoice } from "./image-pin";
 import type { Destination, Prisma } from "@/generated/prisma/client";
 import { version as CBM_VERSION } from "../../package.json";
 
@@ -283,7 +285,16 @@ async function cloneForRestore(
   /** Original → clone uuids of resources already restored onto the target, to
    * rewire this clone's env references (see lib/remap). */
   mapping: Record<string, string> = {},
-): Promise<{ descriptor: ResourceDescriptor; changes: RemapChange[]; volumeRenames?: Record<string, string> }> {
+  /** Run the image versions of the snapshot (default) or the references as written. */
+  imageChoice: ImageChoice = "snapshot",
+): Promise<{
+  descriptor: ResourceDescriptor;
+  changes: RemapChange[];
+  volumeRenames?: Record<string, string>;
+  /** What was pinned or couldn't be, for the restore log. */
+  notes: string[];
+}> {
+  const notes: string[] = [];
   const migrating = !!targetInstanceId && targetInstanceId !== resource.instanceId;
   const instance = await prisma.coolifyInstance.findUniqueOrThrow({
     where: { id: targetInstanceId ?? resource.instanceId },
@@ -352,7 +363,25 @@ async function cloneForRestore(
     });
     if (hasDump) await client.waitDatabaseRunning(newUuid);
   } else if (type === "application") {
-    const sha = manifest.provenance?.gitCommitSha;
+    const sha = imageChoice === "snapshot" ? manifest.provenance?.gitCommitSha : undefined;
+    // A floating tag (latest...) is pinned to the digest it ran - unless the
+    // operator chose the reference as written, or the registry dropped it.
+    let imageRef = manifest.provenance?.imageRef;
+    let imageDigest = manifest.provenance?.imageDigest;
+    if (imageRef && isFloatingImage(imageRef) && imageDigest?.includes("@sha256:")) {
+      if (imageChoice === "current") {
+        notes.push(`Image kept as written (${imageRef}): it may run a newer version than the data (${imageDigest})`);
+        imageDigest = undefined;
+      } else {
+        const version = snapshotImages(manifest.provenance).find((i) => i.digest === imageDigest)?.version;
+        const [r] = await resolveImages([{ ref: imageRef, digest: imageDigest, version }], imageExists);
+        if (r.note) notes.push(r.note);
+        if (r.use !== imageDigest) {
+          imageDigest = undefined;
+          imageRef = r.use;
+        }
+      }
+    }
     // Remap the captured git auth by NAME onto the target (numeric ids don't
     // travel); missing auth falls through to the public-endpoint path.
     let githubAppUuid: string | undefined;
@@ -370,8 +399,8 @@ async function cloneForRestore(
       projectName,
       environmentName,
       gitCommitSha: sha && sha !== "HEAD" ? sha : undefined,
-      imageRef: manifest.provenance?.imageRef,
-      imageDigest: manifest.provenance?.imageDigest,
+      imageRef,
+      imageDigest,
       src:
         cfg?.kind === "application"
           ? (cfg.raw as CoolifyRaw)
@@ -406,7 +435,7 @@ async function cloneForRestore(
       mapping,
     );
   } else if (type === "service") {
-    const src =
+    let src =
       cfg?.kind === "service"
         ? ({
             ...cfg.raw,
@@ -415,6 +444,22 @@ async function cloneForRestore(
         : migrating && srcClient
           ? await srcClient.getService(resource.coolifyUuid)
           : undefined;
+    // Each image: back to the exact version its container ran (the compose
+    // usually says "latest", which would pull a newer one onto older data).
+    const images = snapshotImages(manifest.provenance).filter((i) => i.digest);
+    if (images.length && imageChoice === "snapshot") {
+      src ??= await client.getService(resource.coolifyUuid);
+      const compose = src.docker_compose_raw ?? src.docker_compose ?? src.docker_compose_yaml;
+      if (compose) {
+        const resolved = await resolveImages(images, imageExists);
+        const pinned = pinCompose(String(compose), composePicker(resolved));
+        src = { ...src, docker_compose_raw: pinned.compose };
+        for (const c of pinned.changes) notes.push(`Image of ${c.service}: ${c.to} (written ${c.from})`);
+        for (const r of resolved) if (r.note) notes.push(r.note);
+      }
+    } else if (images.length) {
+      notes.push(`Images kept as written in the compose: they may run newer versions than the data`);
+    }
     newUuid = await client.cloneService({
       sourceUuid: resource.coolifyUuid,
       newName,
@@ -430,7 +475,7 @@ async function cloneForRestore(
 
   // Surface the new resource in the controller UI.
   await syncInstance(instance.id).catch(() => undefined);
-  return { descriptor: descriptor(newUuid), changes, volumeRenames };
+  return { descriptor: descriptor(newUuid), changes, volumeRenames, notes };
 }
 
 /** The volumes to create on a clone: same mounts, names without the original's
@@ -776,12 +821,63 @@ async function cloneMappingsFor(instanceId: string, excludeSourceUuid: string): 
   return map;
 }
 
+/** Whether an in-place restore can put the resource back on the snapshot's
+ * version: a service's images (compose) or a git application's commit. */
+export function canRedeployOnSnapshot(type: string, manifest: SnapshotManifest): boolean {
+  if (type === "service") return snapshotImages(manifest.provenance).some((i) => i.digest);
+  if (type === "application") {
+    const sha = manifest.provenance?.gitCommitSha;
+    return !!sha && sha !== "HEAD" && manifest.capturedConfig?.raw?.build_pack !== "dockerimage";
+  }
+  return false;
+}
+
+/**
+ * After an in-place restore that left the containers stopped (RestoreJob
+ * restart: false): pin the resource to the snapshot's version in Coolify and
+ * redeploy it. Throws when Coolify refuses; the caller marks the restore failed.
+ */
+export async function redeployOnSnapshotVersion(restoreId: string, jobId: string): Promise<void> {
+  const restore = await prisma.restoreJob.findUniqueOrThrow({
+    where: { id: restoreId },
+    include: { snapshot: { include: { resource: true } } },
+  });
+  const resource = restore.snapshot.resource;
+  const manifest = restore.snapshot.manifest as unknown as SnapshotManifest;
+  const instance = await prisma.coolifyInstance.findUniqueOrThrow({ where: { id: resource.instanceId } });
+  const client = new CoolifyClient(instance.baseUrl, decryptSecret(instance.apiTokenEnc));
+  const log = (level: string, message: string) => prisma.jobEvent.create({ data: { jobId, level, message } });
+
+  if (resource.type === "service") {
+    const live = await client.getService(resource.coolifyUuid);
+    const compose = live.docker_compose_raw ?? live.docker_compose ?? live.docker_compose_yaml;
+    if (!compose) throw new Error("Coolify returned no compose for this service");
+    const resolved = await resolveImages(snapshotImages(manifest.provenance).filter((i) => i.digest), imageExists);
+    const pinned = pinCompose(String(compose), composePicker(resolved));
+    for (const r of resolved) if (r.note) await log("warn", r.note);
+    if (pinned.changes.length) {
+      await client.updateServiceCompose(resource.coolifyUuid, pinned.compose);
+      for (const c of pinned.changes) await log("info", `Image of ${c.service} set back to ${c.to} (was ${c.from})`);
+    }
+    await client.deploy(resource.coolifyUuid);
+  } else {
+    const sha = manifest.provenance?.gitCommitSha;
+    if (!sha) throw new Error("The snapshot recorded no commit");
+    await client.repinCommit(resource.coolifyUuid, sha);
+    await log("info", `Commit set back to ${sha}`);
+  }
+  await log("info", "Redeploying on the snapshot's version in Coolify (it stays pinned to it until you change it there)");
+}
+
 /** Create a RestoreJob + queued AgentJob from an existing snapshot. */
 export async function enqueueRestore(
   snapshotId: string,
   target: "in_place" | "new_resource" = "in_place",
   /** Restore "→ new" onto a DIFFERENT connected Coolify (migration). */
   targetInstanceId?: string,
+  /** "→ new": the image versions to run (default: the snapshot's). In place:
+   * "snapshot" redeploys the resource on the snapshot's versions afterwards. */
+  imageChoice?: ImageChoice,
 ) {
   const snapshot = await prisma.snapshot.findUniqueOrThrow({
     where: { id: snapshotId },
@@ -833,13 +929,15 @@ export async function enqueueRestore(
   let targetResource: ResourceDescriptor | undefined;
   let volumeMap: Record<string, string> | undefined;
   let remapped: RemapChange[] = [];
+  let notes: string[] = [];
   const cloneInstanceId = targetInstanceId ?? snapshot.resource.instanceId;
   if (target === "new_resource") {
     // Point this clone at clones of resources already restored onto the same
     // instance (e.g. the restored DB), never back at the originals.
     const mapping = await cloneMappingsFor(cloneInstanceId, snapshot.resource.coolifyUuid);
-    const cloned = await cloneForRestore(snapshot.resource, manifest, targetInstanceId, mapping);
+    const cloned = await cloneForRestore(snapshot.resource, manifest, targetInstanceId, mapping, imageChoice ?? "snapshot");
     targetResource = cloned.descriptor;
+    notes = cloned.notes;
     remapped = cloned.changes;
     volumeMap = buildVolumeMap(manifest, snapshot.resource.coolifyUuid, targetResource.coolifyUuid);
     if (cloned.volumeRenames && Object.keys(cloned.volumeRenames).length > 0) {
@@ -878,10 +976,20 @@ export async function enqueueRestore(
     // Same DB keeps its name/creds in the clone, so the original's creds work.
     // Prefer the snapshot's captured creds (survive the source Coolify).
     db: dbCredsFromCaptured(manifest.capturedConfig, snapshot.resource.type) ?? (await dbCredsFor(snapshot.resource)),
+    // Redeployed on the snapshot's versions once the data is back: the version
+    // running now must not start on it first.
+    ...(target === "in_place" && imageChoice === "snapshot" && canRedeployOnSnapshot(snapshot.resource.type, manifest)
+      ? { restart: false }
+      : {}),
   };
 
   await createAgentJob({ id: jobId, agentId: agent.id, type: "restore", payload: job, restoreId: restore.id });
 
+  if (notes.length) {
+    await prisma.jobEvent.createMany({
+      data: notes.map((message) => ({ jobId, level: / no longer | may run /.test(message) ? "warn" : "info", message })),
+    });
+  }
   // Make the rewiring visible in the restore's live log.
   if (remapped.length) {
     await prisma.jobEvent.createMany({

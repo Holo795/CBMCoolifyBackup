@@ -5,9 +5,10 @@ import {
   countContainers,
   detectCoolifyResourceUuids,
   listContainersForDiscovery,
+  containerImageIds,
   recoverHeldContainers,
 } from "./docker.js";
-import { groupContainersByResource, PS_FORMAT } from "./hooks.js";
+import { containerIdsByName, groupContainersByResource, PS_FORMAT, withImageIds } from "./hooks.js";
 import { logger } from "./logger.js";
 import { applyCbmSettings, getSettings, lockedByEnv } from "./settings.js";
 import * as client from "./client.js";
@@ -124,6 +125,26 @@ export async function startDaemon(): Promise<void> {
   }
 }
 
+/** Container id -> image id: a container never changes image, so each is inspected once. */
+const imageIds = new Map<string, string>();
+
+/** Containers per resource, with the image each one runs (compared with a
+ * snapshot's before an in-place restore). */
+async function discoverContainers() {
+  const ps = await listContainersForDiscovery(PS_FORMAT).catch(() => "");
+  const groups = groupContainersByResource(ps);
+  const ids = containerIdsByName(ps);
+  const wanted = new Set(Object.values(groups).flatMap((list) => list.map((c) => ids.get(c.name) ?? "")));
+  wanted.delete("");
+  for (const id of imageIds.keys()) if (!wanted.has(id)) imageIds.delete(id);
+  const missing = [...wanted].filter((id) => !imageIds.has(id));
+  for (let i = 0; i < missing.length; i += 100) {
+    for (const [id, image] of await containerImageIds(missing.slice(i, i + 100)).catch(() => new Map<string, string>()))
+      imageIds.set(id, image);
+  }
+  return withImageIds(groups, ids, (id) => imageIds.get(id));
+}
+
 async function heartbeatLoop(cfg: AgentConfig): Promise<void> {
   for (;;) {
     try {
@@ -132,7 +153,7 @@ async function heartbeatLoop(cfg: AgentConfig): Promise<void> {
         containers: await countContainers(),
         resourceUuids: await detectCoolifyResourceUuids().catch(() => []),
         // Containers per resource (one `docker ps`), for per-container hook targets.
-        resourceContainers: groupContainersByResource(await listContainersForDiscovery(PS_FORMAT).catch(() => "")),
+        resourceContainers: await discoverContainers(),
         activeJobIds: [...activeJobs, ...(await pendingResultIds(cfg.workDir))],
         settingsLockedByEnv: lockedByEnv(),
         settingsInEffect: getSettings(),

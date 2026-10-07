@@ -129,11 +129,31 @@ export function resticPartIds(manifest: { artifacts?: Array<{ meta?: Record<stri
   return [...new Set(ids)];
 }
 
+/** The image one container of the resource ran when it was backed up. */
+export const ImageProvenance = z.object({
+  container: z.string().optional(),
+  /** Its docker compose service (a service's containers, a compose app). */
+  service: z.string().optional(),
+  /** The image as written in Coolify ("gitlab/gitlab-ce:latest"). */
+  ref: z.string(),
+  /** Pullable digest of that exact image ("gitlab/gitlab-ce@sha256:..."), when
+   * it came from a registry (an image Coolify built from git has none). */
+  digest: z.string().optional(),
+  /** Local image id ("sha256:..."): tells whether the container still runs it. */
+  id: z.string().optional(),
+  /** Human-readable version, when the image declares one ("18.2.0-ce.0"). */
+  version: z.string().optional(),
+});
+export type ImageProvenance = z.infer<typeof ImageProvenance>;
+
 /** Git/image provenance captured by the agent via `docker inspect`. */
 export const Provenance = z.object({
   gitCommitSha: z.string().optional(),
+  /** The primary container's image (kept for snapshots taken before 2.4.6). */
   imageRef: z.string().optional(),
   imageDigest: z.string().optional(),
+  /** Every container of the resource (2.4.6+). */
+  images: z.array(ImageProvenance).max(50).optional(),
 });
 export type Provenance = z.infer<typeof Provenance>;
 
@@ -327,6 +347,13 @@ export const RestoreJob = z.object({
    * deploy. Volumes with no mapping are skipped (the original is never touched).
    */
   volumeMap: z.record(z.string(), z.string()).optional(),
+  /**
+   * In place: false leaves the containers stopped after a successful restore,
+   * because the controller then redeploys them on the snapshot's image version
+   * (they must not start the newer version on the restored data first). They
+   * are restarted as usual when the restore fails. Default: restart.
+   */
+  restart: z.boolean().optional(),
 });
 export type RestoreJob = z.infer<typeof RestoreJob>;
 
@@ -471,6 +498,8 @@ export type AgentRegisterResponse = z.infer<typeof AgentRegisterResponse>;
 export const DiscoveredContainer = z.object({
   name: z.string(),
   service: z.string().optional(),
+  /** Local id of the image it runs (compared with a snapshot's before an in-place restore). */
+  imageId: z.string().optional(),
 });
 export type DiscoveredContainer = z.infer<typeof DiscoveredContainer>;
 

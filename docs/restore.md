@@ -23,6 +23,9 @@ Overwrites the existing resource's data with the snapshot:
 - **Service-internal databases** are additionally re-loaded from their logical dump after the
   containers are back up (best-effort, on top of the volume restore).
 
+When the running version is no longer the snapshot's, the dialog says so and offers to put the
+snapshot's version back - see [Image versions](#image-versions).
+
 A *configuration only* snapshot (a resource with no volume, host folder or database — see
 [Backups](backups.md#resources-with-nothing-to-copy)) has no data to put back: it offers **Clone**
 only, and isn't test-restored.
@@ -38,7 +41,8 @@ Works for all types:
 - **Docker-image applications** — the **exact image tag** captured at backup time (a floating
   tag like `latest` is cloned as a digest-pinned service so it runs the same image).
 - **Docker-compose services** — every volume is pre-filled under the clone's names, mounted on
-  first deploy.
+  first deploy, and each service's image is pinned to the version it ran (see
+  [Image versions](#image-versions)).
 
 For apps and services, the clone is created **but not deployed** by default (no domain, by
 design) — you review it in Coolify, then deploy. Its data is already in place: an application's
@@ -57,6 +61,37 @@ are connected, the **Clone** dialog offers a **Restore onto** select, so you
 can clone the snapshot onto a *different* Coolify (migration). See **[disaster-recovery.md](disaster-recovery.md)**.
 On a server with several Docker networks (destinations), see
 [which one the clone uses](multi-server.md#server-mapping-for-restores).
+
+### Image versions
+
+A compose file usually says `image: gitlab/gitlab-ce:latest`. Restored as written, the clone would
+pull the newest version on its first deploy - newer than the data, which the application then
+tries to migrate, or refuses to start on when the gap is too large.
+
+Each backup records, for **every container** of the resource, the image as written, the digest it
+actually ran (`gitlab/gitlab-ce@sha256:...`) and its version when the image declares one
+(`org.opencontainers.image.version` label, or a fixed tag it carries such as `18.2.0-ce.0`). The
+restore dialog shows them side by side and offers:
+
+- **Snapshot version** (default, recommended): every `image:` of the compose - or the image of a
+  docker-image application, and the commit of a git application - is pinned to what ran at backup
+  time. Data and code match. The clone stays on that version until you change it in Coolify.
+- **Version as written**: the references stay as they are; floating tags pull the newest version.
+  The dialog warns which version the data comes from.
+
+If the registry no longer has a recorded digest, the restore uses the image's version tag instead
+(same version, possibly a rebuilt image), else the reference as written, and says so in the log. A
+registry that can't be reached or needs credentials keeps the digest: the host may have them.
+Snapshots taken before 2.4.6 recorded only the main container's image: it is pinned wherever the
+compose uses that same image.
+
+**In place**, the dialog also shows whether each container still runs the snapshot's image (as
+reported by the agent). When one doesn't - the service was updated since - restoring older data
+into a newer version can break it, so it offers to **put the snapshot's version back**: the
+containers stay stopped after the restore, then CBM pins the service's compose (or the git
+application's commit) to the snapshot's version in Coolify and redeploys it. The resource stays on
+that version until you change it in Coolify. A docker-image application can't be changed by CBM:
+the dialog asks you to redeploy it on the snapshot's version yourself.
 
 ### Restoring a whole stack: references are rewired
 

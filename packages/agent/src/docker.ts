@@ -72,6 +72,7 @@ export interface DockerInspect {
   Id?: string;
   Image?: string;
   RepoDigests?: string[];
+  RepoTags?: string[];
   Config?: {
     Image?: string;
     Labels?: Record<string, string>;
@@ -362,6 +363,19 @@ export async function execShell(container: string, command: string, timeoutSec?:
 export async function listContainersForDiscovery(format: string): Promise<string> {
   const r = await docker(["ps", "-a", "--format", format]);
   return r.code === 0 ? r.stdout : "";
+}
+
+/** Image id of each container (short container id -> "sha256:..."), one `docker inspect`. */
+export async function containerImageIds(ids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!ids.length) return out;
+  const r = await docker(["inspect", "--format", "{{.Id}} {{.Image}}", ...ids]);
+  // A container removed meanwhile makes the call exit 1, the others still print.
+  for (const line of r.stdout.split("\n")) {
+    const [id, image] = line.trim().split(" ");
+    if (id && image) out.set(id.slice(0, 12), image);
+  }
+  return out;
 }
 
 export async function dockerVersion(): Promise<string> {

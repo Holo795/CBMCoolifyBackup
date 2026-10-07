@@ -2,6 +2,7 @@
  * Minimal Coolify API v4 client. Used by the controller to discover resources.
  * Endpoints used: /api/v1/{applications,databases,services,projects,resources}.
  */
+import { FLOATING_IMAGE_TAGS } from "@cbm/shared";
 import { UserError } from "./user-error";
 
 export interface CoolifyResource {
@@ -93,8 +94,6 @@ export function chooseDestination(
   ).uuid;
 }
 
-/** Image tags that move over time - a clone must pin the digest, not the tag. */
-const FLOATING_IMAGE_TAGS = ["latest", "main", "master", "stable", "edge", "nightly"];
 
 /** Map an original DB config to the per-engine credential fields for create. */
 function dbCredsBody(type: CloneEngine, src: DbConfig): Record<string, unknown> {
@@ -230,6 +229,16 @@ export class CoolifyClient {
   async repinCommit(appUuid: string, commitSha: string): Promise<void> {
     await this.patch(`/api/v1/applications/${appUuid}`, { git_commit_sha: commitSha });
     await this.action(`/api/v1/deploy?uuid=${appUuid}&force=true`);
+  }
+
+  /** Replace a service's compose (Coolify parses it again; it applies on the next deploy). */
+  async updateServiceCompose(uuid: string, compose: string): Promise<void> {
+    await this.patch(`/api/v1/services/${uuid}`, { docker_compose_raw: Buffer.from(compose, "utf8").toString("base64") });
+  }
+
+  /** Deploy (a service: start) a resource on its current configuration. */
+  async deploy(uuid: string): Promise<void> {
+    await this.action(`/api/v1/deploy?uuid=${uuid}&force=true`);
   }
 
   /** Trigger an action endpoint: POST since Coolify 4.2 (GET now answers 405),

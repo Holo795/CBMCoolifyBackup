@@ -103,3 +103,19 @@ test("a timed-out hook is stopped inside an Alpine (busybox) container", { skip:
 test("a timed-out compound hook is fully stopped in a Debian (coreutils) container", { skip: !DOCKER, timeout: 180_000 }, () =>
   hookTimeoutCase("debian:bookworm-slim", "sleep 60; echo should-not-print"),
 );
+
+test("each reported container carries the image it runs, looked up by container id", async () => {
+  const { containerIdsByName, withImageIds } = await import("../src/hooks.js");
+  const uuid = "abcdefghij0123456789klmn";
+  const ps = [
+    `gitlab-${uuid}\tgitlab\tcoolify.serviceId=${uuid}\t\t0123456789ab`,
+    `redis-${uuid}\tredis\tcoolify.serviceId=${uuid}\t\tba9876543210`,
+  ].join("\n");
+  const ids = containerIdsByName(ps);
+  assert.equal(ids.get(`gitlab-${uuid}`), "0123456789ab");
+  const out = withImageIds(groupContainersByResource(ps), ids, (id) => (id === "0123456789ab" ? "sha256:aaa" : undefined));
+  assert.deepEqual(out[uuid], [
+    { name: `gitlab-${uuid}`, service: "gitlab", imageId: "sha256:aaa" },
+    { name: `redis-${uuid}`, service: "redis" },
+  ]);
+});

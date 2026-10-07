@@ -32,7 +32,7 @@ import {
   type RunResult,
 } from "./docker.js";
 import { matchHookTargets, DEFAULT_HOOK_TIMEOUT_SEC } from "./hooks.js";
-import { captureProvenance } from "./provenance.js";
+import { captureImages, captureProvenance } from "./provenance.js";
 import { encryptFile, sha256File } from "./crypto.js";
 import { makeTransfer, type Transfer } from "./transfer.js";
 import { resticEnsureRepo, resticBackupDir, resticContext, resticForget, type ResticCtx } from "./restic.js";
@@ -131,6 +131,10 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
   if (primary && (await containerExists(primary))) {
     try {
       provenance = await captureProvenance(primary);
+      const running: string[] = [];
+      for (const c of containers) if (await containerExists(c)) running.push(c);
+      const images = await captureImages(running.length ? running : [primary]);
+      if (images.length) provenance.images = images;
       emit("debug", `Provenance: ${JSON.stringify(provenance)}`);
     } catch (e) {
       emit("warn", `Provenance capture failed: ${(e as Error).message}`);

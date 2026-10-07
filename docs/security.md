@@ -34,6 +34,9 @@ alerts if it stops being true. See
   invalidates the old one.
 - Agents make **outbound** connections only (they poll the controller) — nothing needs to be
   opened on your hosts.
+- Before a restore pins an image, the controller asks its registry (Docker Hub, ghcr.io…)
+  whether the recorded digest still exists: an anonymous, read-only `HEAD` on the image manifest,
+  nothing about your data. Without outbound access the digest is simply kept.
 
 ## API tokens (MCP)
 
