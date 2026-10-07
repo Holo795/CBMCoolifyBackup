@@ -229,7 +229,7 @@ inbox on `:8025`) so you can test the email flows locally — see [docs/email.md
 
 ## Documentation
 
-Detailed docs live in **[`/docs`](docs/)**:
+Detailed docs live in **[`/docs`](docs/)**, also published as the **[wiki](https://github.com/Holo795/CBMCoolifyBackup/wiki)**:
 
 - [Installation](docs/installation.md) — controller, agents, on Coolify
 - [Configuration](docs/configuration.md) — every environment variable

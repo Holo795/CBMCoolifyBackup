@@ -18,5 +18,6 @@ Detailed docs for **CBM — Coolify Backup Manager**. New here? Start with the
 - **[Security](security.md)** — encryption at rest, tokens, the trust model
 - **[Troubleshooting / FAQ](troubleshooting.md)**
 
-> Docs live in this folder and are versioned with the code — please update them
-> alongside any change (see [CONTRIBUTING](../CONTRIBUTING.md)).
+> These pages live in the repository's `docs/` folder, versioned with the code, and are
+> published to the wiki on every change — please update them alongside any change (see
+> [CONTRIBUTING](../CONTRIBUTING.md)).

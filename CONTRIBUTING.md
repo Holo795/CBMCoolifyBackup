@@ -67,10 +67,14 @@ Each of these is a generic, repo-wide command — there's nothing extra to run p
 
 ## Documentation
 
-The detailed docs live in **[`/docs`](docs/)** (versioned with the code — there is no separate
-GitHub Wiki). When you change user-facing behavior, update the relevant page(s) in `/docs` in the
-same PR, and the [README](README.md) if it affects the overview or limitations. Screenshots used
-by the README/docs live in `docs/screenshots/`.
+The detailed docs live in **[`/docs`](docs/)**, versioned with the code. The
+[wiki](https://github.com/Holo795/CBMCoolifyBackup/wiki) is generated from them on every change to
+`main` (`scripts/build-wiki.mjs`, `.github/workflows/wiki.yml`): don't edit the wiki itself, it is
+overwritten. When you change user-facing behavior, update the relevant page(s) in `/docs` in the
+same PR, and the [README](README.md) if it affects the overview or limitations. A new page must be
+added to `PAGES` (and the sidebar) in `scripts/build-wiki.mjs`, and a link to a heading must point
+at one that exists - the wiki build fails otherwise. Screenshots used by the README/docs live in
+`docs/screenshots/`.
 
 ## Reporting bugs
 

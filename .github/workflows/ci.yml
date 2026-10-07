@@ -36,6 +36,11 @@ jobs:
       - name: Lint (all packages)
         run: npm run lint
 
+      # The wiki is built from docs/: a page missing from the build or a link to
+      # a heading that doesn't exist fails here, before it reaches main.
+      - name: Docs (wiki build)
+        run: node scripts/build-wiki.mjs docs /tmp/wiki-out
+
       # Builds @cbm/shared first, then type-checks the agent and controller.
       - name: Type-check (all packages)
         run: npm run typecheck
