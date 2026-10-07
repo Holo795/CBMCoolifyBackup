@@ -38,7 +38,7 @@ export interface DbConfig {
   name: string;
   status?: string;
   image?: string;
-  destination?: { server?: { uuid?: string } };
+  destination?: { uuid?: string; network?: string; server?: { uuid?: string } };
   [k: string]: unknown;
 }
 
@@ -55,7 +55,7 @@ export interface CoolifyRaw {
   environment_id?: number;
   project_name?: string;
   build_pack?: string;
-  destination?: { server?: { uuid?: string; name?: string } };
+  destination?: { uuid?: string; network?: string; server?: { uuid?: string; name?: string } };
   server?: { uuid?: string; name?: string };
   [k: string]: unknown;
 }
@@ -68,6 +68,29 @@ interface CoolifyProjectRaw {
   uuid?: string;
   name?: string;
   environments?: Array<{ id?: number; name?: string; uuid?: string }>;
+}
+
+/** A Docker network destination of a Coolify server (Coolify 4.2+). */
+export type CoolifyDestination = { uuid: string; name?: string; network?: string };
+
+/**
+ * Which destination a clone goes to when its server has several (Coolify then
+ * requires `destination_uuid`): the source's own when it's on that server,
+ * else the one on the same Docker network, else the default "coolify" one,
+ * else the first. With one destination (or none listed) there's nothing to
+ * choose: undefined, and the field isn't sent.
+ */
+export function chooseDestination(
+  dests: CoolifyDestination[],
+  source?: { uuid?: string; network?: string },
+): string | undefined {
+  if (dests.length < 2) return undefined;
+  return (
+    dests.find((d) => source?.uuid && d.uuid === source.uuid) ??
+    dests.find((d) => source?.network && d.network === source.network) ??
+    dests.find((d) => d.network === "coolify" || d.name === "coolify") ??
+    dests[0]
+  ).uuid;
 }
 
 /** Image tags that move over time - a clone must pin the digest, not the tag. */
@@ -312,6 +335,13 @@ export class CoolifyClient {
     return servers[0].uuid;
   }
 
+  /** The destination a clone on `serverUuid` must name (see chooseDestination). */
+  private async destinationFor(serverUuid: string, source?: { uuid?: string; network?: string }): Promise<string | undefined> {
+    // Older Coolify has no such endpoint: one destination per server, nothing to send.
+    const dests = await this.get<CoolifyDestination[]>(`/api/v1/servers/${serverUuid}/destinations`).catch(() => []);
+    return chooseDestination(Array.isArray(dests) ? dests.filter((d) => d?.uuid) : [], source);
+  }
+
   /**
    * Clone a standalone database into a NEW Coolify resource: same project /
    * environment / server, same image + credentials, new name. `instantDeploy`
@@ -339,6 +369,7 @@ export class CoolifyClient {
 
     const body = compact({
       server_uuid: serverUuid,
+      destination_uuid: await this.destinationFor(serverUuid, src?.destination),
       project_uuid: projectUuid,
       environment_name: opts.environmentName,
       name: opts.newName,
@@ -397,9 +428,11 @@ export class CoolifyClient {
     const projectUuid = await this.ensureProjectUuid(opts.projectName);
     await this.ensureEnvironment(projectUuid, opts.environmentName);
 
+    const destinationUuid = await this.destinationFor(serverUuid, src?.destination);
     const base = {
       project_uuid: projectUuid,
       server_uuid: serverUuid,
+      destination_uuid: destinationUuid,
       environment_name: opts.environmentName,
       name: opts.newName,
       ports_exposes: src.ports_exposes || "3000",
@@ -430,6 +463,7 @@ export class CoolifyClient {
           compact({
             project_uuid: projectUuid,
             server_uuid: serverUuid,
+            destination_uuid: destinationUuid,
             environment_name: opts.environmentName,
             name: opts.newName,
             instant_deploy: false,
@@ -623,6 +657,7 @@ export class CoolifyClient {
     const base = {
       project_uuid: projectUuid,
       server_uuid: serverUuid,
+      destination_uuid: await this.destinationFor(serverUuid, src?.destination),
       environment_name: opts.environmentName,
       name: opts.newName,
       instant_deploy: false,

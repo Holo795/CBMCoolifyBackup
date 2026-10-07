@@ -55,6 +55,8 @@ compose, domains, database credentials), `→ new` works even when the **source 
 and it **creates any missing project/environment** on the target. When several Coolify instances
 are connected, the **Clone** dialog offers a **Restore onto** select, so you
 can clone the snapshot onto a *different* Coolify (migration). See **[disaster-recovery.md](disaster-recovery.md)**.
+On a server with several Docker networks (destinations), see
+[which one the clone uses](multi-server.md#server-mapping-for-restores).
 
 ### Restoring a whole stack: references are rewired
 

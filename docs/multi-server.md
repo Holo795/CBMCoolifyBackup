@@ -43,6 +43,13 @@ target, the card **…** menu → **Server mapping for restores** (admin) maps e
 UUID to one of this instance's servers; unmapped sources go to the first server. See
 [Disaster recovery](disaster-recovery.md).
 
+A server can also have several **destinations** (Docker networks, Coolify 4.2+): Coolify then
+refuses a new resource that doesn't name one. CBM picks it for the clone: the source's own
+destination when the clone stays on its server, else the one with the same network name, else
+the default `coolify` network, else the first. Services don't report their destination to the
+API, so a cloned service goes on the `coolify` network (move it in Coolify if needed). A server
+with a single destination is left to Coolify.
+
 ## Local destinations are per server
 
 A "local folder" destination is realised on **each agent's host**. So the same local destination

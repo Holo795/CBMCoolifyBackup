@@ -560,6 +560,15 @@ const DB_CRED_FIELDS = [
   "clickhouse_admin_password",
 ] as const;
 
+/** The source's destination (Docker network) as a hint for the clone: when its
+ * server has several, the clone picks the one it was on (see chooseDestination). */
+export function destinationHint(src: Record<string, unknown>): { destination?: { uuid?: string; network?: string } } {
+  const d = src.destination as { uuid?: unknown; network?: unknown } | null | undefined;
+  const uuid = typeof d?.uuid === "string" ? d.uuid : undefined;
+  const network = typeof d?.network === "string" ? d.network : undefined;
+  return uuid || network ? { destination: { uuid, network } } : {};
+}
+
 function pick(src: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const k of keys) if (src[k] !== undefined && src[k] !== null) out[k] = src[k];
@@ -615,7 +624,11 @@ async function readCapturedConfig(resource: {
       kind: "application",
       fqdn: typeof src.fqdn === "string" ? src.fqdn : undefined,
       // + its named volumes, which the clone must recreate (not part of the app object).
-      raw: { ...pick(src, APP_CONFIG_FIELDS), volumes: await client.getAppVolumes(resource.coolifyUuid) },
+      raw: {
+        ...pick(src, APP_CONFIG_FIELDS),
+        ...destinationHint(src),
+        volumes: await client.getAppVolumes(resource.coolifyUuid),
+      },
       dbCredsEnc: undefined,
       composeEnc: undefined,
       gitSourceName: undefined,
@@ -635,7 +648,7 @@ async function readCapturedConfig(resource: {
       ...base,
       kind: "service",
       fqdn: undefined,
-      raw: pick(src, ["name", "service_type"]),
+      raw: { ...pick(src, ["name", "service_type"]), ...destinationHint(src) },
       dbCredsEnc: undefined,
       // Compose may inline secrets (environment: blocks) - store encrypted.
       composeEnc: compose ? encryptSecret(String(compose)) : undefined,
@@ -652,7 +665,7 @@ async function readCapturedConfig(resource: {
     ...base,
     kind: "database",
     fqdn: undefined,
-    raw: pick(src, ["name", "image"]),
+    raw: { ...pick(src, ["name", "image"]), ...destinationHint(src) },
     dbCredsEnc: Object.keys(creds).length ? encryptSecret(JSON.stringify(creds)) : undefined,
     composeEnc: undefined,
     gitSourceName: undefined,

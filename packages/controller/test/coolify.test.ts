@@ -40,3 +40,28 @@ test("the control plane's server: flagged by Coolify, else the host.docker.inter
   assert.equal(coolifyHostServer([a, { uuid: "c", name: "localhost", ip: "host.docker.internal" }])?.uuid, "c");
   assert.equal(coolifyHostServer([a]), undefined);
 });
+
+test("a clone names a destination only when its server has several: the source's, same network, coolify, first", async () => {
+  const { chooseDestination } = await import("../src/lib/coolify");
+  const dests = [
+    { uuid: "d1", name: "lan", network: "lan" },
+    { uuid: "d2", name: "coolify", network: "coolify" },
+    { uuid: "d3", name: "apps", network: "apps" },
+  ];
+  assert.equal(chooseDestination([dests[0]], { uuid: "zz" }), undefined);
+  assert.equal(chooseDestination([]), undefined);
+  assert.equal(chooseDestination(dests, { uuid: "d3", network: "lan" }), "d3");
+  assert.equal(chooseDestination(dests, { uuid: "other-server", network: "lan" }), "d1");
+  assert.equal(chooseDestination(dests, { network: "missing" }), "d2");
+  assert.equal(chooseDestination(dests), "d2");
+  assert.equal(chooseDestination([dests[0], dests[2]]), "d1");
+});
+
+test("the snapshot keeps the source's destination as a hint, when Coolify returns one", async () => {
+  const { destinationHint } = await import("../src/lib/jobs");
+  assert.deepEqual(destinationHint({ destination: { id: 0, uuid: "d1", network: "coolify", server: { uuid: "s" } } }), {
+    destination: { uuid: "d1", network: "coolify" },
+  });
+  // Services only carry a numeric destination_id.
+  assert.deepEqual(destinationHint({ destination_id: 0 }), {});
+});
