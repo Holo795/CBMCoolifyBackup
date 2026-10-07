@@ -148,6 +148,8 @@ export const en = {
     entries: "{n} entries read back",
     present: "present and readable",
     emptyFile: "empty file",
+    dbFolderTables: "the database opens: {image} started on the copy of its files, {n} table(s)",
+    dbFolderCollections: "the database opens: {image} started on the copy of its files, {n} collection(s)",
   },
 };
 
@@ -298,5 +300,7 @@ export const fr: typeof en = {
     entries: "{n} entrées relues",
     present: "présent et lisible",
     emptyFile: "fichier vide",
+    dbFolderTables: "la base s'ouvre : {image} démarré sur la copie de ses fichiers, {n} table(s)",
+    dbFolderCollections: "la base s'ouvre : {image} démarré sur la copie de ses fichiers, {n} collection(s)",
   },
 };

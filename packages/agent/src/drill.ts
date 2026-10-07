@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { stagePlaintext } from "./stage.js";
 import { withResticCtx } from "./restic.js";
-import { resticCountPath } from "./restic-helper.js";
-import { docker, tarEntryCount, writeFileIntoVolume, type RunResult } from "./docker.js";
+import { resticCountPath, resticRestorePath } from "./restic-helper.js";
+import { docker, restoreVolume, tarEntryCount, writeFileIntoVolume, type RunResult } from "./docker.js";
 import { restoreDatabase } from "./dump.js";
 import { detectEngine } from "./engines.js";
 import type { Emit } from "./backup.js";
@@ -268,6 +268,116 @@ async function drillRdb(file: string, engine: string, image: string | null, name
   }
 }
 
+/** What the volume of a database needs to be started in a sandbox (recorded at backup). */
+type DbFolder = { engine: string; image: string; path: string; user?: string; dataDir?: string };
+
+/** The database a volume artifact holds, if the backup recorded one we can start. */
+export function dbFolderOf(meta: Record<string, string> | undefined): DbFolder | null {
+  const engine = meta?.dbEngine;
+  if (!engine || !SQL_ENGINES.has(engine) || !meta.dbPath?.startsWith("/")) return null;
+  const image = meta.dbImage || DEFAULT_IMAGES[engine];
+  if (!image) return null;
+  return { engine, image, path: meta.dbPath, user: meta.dbUser, dataDir: meta.dbDataDir };
+}
+
+/** How a sandbox starts the database on a copied data folder: no network, and
+ * no access control (nothing can reach it) so it opens without the original
+ * passwords. */
+export function dbFolderRun(db: DbFolder): { env: string[]; args: string[] } {
+  if (db.engine === "postgresql") {
+    const env = db.dataDir ? ["-e", `PGDATA=${db.dataDir}`] : [];
+    const hba = "/tmp/cbm_hba.conf";
+    return {
+      env,
+      args: [
+        "--entrypoint",
+        "sh",
+        db.image,
+        "-c",
+        `printf 'local all all trust\\n' > ${hba} && chmod 644 ${hba} && exec docker-entrypoint.sh postgres -c hba_file=${hba} -c listen_addresses=''`,
+      ],
+    };
+  }
+  if (db.engine === "mongodb") return { env: [], args: [db.image] };
+  // MySQL / MariaDB: the official entrypoint prepends the server to "--" flags.
+  return { env: [], args: [db.image, "--skip-grant-tables", "--skip-networking"] };
+}
+
+/** The probe and the table count for a database started by dbFolderRun. */
+function dbFolderQueries(db: DbFolder): { probe: string; count: string } {
+  const user = db.user || "postgres";
+  if (db.engine === "postgresql") {
+    const q = "select count(*) from information_schema.tables where table_schema not in ('pg_catalog','information_schema') and table_type='BASE TABLE'";
+    return {
+      probe: `psql -U ${shWord(user)} -d postgres -AtXc "select 1"`,
+      count:
+        `psql -U ${shWord(user)} -d postgres -AtXc "select datname from pg_database where not datistemplate and datallowconn" | ` +
+        `while IFS= read -r d; do psql -U ${shWord(user)} -d "$d" -AtXc "${q}"; done | awk '{s+=$1} END {print s+0}'`,
+    };
+  }
+  if (db.engine === "mongodb") {
+    const js = (body: string) => `(command -v mongosh >/dev/null 2>&1 && mongosh --quiet --eval '${body}') || mongo --quiet --eval '${body}'`;
+    return {
+      probe: js("db.adminCommand({ping:1}).ok"),
+      count: js(
+        "let n=0;db.adminCommand({listDatabases:1}).databases.filter(d=>![\"admin\",\"config\",\"local\"].includes(d.name))" +
+          ".forEach(d=>{n+=db.getSiblingDB(d.name).getCollectionNames().length});print(n)",
+      ),
+    };
+  }
+  const sql = (q: string) => `(command -v mariadb >/dev/null 2>&1 && mariadb -uroot -N -e "${q}") || mysql -uroot -N -e "${q}"`;
+  return {
+    probe: sql("select 1"),
+    count: sql(
+      "select count(*) from information_schema.tables where table_schema not in " +
+        "('mysql','information_schema','performance_schema','sys') and table_type='BASE TABLE'",
+    ),
+  };
+}
+
+const shWord = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * Start the database a volume holds on a copy of it, in a network-less sandbox:
+ * proves the copy (taken frozen, like after a power cut) opens - the engine
+ * recovers its journal - and counts its tables. For a resource whose database
+ * couldn't be dumped, this is the only proof its data restores.
+ */
+async function drillDbFolder(db: DbFolder, fill: (volume: string) => Promise<void>, name: string): Promise<{ ok: boolean; detail: string }> {
+  const volume = `${name}-data`;
+  const sb: Sandbox = { name, engine: db.engine, image: db.image, creds: {}, volume };
+  try {
+    await docker(["volume", "create", volume]);
+    await fill(volume);
+    const run = dbFolderRun(db);
+    const r = await docker(["run", "-d", "--name", name, "--network", "none", ...LABELS(Date.now()), "-v", `${volume}:${db.path}`, ...run.env, ...run.args]);
+    if (r.code !== 0) throw new Error(`could not start ${db.image} on the copy: ${r.stderr.trim().slice(0, 300)}`);
+    const q = dbFolderQueries(db);
+    // A crash recovery on a large database takes a while.
+    const deadline = Date.now() + 600_000;
+    let streak = 0;
+    while (streak < 3) {
+      if (Date.now() > deadline) throw new Error(`${db.image} did not open the copy within 10 minutes`);
+      const p = await docker(["exec", name, "sh", "-c", q.probe]);
+      streak = p.code === 0 ? streak + 1 : 0;
+      if (streak >= 3) break;
+      const state = await docker(["inspect", "-f", "{{.State.Running}}", name]);
+      if (state.stdout.trim() === "false") {
+        const logs = await docker(["logs", "--tail", "15", name]);
+        throw new Error(`${db.image} stopped on the copy: ${(logs.stderr || logs.stdout).trim().slice(-400)}`);
+      }
+      await sleep(2000);
+    }
+    const c = await docker(["exec", name, "sh", "-c", q.count]);
+    const n = Number.parseInt(c.stdout.trim().split("\n").pop() ?? "", 10);
+    if (c.code !== 0 || !Number.isFinite(n)) throw new Error(`could not count its tables: ${c.stderr.trim().slice(0, 300)}`);
+    const what = db.engine === "mongodb" ? "collection(s)" : "table(s)";
+    return { ok: true, detail: `started ${db.image} on the copy of its files: ${n} ${what}` };
+  } finally {
+    await removeSandbox(sb);
+  }
+}
+
 /** Run a restore drill; never throws for a failed check (it's reported), only for staging. */
 export async function runRestoreDrill(
   job: RestoreDrillJob,
@@ -329,6 +439,24 @@ export async function runRestoreDrill(
               )
             : await tarEntryCount(file);
           checks.push({ ...base, ok: true, detail: n === 0 ? "empty archive (read back fine)" : `${n} entries read back` });
+          // The files of a database that has no dump in this snapshot: start it on them.
+          const db = dbFolderOf(a.meta);
+          const dumped = artifacts.some((d) => d.kind === "db-dump" && d.meta?.container && d.meta.container === a.meta?.dbContainer);
+          if (db && !dumped) {
+            emit("info", `OK ${a.filename}: ${checks[checks.length - 1].detail}`, progress);
+            emit("info", `Starting ${db.engine} (${db.image}) on a copy of ${a.filename} - its database has no dump here`, progress);
+            const root = a.meta.rootOwner && a.meta.rootMode ? { owner: a.meta.rootOwner, mode: a.meta.rootMode } : undefined;
+            const fill = (volume: string) =>
+              part
+                ? withResticCtx(
+                    job.source,
+                    job.storage.resticPassword ?? "",
+                    (ctx) => resticRestorePath(ctx, workDir, part, a.meta.resticPath ?? "", volume, root),
+                    workDir,
+                  )
+                : restoreVolume(volume, file);
+            checks.push({ ...base, engine: db.engine, ...(await drillDbFolder(db, fill, `${sandboxName(job.id, i)}-db`)) });
+          }
         } else {
           // config / image-ref: must be present and non-empty.
           const fh = await open(file, "r");

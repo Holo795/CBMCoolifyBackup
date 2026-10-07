@@ -15,3 +15,16 @@ test("known drill details are translated, others pass through", () => {
   const en = makeT("en");
   assert.equal(localizeDrillDetail("present and readable", en), "present and readable");
 });
+
+test("a database started on the copy of its files is translated too", async () => {
+  const { localizeDrillDetail } = await import("../src/lib/drill-detail");
+  const t = (key: string, vars?: Record<string, string | number>) => `${key}:${JSON.stringify(vars)}`;
+  assert.equal(
+    localizeDrillDetail("started mariadb@sha256:abc on the copy of its files: 3 table(s)", t),
+    'snapshots.drillDetail.dbFolderTables:{"image":"mariadb@sha256:abc","n":"3"}',
+  );
+  assert.equal(
+    localizeDrillDetail("started mongo:7 on the copy of its files: 2 collection(s)", t),
+    'snapshots.drillDetail.dbFolderCollections:{"image":"mongo:7","n":"2"}',
+  );
+});

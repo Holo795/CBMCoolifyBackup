@@ -15,6 +15,8 @@ const PATTERNS: [RegExp, string, string[]][] = [
   [/^(\d+) entries read back$/, "entries", ["n"]],
   [/^present and readable$/, "present", []],
   [/^empty file$/, "emptyFile", []],
+  [/^started (.+) on the copy of its files: (\d+) table\(s\)$/, "dbFolderTables", ["image", "n"]],
+  [/^started (.+) on the copy of its files: (\d+) collection\(s\)$/, "dbFolderCollections", ["image", "n"]],
 ];
 
 export function localizeDrillDetail(detail: string, t: T): string {

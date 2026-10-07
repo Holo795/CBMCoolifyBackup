@@ -135,6 +135,15 @@ actually restorable — without touching Coolify or the original resource:
    - **Redis RDB exports** are loaded by a throwaway `redis-server` (key count reported). KeyDB and
      Dragonfly exports get an RDB header check.
    - **Volume and bind-mount archives** are read back end to end.
+   - **The files of a database that has no dump in the snapshot** (its dump failed, see
+     [Backups with warnings](backups.md#backups-with-warnings)) are put back in a sandbox volume
+     and the **same database image** (the exact digest recorded at backup time) is started on
+     them - no network, and no access control since nothing can reach it, so the original
+     passwords aren't needed. The engine recovers its journal as after a power cut; CBM then counts
+     its tables (`the database opens: mariadb@sha256:… started on the copy of its files, 3 table(s)`).
+     PostgreSQL, MySQL, MariaDB and MongoDB; a copy the engine can't open fails the drill with its
+     error. For snapshots taken before 2.4.7 (the backup didn't record which volume holds a
+     database), the volume is only read back.
 3. Everything is deleted afterwards; sandboxes left behind by a crashed agent are cleaned up by the
    next drill.
 

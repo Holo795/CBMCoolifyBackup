@@ -1,7 +1,7 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { RESTIC_PART_META, type Artifact, type RestoreJob, type ResourceType, withDumpCredentials } from "@cbm/shared";
-import { restoreDatabase } from "./dump.js";
+import { restoreDatabaseAnyway } from "./dump.js";
 import {
   restoreVolume,
   restoreToPath,
@@ -125,7 +125,8 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
       for (const d of standaloneDumps) {
         const engine = ((d.meta.engine as ResourceType) || into.type) as ResourceType;
         emit("info", `Restoring dump ${d.filename} into ${into.name} (${container})`, 50);
-        await restoreDatabase(engine, container, creds, localFiles[d.filename]);
+        const client = await restoreDatabaseAnyway(engine, container, creds, localFiles[d.filename]);
+        if (client) emit("info", `${container} has no ${engine} client tools: restored with ${client}`);
       }
     }
 
@@ -230,9 +231,9 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
         const engine = d.meta.engine as ResourceType;
         const creds = withDumpCredentials(await readDbCredentials(container, engine), job.dumpCredentials) ?? {};
         emit("info", `Loading ${engine} dump into ${container}`, 88);
-        await restoreDatabase(engine, container, creds, localFiles[d.filename]).catch((e) =>
-          emit("error", `Service DB restore into ${container} failed: ${(e as Error).message}`),
-        );
+        await restoreDatabaseAnyway(engine, container, creds, localFiles[d.filename])
+          .then((client) => client && emit("info", `${container} has no ${engine} client tools: restored with ${client}`))
+          .catch((e) => emit("error", `Service DB restore into ${container} failed: ${(e as Error).message}`));
       }
     } else if (isNew && serviceDumps.length > 0) {
       emit("warn", `${serviceDumps.length} service-internal database dump(s) not applied to the clone - its volumes were restored instead.`);

@@ -2,7 +2,7 @@ import { appendFile, open, rm, stat, truncate } from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import type { ResourceType, DbCredentials } from "@cbm/shared";
-import { docker, dockerToFile, dockerFromFile, type SecretEnv } from "./docker.js";
+import { docker, dockerToFile, dockerFromFile, inspectContainer, type SecretEnv } from "./docker.js";
 
 /*
  * Secrets travel in the docker client's ENVIRONMENT (`-e NAME` without a value),
@@ -11,6 +11,90 @@ import { docker, dockerToFile, dockerFromFile, type SecretEnv } from "./docker.j
  * a container's environment) are passed to `sh -c` as positional parameters, so
  * a quote in a name can't break out of the script.
  */
+
+/**
+ * Where a database command runs: in the database's own container, or - when its
+ * image has no client tools - in a throwaway container of the engine's official
+ * image (see clientImageFor) that shares the database's network, so 127.0.0.1
+ * is the database (CBM_DB_HOST for the MySQL scripts, PGHOST for Postgres), and
+ * sees its volumes read-only.
+ */
+function into(container: string, envArgs: string[], image?: string, interactive = false): string[] {
+  const i = interactive ? ["-i"] : [];
+  if (!image) return ["exec", ...i, ...envArgs, container];
+  return [
+    "run",
+    "--rm",
+    ...i,
+    "--network",
+    `container:${container}`,
+    "--volumes-from",
+    `${container}:ro`,
+    "-e",
+    "CBM_DB_HOST=127.0.0.1",
+    "-e",
+    "PGHOST=127.0.0.1",
+    "--entrypoint",
+    "",
+    ...envArgs,
+    image,
+  ];
+}
+
+/** mongodump/mongorestore in a throwaway container reach the database over TCP. */
+const mongoHost = (image?: string) => (image ? ["--host", "127.0.0.1"] : []);
+
+/** The command failed because the container has no such tool (or no shell). */
+export function toolMissing(e: unknown): boolean {
+  const m = e instanceof Error ? e.message : String(e);
+  return /exited 12[67]\b/.test(m) || /executable file not found/.test(m);
+}
+
+/**
+ * The engine's official image to run its client tools from, the same version as
+ * the server where the container says it (images built on the official ones
+ * keep its *_VERSION / PG_MAJOR variables; a Postgres data directory names its
+ * major version), else a recent one that reads older servers.
+ */
+export function clientImageFor(type: ResourceType, env: Record<string, string>, pgDataVersion?: string): string {
+  const majorMinor = (v?: string) => /(\d+)\.(\d+)/.exec(v?.replace(/^\d+:/, "") ?? "");
+  switch (type) {
+    case "postgresql": {
+      const major = (pgDataVersion?.trim() || env.PG_MAJOR || "").match(/^\d+/)?.[0];
+      return `postgres:${major ?? "17"}-alpine`;
+    }
+    case "mariadb": {
+      const v = majorMinor(env.MARIADB_VERSION);
+      return v ? `mariadb:${v[1]}.${v[2]}` : "mariadb:11.4";
+    }
+    case "mysql": {
+      const v = majorMinor(env.MYSQL_VERSION);
+      return v ? `mysql:${v[1]}.${v[2]}` : "mysql:8.4";
+    }
+    case "mongodb": {
+      const v = majorMinor(env.MONGO_VERSION);
+      return v ? `mongo:${v[1]}.${v[2]}` : "mongo:7";
+    }
+    default:
+      throw new Error(`no client image for ${type}`);
+  }
+}
+
+/** The client image for a database container (see clientImageFor). */
+export async function clientImageOf(type: ResourceType, container: string): Promise<string> {
+  const info = await inspectContainer(container).catch(() => null);
+  const env: Record<string, string> = {};
+  for (const e of info?.Config?.Env ?? []) {
+    const i = e.indexOf("=");
+    if (i > 0) env[e.slice(0, i)] = e.slice(i + 1);
+  }
+  let pgVersion: string | undefined;
+  if (type === "postgresql") {
+    const r = await docker(["exec", container, "sh", "-c", 'cat "${PGDATA:-/var/lib/postgresql/data}/PG_VERSION"']).catch(() => null);
+    if (r?.code === 0) pgVersion = r.stdout;
+  }
+  return clientImageFor(type, env, pgVersion);
+}
 
 /** `-e NAME` + its value when set; nothing otherwise. */
 function secret(name: string, value: string | undefined): { args: string[]; env: SecretEnv } {
@@ -29,16 +113,18 @@ function secret(name: string, value: string | undefined): { args: string[]; env:
 const MYSQL_DUMP_SCRIPT =
   't="$1"; c="$2"; u="$3"; ' +
   'command -v "$t" >/dev/null 2>&1 || t=mysqldump; command -v "$c" >/dev/null 2>&1 || c=mysql; ' +
-  'dbs=$("$c" -u"$u" -N -B -e "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ' +
+  // No client tools at all: 127, like a missing command (see toolMissing).
+  'command -v "$t" >/dev/null 2>&1 && command -v "$c" >/dev/null 2>&1 || { echo "$t: not found" >&2; exit 127; }; ' +
+  'dbs=$("$c" -u"$u" ${CBM_DB_HOST:+-h"$CBM_DB_HOST"} -N -B -e "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ' +
   "('mysql','information_schema','performance_schema','sys') ORDER BY schema_name\") || exit 1; " +
   'if [ -z "$dbs" ]; then echo "-- no user databases"; exit 0; fi; ' +
   "IFS='\n'; set -f; " +
   // --no-tablespaces: dumping tablespaces needs the global PROCESS privilege,
   // which an application user doesn't have (and Docker databases don't use).
-  'exec "$t" -u"$u" --single-transaction --no-tablespaces --routines --events --triggers --databases $dbs';
+  'exec "$t" -u"$u" ${CBM_DB_HOST:+-h"$CBM_DB_HOST"} --single-transaction --no-tablespaces --routines --events --triggers --databases $dbs';
 // $1 = client, $2 = user.
 const MYSQL_LOAD_SCRIPT =
-  'c="$1"; u="$2"; if command -v "$c" >/dev/null 2>&1; then exec "$c" -u"$u"; else exec mysql -u"$u"; fi';
+  'c="$1"; u="$2"; if command -v "$c" >/dev/null 2>&1; then exec "$c" -u"$u" ${CBM_DB_HOST:+-h"$CBM_DB_HOST"}; else exec mysql -u"$u" ${CBM_DB_HOST:+-h"$CBM_DB_HOST"}; fi';
 // MongoDB: auth only with a user AND a password ($CBM_DB_PASSWORD from the env).
 // $1 = tool, $2 = user, $3 = database ("" = all), then the tool's own flags.
 const MONGO_SCRIPT =
@@ -51,9 +137,9 @@ const MONGO_SCRIPT =
 // $1 = client, $2 = user: the server's data directory, then the databases the
 // user sees, then the folders of that directory (one per database).
 const MYSQL_COVERAGE_SCRIPT =
-  'c="$1"; u="$2"; command -v "$c" >/dev/null 2>&1 || c=mysql; ' +
-  'd=$("$c" -u"$u" -N -B -e "SELECT @@datadir") || exit 1; ' +
-  'echo "-- visible"; "$c" -u"$u" -N -B -e "SELECT schema_name FROM information_schema.schemata" || exit 1; ' +
+  'c="$1"; u="$2"; command -v "$c" >/dev/null 2>&1 || c=mysql; command -v "$c" >/dev/null 2>&1 || exit 127; ' +
+  'd=$("$c" -u"$u" ${CBM_DB_HOST:+-h"$CBM_DB_HOST"} -N -B -e "SELECT @@datadir") || exit 1; ' +
+  'echo "-- visible"; "$c" -u"$u" ${CBM_DB_HOST:+-h"$CBM_DB_HOST"} -N -B -e "SELECT schema_name FROM information_schema.schemata" || exit 1; ' +
   'echo "-- folders"; ls -1p "$d"';
 
 /** Folders of a MySQL/MariaDB data directory that aren't databases. */
@@ -89,19 +175,21 @@ export function unseenDatabases(output: string): string[] {
  * application user only sees its own. Those are then only in the copy of the
  * volume. [] when nothing is missing or it can't tell.
  */
-export async function mysqlUnseenDatabases(type: ResourceType, container: string, db: DbCredentials): Promise<string[]> {
+export async function mysqlUnseenDatabases(type: ResourceType, container: string, db: DbCredentials, image?: string): Promise<string[]> {
   const s = secret("MYSQL_PWD", db.password ?? "");
   const client = type === "mariadb" ? "mariadb" : "mysql";
-  const r = await docker(["exec", ...s.args, container, "sh", "-c", MYSQL_COVERAGE_SCRIPT, "sh", client, db.user || "root"], s.env).catch(() => null);
+  const r = await docker([...into(container, s.args, image), "sh", "-c", MYSQL_COVERAGE_SCRIPT, "sh", client, db.user || "root"], s.env).catch(() => null);
   return r?.code === 0 ? unseenDatabases(r.stdout) : [];
 }
 
-/** Produce a logical dump of a database container into outFile. */
+/** Produce a logical dump of a database container into outFile (`image`: run
+ * the client from that image instead, see `into`). */
 export async function dumpDatabase(
   type: ResourceType,
   container: string,
   db: DbCredentials,
   outFile: string,
+  image?: string,
 ): Promise<void> {
   const user = db.user ?? "";
   const password = db.password ?? "";
@@ -109,7 +197,7 @@ export async function dumpDatabase(
 
   switch (type) {
     case "postgresql": {
-      await dumpPostgres(container, user || "postgres", password, database, outFile);
+      await dumpPostgres(container, user || "postgres", password, database, outFile, image);
       return;
     }
     case "mysql":
@@ -117,7 +205,7 @@ export async function dumpDatabase(
       const s = secret("MYSQL_PWD", password);
       const [tool, client] = type === "mariadb" ? ["mariadb-dump", "mariadb"] : ["mysqldump", "mysql"];
       await dockerToFile(
-        ["exec", ...s.args, container, "sh", "-c", MYSQL_DUMP_SCRIPT, "sh", tool, client, user || "root"],
+        [...into(container, s.args, image), "sh", "-c", MYSQL_DUMP_SCRIPT, "sh", tool, client, user || "root"],
         outFile,
         s.env,
       );
@@ -127,7 +215,7 @@ export async function dumpDatabase(
       // No --db: every database (mongodump always leaves out "local").
       const s = secret("CBM_DB_PASSWORD", user ? password : "");
       await dockerToFile(
-        ["exec", ...s.args, container, "sh", "-c", MONGO_SCRIPT, "sh", "mongodump", user, "", "--archive"],
+        [...into(container, s.args, image), "sh", "-c", MONGO_SCRIPT, "sh", "mongodump", user, "", "--archive", ...mongoHost(image)],
         outFile,
         s.env,
       );
@@ -159,18 +247,23 @@ export function pgDatabaseHeader(name: string): string {
  * it into the target's configured database), then every other database, each
  * behind a header that creates and connects to it.
  */
-async function dumpPostgres(container: string, user: string, password: string, database: string, outFile: string): Promise<void> {
+async function dumpPostgres(
+  container: string,
+  user: string,
+  password: string,
+  database: string,
+  outFile: string,
+  image?: string,
+): Promise<void> {
   const s = secret("PGPASSWORD", password);
   const primary = database || user; // psql/pg_dump's own default
-  const pgDump = (db: string) => ["exec", ...s.args, container, "pg_dump", "-U", user, "--clean", "--if-exists", "--no-owner", "-d", db];
+  const pgDump = (db: string) => [...into(container, s.args, image), "pg_dump", "-U", user, "--clean", "--if-exists", "--no-owner", "-d", db];
 
   await dockerToFile(pgDump(primary), outFile, s.env);
 
   const list = await docker(
     [
-      "exec",
-      ...s.args,
-      container,
+      ...into(container, s.args, image),
       "psql",
       "-U",
       user,
@@ -272,12 +365,14 @@ async function readByte(file: string, pos: number): Promise<number> {
   }
 }
 
-/** Restore a logical dump into a running database container. */
+/** Restore a logical dump into a running database container (`image`: run the
+ * client from that image instead, see `into`). */
 export async function restoreDatabase(
   type: ResourceType,
   container: string,
   db: DbCredentials,
   inFile: string,
+  image?: string,
 ): Promise<void> {
   const user = db.user ?? "";
   const password = db.password ?? "";
@@ -286,7 +381,7 @@ export async function restoreDatabase(
   switch (type) {
     case "postgresql": {
       const s = secret("PGPASSWORD", password);
-      const args = ["exec", "-i", ...s.args, container, "psql", "-U", user || "postgres"];
+      const args = [...into(container, s.args, image, true), "psql", "-U", user || "postgres"];
       if (database) args.push("-d", database);
       await dockerFromFile(args, inFile, s.env);
       return;
@@ -296,7 +391,7 @@ export async function restoreDatabase(
       const s = secret("MYSQL_PWD", password);
       const client = type === "mariadb" ? "mariadb" : "mysql";
       await dockerFromFile(
-        ["exec", "-i", ...s.args, container, "sh", "-c", MYSQL_LOAD_SCRIPT, "sh", client, user || "root"],
+        [...into(container, s.args, image, true), "sh", "-c", MYSQL_LOAD_SCRIPT, "sh", client, user || "root"],
         inFile,
         s.env,
       );
@@ -308,10 +403,7 @@ export async function restoreDatabase(
       // admin/config: their users would replace the target's own credentials.
       await dockerFromFile(
         [
-          "exec",
-          "-i",
-          ...s.args,
-          container,
+          ...into(container, s.args, image, true),
           "sh",
           "-c",
           MONGO_SCRIPT,
@@ -323,6 +415,7 @@ export async function restoreDatabase(
           "--drop",
           "--nsExclude=admin.*",
           "--nsExclude=config.*",
+          ...mongoHost(image),
         ],
         inFile,
         s.env,
@@ -331,5 +424,44 @@ export async function restoreDatabase(
     }
     default:
       throw new Error(`No logical restore supported for type ${type}`);
+  }
+}
+
+/**
+ * A dump, with the client of the engine's official image when the database's
+ * own image has none (see `into`). Returns that image when it was used.
+ */
+export async function dumpDatabaseAnyway(
+  type: ResourceType,
+  container: string,
+  db: DbCredentials,
+  outFile: string,
+): Promise<string | undefined> {
+  try {
+    await dumpDatabase(type, container, db, outFile);
+    return undefined;
+  } catch (e) {
+    if (!toolMissing(e)) throw e;
+    const image = await clientImageOf(type, container);
+    await dumpDatabase(type, container, db, outFile, image);
+    return image;
+  }
+}
+
+/** A restore, with the official client when the database's image has none. */
+export async function restoreDatabaseAnyway(
+  type: ResourceType,
+  container: string,
+  db: DbCredentials,
+  inFile: string,
+): Promise<string | undefined> {
+  try {
+    await restoreDatabase(type, container, db, inFile);
+    return undefined;
+  } catch (e) {
+    if (!toolMissing(e)) throw e;
+    const image = await clientImageOf(type, container);
+    await restoreDatabase(type, container, db, inFile, image);
+    return image;
   }
 }

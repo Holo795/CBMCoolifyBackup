@@ -7,6 +7,7 @@ import {
   type Artifact,
   type BackupJob,
   type DbCredentials,
+  pickRepoDigest,
   withDumpCredentials,
   type DiscoveredContainer,
   type Provenance,
@@ -19,7 +20,7 @@ import {
   CONFIG_ONLY_CAPTURE,
   RESTIC_PART_META,
 } from "@cbm/shared";
-import { dumpDatabase, dumpRedis, mysqlUnseenDatabases } from "./dump.js";
+import { dumpDatabase, dumpDatabaseAnyway, dumpRedis, mysqlUnseenDatabases } from "./dump.js";
 import { REDIS_ENGINES, isRedisEngine, type Engine } from "./engines.js";
 import {
   hostEntries,
@@ -31,6 +32,7 @@ import {
   rootStat,
   execShell,
   inspectContainer,
+  inspectImage,
   mountDestinations,
   type RunResult,
 } from "./docker.js";
@@ -64,6 +66,17 @@ async function imageMeta(container: string): Promise<Record<string, string>> {
   const image = (await inspectContainer(container).catch(() => null))?.Config?.Image;
   return image ? { image } : {};
 }
+
+/** The exact image a container runs: its pullable digest, else its reference. */
+async function exactImage(container: string): Promise<string | undefined> {
+  const c = await inspectContainer(container).catch(() => null);
+  const ref = c?.Config?.Image;
+  const img = c?.Image ? await inspectImage(c.Image).catch(() => null) : null;
+  return pickRepoDigest(img?.RepoDigests, ref) ?? ref;
+}
+
+/** Engines whose data folder a restore drill can start (see drill.ts). */
+const DRILLABLE_DB_ENGINES = new Set(["postgresql", "mysql", "mariadb", "mongodb"]);
 
 /** Returned instead of a manifest when the resource has nothing on the host to
  * back up (no container, volume or data) - a clear "ignored" outcome. */
@@ -161,6 +174,10 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     /** Containers to freeze even in live mode: their database dump failed, so
      * the copy of their files is the only consistent one there is. */
     forceFreeze: string[] = [],
+    /** Volumes / host folders holding a database's files: recorded on their
+     * artifact (engine, image, where it's mounted) so a restore drill can start
+     * that database on the copy. */
+    dbMounts = new Map<string, Record<string, string>>(),
   ): Promise<string> => {
     // Named volumes and host-path (bind) mounts are copied the same way; they
     // only differ in what to freeze and the artifact meta.
@@ -209,7 +226,11 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
         continue;
       }
       if (m.extra.length) emit("info", `Left out of ${t.label}: ${m.extra.join(", ")}`);
-      kept.push({ ...t, excludes: [...job.excludes, ...m.extra], meta: { ...t.meta, ...mountExcludeMeta(m.extra) } });
+      kept.push({
+        ...t,
+        excludes: [...job.excludes, ...m.extra],
+        meta: { ...t.meta, ...mountExcludeMeta(m.extra), ...(dbMounts.get(t.source) ?? {}) },
+      });
     }
     // A host folder inside another one is read with it, not a second time.
     const nested = nestedFolders(kept.filter((t) => t.meta.bindSource).map((t) => t.source));
@@ -409,8 +430,9 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
       const name = `dump-${engine}-${container}.sql`.replace(/[^a-zA-Z0-9._-]+/g, "_");
       const path = join(stage, name);
       emit("info", `Dumping ${engine} (${container}) as ${creds?.user || "the default user"} - no downtime`, progress);
-      await dumpDatabase(engine, container, creds ?? {}, path);
-      await warnUnseenDatabases(engine, container, creds);
+      const client = await dumpDatabaseAnyway(engine, container, creds ?? {}, path);
+      if (client) emit("info", `${container} has no ${engine} client tools: dumped with ${client}`);
+      await warnUnseenDatabases(engine, container, creds, client);
       const sqlMeta = { engine, container, ...meta, ...(await imageMeta(container)) };
       return await finalizeArtifact("db-dump", name, path, sqlMeta, job, stage, emit);
     } catch (e) {
@@ -423,9 +445,9 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
 
   // A MySQL/MariaDB dumped as a user other than root only holds the databases
   // that user sees: say which others are only in the volume copy.
-  const warnUnseenDatabases = async (engine: string, container: string, creds: DbCredentials | undefined) => {
+  const warnUnseenDatabases = async (engine: string, container: string, creds: DbCredentials | undefined, image?: string) => {
     if ((engine !== "mysql" && engine !== "mariadb") || !creds?.user || creds.user === "root") return;
-    const unseen = await mysqlUnseenDatabases(engine, container, creds);
+    const unseen = await mysqlUnseenDatabases(engine, container, creds, image);
     if (!unseen.length) return;
     const msg =
       `The dump of ${container} as ${creds.user} leaves out database(s) this user can't see: ${unseen.join(", ")} - ` +
@@ -510,8 +532,9 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
       const dumpName = dumpFileName(engine, resource.db?.database);
       const dumpPath = join(stage, dumpName);
       const creds = withDumpCredentials(resource.db, job.dumpCredentials) ?? {};
-      await dumpDatabase(resource.type, primary, creds, dumpPath);
-      await warnUnseenDatabases(engine, primary, creds);
+      const client = await dumpDatabaseAnyway(resource.type, primary, creds, dumpPath);
+      if (client) emit("info", `${primary} has no ${engine} client tools: dumped with ${client}`);
+      await warnUnseenDatabases(engine, primary, creds, client);
       const dumpMeta = { engine, ...(await imageMeta(primary)) };
       artifacts.push(await finalizeArtifact("db-dump", dumpName, dumpPath, dumpMeta, job, stage, emit));
       captureMethod = "dump";
@@ -548,7 +571,27 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
         dumped++;
       } else notDumped.push(db.container);
     }
-    const volMethod = await copyVolumesAndBinds(notDumped);
+    const dbMounts = new Map<string, Record<string, string>>();
+    for (const db of dbs) {
+      if (!DRILLABLE_DB_ENGINES.has(db.engine)) continue;
+      const image = await exactImage(db.container);
+      // Postgres: the role to connect as and its data folder (PGDATA may be a
+      // sub-folder of the mount).
+      const env = Object.fromEntries(
+        ((await inspectContainer(db.container).catch(() => null))?.Config?.Env ?? []).map((e) => [e.slice(0, e.indexOf("=")), e.slice(e.indexOf("=") + 1)]),
+      ) as Record<string, string>;
+      const pg = db.engine === "postgresql" ? { dbUser: env.POSTGRES_USER || "postgres", ...(env.PGDATA ? { dbDataDir: env.PGDATA } : {}) } : {};
+      for (const m of db.mounts) {
+        dbMounts.set(m.source, {
+          dbEngine: db.engine,
+          dbContainer: db.container,
+          dbPath: m.destination,
+          ...(image ? { dbImage: image } : {}),
+          ...pg,
+        });
+      }
+    }
+    const volMethod = await copyVolumesAndBinds(notDumped, dbMounts);
     captureMethod = dumped > 0 ? `dump+${volMethod}` : volMethod;
   }
 

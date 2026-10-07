@@ -235,15 +235,19 @@ export function resourceContainers(r: { containerNames: string[]; containerName?
  * inside a docker-compose service), so each gets a logical export. */
 export async function findDbContainers(
   containerNames: string[],
-): Promise<{ container: string; engine: Engine; volumes: string[] }[]> {
-  const out: { container: string; engine: Engine; volumes: string[] }[] = [];
+): Promise<{ container: string; engine: Engine; volumes: string[]; mounts: Array<{ source: string; destination: string }> }[]> {
+  const out: { container: string; engine: Engine; volumes: string[]; mounts: Array<{ source: string; destination: string }> }[] = [];
   for (const c of containerNames) {
     const info = await inspectContainer(c);
     const engine = detectEngine(info?.Config?.Image);
     if (!engine) continue;
-    const mounts: Array<{ Type?: string; Name?: string }> = info?.Mounts ?? [];
-    const volumes = mounts.filter((m) => m?.Type === "volume" && m.Name).map((m) => m.Name as string);
-    out.push({ container: c, engine, volumes });
+    const all = info?.Mounts ?? [];
+    const volumes = all.filter((m) => m?.Type === "volume" && m.Name).map((m) => m.Name as string);
+    // Volumes by name, host folders by path, with where the database mounts them.
+    const mounts = all
+      .map((m) => ({ source: (m.Type === "volume" ? m.Name : m.Type === "bind" ? m.Source : undefined) ?? "", destination: m.Destination ?? "" }))
+      .filter((m) => m.source && m.destination);
+    out.push({ container: c, engine, volumes, mounts });
   }
   return out;
 }
