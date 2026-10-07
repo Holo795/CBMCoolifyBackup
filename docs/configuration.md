@@ -100,6 +100,7 @@ over CBM — the field is then locked in the dialog and shows the host's value.
 | `POLL_INTERVAL_MS` | `5000` | Job poll interval. |
 | `HEARTBEAT_INTERVAL_MS` | `30000` | Heartbeat interval. |
 | `LOG_LEVEL` **(CBM)** | `info` | `debug`, `info`, `warn` or `error`. |
+| `AGENT_FREEZE_METHOD` **(CBM)** | `pause` | How containers are frozen during a copy: `pause` (`docker pause`) or `cgroup` (the same freeze, invisible to Docker, so a health-checked container stays healthy behind Coolify's proxy; needs privileged containers). See [Backups → Freezing and health checks](backups.md#freezing-and-health-checks). |
 | `RESTIC_READ_CONCURRENCY` **(CBM)** | `2` | Files restic reads at once (1–32). Raise it on fast disks (NVMe), e.g. 4 to 8. |
 | `RESTIC_PACK_SIZE` **(CBM)** | `16` | Size of the packs restic writes, in MiB (4–128). Bigger packs mean fewer files on a remote (SFTP, S3), e.g. 64, at the cost of memory. |
 | `RESTIC_CACHE_DIR` | `<work dir>/restic-cache` | restic's cache of the repositories' index. In the work dir (a persistent volume), so it survives agent updates and restic doesn't download the index again on every run. |

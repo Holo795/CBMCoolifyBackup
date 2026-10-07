@@ -1,7 +1,24 @@
 import type { ResourceDescriptor, DbCredentials, ResourceType } from "@cbm/shared";
-import { docker, inspectContainer } from "./docker.js";
+import { docker, hostEntries, inspectContainer } from "./docker.js";
 import { detectEngine, type Engine } from "./engines.js";
 import { logger } from "./logger.js";
+
+/** Coolify's folders a control-plane backup keeps (see resolveResource). */
+export const COOLIFY_FOLDERS = ["source", "ssh", "proxy"] as const;
+
+/**
+ * Coolify's data directory on the host: where the `coolify` container's .env
+ * comes from (<base>/source/.env), else the standard /data/coolify.
+ */
+export async function coolifyBaseDir(containerNames: string[]): Promise<string> {
+  const candidates = containerNames.filter((n) => n === "coolify" || /^coolify(-|$)/.test(n));
+  for (const name of candidates) {
+    const mounts = (await inspectContainer(name).catch(() => null))?.Mounts ?? [];
+    const env = mounts.find((m) => m.Source?.endsWith("/source/.env"));
+    if (env?.Source) return env.Source.slice(0, -"/source/.env".length);
+  }
+  return "/data/coolify";
+}
 
 /**
  * Resolve the concrete Docker facts (containers, volumes, DB credentials) for a
@@ -25,12 +42,21 @@ export async function resolveResource(resource: ResourceDescriptor): Promise<Res
         break;
       }
     }
+    // Coolify's own files are host folders (a standard install bind-mounts
+    // /data/coolify/...): source/ (.env with the APP_KEY that decrypts the
+    // secrets in its database), ssh/ (the keys to every server) and proxy/
+    // (Traefik's config and certificates). applications/, services/… are each
+    // resource's own data, backed up with that resource.
+    const base = await coolifyBaseDir(names);
+    const folders = await hostEntries(base, [...COOLIFY_FOLDERS], "-d");
+    r.bindMounts = folders.map((f) => ({ source: `${base}/${f}`, container: "" }));
+    // An install keeping its data in Docker volumes instead.
     const vols = await listLines(["volume", "ls", "--format", "{{.Name}}"]);
     r.volumes = vols.filter((v) => {
       const l = v.toLowerCase();
       return l.includes("coolify") && l.includes("data") && !l.includes("-db") && !l.includes("redis");
     });
-    logger.debug(`coolify-self resolved: container=${r.containerName} volumes=${r.volumes.join(",")}`);
+    logger.debug(`coolify-self resolved: container=${r.containerName} base=${base} folders=${folders.join(",")} volumes=${r.volumes.join(",")}`);
     return r;
   }
 

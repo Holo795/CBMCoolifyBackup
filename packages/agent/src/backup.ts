@@ -20,9 +20,7 @@ import {
 import { dumpDatabase, dumpRedis } from "./dump.js";
 import { REDIS_ENGINES, isRedisEngine, type Engine } from "./engines.js";
 import {
-  tarVolume,
-  pauseContainer,
-  unpauseContainer,
+  hostEntries,
   runningRwContainersForVolume,
   isContainerRunning,
   containerExists,
@@ -44,6 +42,7 @@ import { assertFreeSpace, freeBytes, minFreeBytes } from "./disk.js";
 import { getSettings } from "./settings.js";
 import { chooseStaging, needsMeasure } from "./staging.js";
 import { captureTar } from "./capture.js";
+import { openFreezer, healthCheckOf, healthStatus } from "./freeze.js";
 import { backupOutcome, unbackedLayerWarning, captureErrorWarning, configOnlyFailure } from "./outcome.js";
 
 const mib = (n: number) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GiB` : `${(n / 1024 ** 2).toFixed(1)} MiB`);
@@ -141,81 +140,16 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
   const isCoolifySelf = resource.coolifyUuid.startsWith("coolify-self");
   const isRedisStandalone = REDIS_ENGINES.includes(resource.type as Engine);
 
-  // restic engine: back a volume / host folder up where it is (a helper container
-  // with it mounted read-only), so nothing is copied to the host and restic reads
-  // only the files changed since its previous snapshot. When containers must be
-  // frozen, a first pass runs WITHOUT freezing and carries the bulk of the
-  // changes; the frozen pass then only reads what moved in between.
-  const resticInPlace = async (
-    t: { source: string; fileName: string; label: string; meta: Record<string, string>; resticPath: () => string; freezeContainers: () => Promise<string[]> },
-    i: number,
-    total: number,
-  ): Promise<Artifact> => {
-    const ctx = await resticFor();
-    const path = t.resticPath();
-    const progress = 20 + (50 * i) / Math.max(1, total);
-    const root = await rootStat(t.source);
-    const tags = [`snap:${job.id}`, `res:${resource.coolifyUuid}`, "part:volume"];
-    const owners = liveBackup ? [] : await t.freezeContainers();
-    let warm: string | undefined;
-    if (owners.length) {
-      emit("info", `Reading ${t.label} into the restic repository before freezing (${i}/${total})`, progress);
-      const w = await resticBackupPath(ctx, workDir, t.source, path, [...tags, "pass:warm"], { excludes: job.excludes });
-      warm = w.id;
-      parts.push(w.id);
-      emit("info", `First pass: ${describePass(w)}`);
-    }
-    const paused: string[] = [];
-    let b: PathBackup;
-    try {
-      for (const c of owners) {
-        emit("info", `Freezing ${c} for a consistent copy of ${t.source}`);
-        await pauseContainer(c);
-        paused.push(c);
-      }
-      if (liveBackup) emit("warn", `Live copy of ${t.source} without freezing (at your own risk) - may be inconsistent`);
-      emit("info", owners.length ? `Final pass on ${t.label} while frozen` : `Backing up ${t.label} with restic (${i}/${total})`, progress);
-      // Frozen: wait for another command's lock a minute at most, never longer.
-      b = await resticBackupPath(ctx, workDir, t.source, path, tags, {
-        lockWait: owners.length ? "1m" : undefined,
-        excludes: job.excludes,
-      });
-      parts.push(b.id);
-    } finally {
-      for (const c of paused.reverse()) {
-        emit("info", `Resuming ${c}`);
-        await unpauseContainer(c).catch((e) => emit("error", `Failed to resume ${c}: ${(e as Error).message}`));
-      }
-    }
-    emit("info", `${owners.length ? "Final pass" : t.label}: ${describePass(b)}`);
-    if (warm) {
-      // Its data lives on in the final snapshot; only the snapshot record goes.
-      await resticForget(ctx, [warm], false).catch((e) => emit("warn", `Could not drop the first-pass snapshot ${warm}: ${(e as Error).message}`));
-      parts.splice(parts.indexOf(warm), 1);
-    }
-    return {
-      kind: "volume",
-      filename: t.fileName,
-      sizeBytes: b.bytes,
-      encrypted: false,
-      meta: {
-        ...t.meta,
-        [RESTIC_PART_META]: b.id,
-        resticPath: path,
-        ...(root ? { rootOwner: root.owner, rootMode: root.mode } : {}),
-      },
-    };
-  };
-
   // Copy every named volume + host-path (bind) mount WITHOUT stopping a
-  // container: briefly freeze (docker pause) only the running container(s) that
-  // write to each one, unless liveBackup is set. Returns the capture method.
+  // container. The running containers that write to them are frozen ONCE for
+  // all of them (unless liveBackup): one short cut per backup, not one per
+  // volume. With restic reading volumes in place, a first pass runs before the
+  // freeze and carries the bulk of the changes; the frozen pass then only reads
+  // what moved in between. Returns the capture method.
   const copyVolumesAndBinds = async (): Promise<string> => {
-    // Named volumes and host-path (bind) mounts are archived the same way; they
-    // only differ in what to freeze and the artifact meta. Normalise both into a
-    // single list so the freeze/archive/resume dance lives in one loop.
-    // `tarVolume` mounts the given path, so it works for host bind sources too.
-    const targets: Array<{
+    // Named volumes and host-path (bind) mounts are copied the same way; they
+    // only differ in what to freeze and the artifact meta.
+    type Target = {
       source: string;
       fileName: string;
       label: string;
@@ -223,7 +157,8 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
       /** Where restic keeps it when it reads it in place. */
       resticPath: () => string;
       freezeContainers: () => Promise<string[]>;
-    }> = [
+    };
+    const targets: Target[] = [
       ...resource.volumes.map((vol) => ({
         source: vol,
         fileName: volumeFileName(vol),
@@ -244,14 +179,15 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
         };
       }),
     ];
-
     const total = targets.length;
-    let i = 0;
+    if (total === 0) return "none";
+    if (job.encryption.enabled && !job.encryption.key) throw new Error("Encryption enabled but no key provided");
+
+    // 1. Where each copy goes - before freezing anything: never pause an app
+    //    only to fail on a full disk.
+    const { stagingMode } = getSettings();
+    const plans: Array<{ t: Target; choice: Exclude<ReturnType<typeof chooseStaging>, { error: string }>; needBytes: number | null }> = [];
     for (const t of targets) {
-      i++;
-      // Before freezing anything: never pause an app only to fail on a full disk.
-      // chooseStaging checks the room a local copy needs; a direct send needs none.
-      const { stagingMode } = getSettings();
       const measure = needsMeasure(stagingMode, job.storage.engine);
       const needBytes = measure ? await pathSizeBytes(t.source) : null;
       const choice = chooseStaging({
@@ -263,30 +199,90 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
         minFreeBytes: minFreeBytes(),
       });
       if ("error" in choice) throw new Error(choice.error);
-      if (choice.where === "repository") {
-        artifacts.push(await resticInPlace(t, i, total));
-        continue;
-      }
-      const owners = liveBackup ? [] : await t.freezeContainers();
+      plans.push({ t, choice, needBytes });
+    }
+
+    // 2. Every container writing to any of them, frozen once below.
+    const owners = liveBackup ? [] : [...new Set((await Promise.all(targets.map((t) => t.freezeContainers()))).flat())];
+    for (const { t, choice } of plans) {
       if (choice.where === "direct") {
         emit(
           choice.because === "no-room" ? "warn" : "info",
           `${choice.because === "no-room" ? "Not enough room on the agent host" : "Copy mode is direct"}: ` +
             `sending ${t.label} straight to the destination` +
-            (owners.length ? ` - its containers stay frozen until the upload ends` : ""),
+            (owners.length ? ` - the freeze lasts until its upload ends` : ""),
         );
       }
-      if (job.encryption.enabled && !job.encryption.key) throw new Error("Encryption enabled but no key provided");
-      const filename = job.encryption.enabled ? `${t.fileName}.enc` : t.fileName;
-      const paused: string[] = [];
-      try {
-        for (const c of owners) {
-          emit("info", `Freezing ${c} for a consistent copy of ${t.source}`);
-          await pauseContainer(c);
-          paused.push(c);
+    }
+
+    // 3. restic: a first pass without freezing (only worth it when freezing).
+    const tags = [`snap:${job.id}`, `res:${resource.coolifyUuid}`, "part:volume"];
+    const warm = new Map<Target, string>();
+    const roots = new Map<Target, Awaited<ReturnType<typeof rootStat>>>();
+    for (const [n, { t, choice }] of plans.entries()) {
+      if (choice.where !== "repository") continue;
+      roots.set(t, await rootStat(t.source));
+      if (!owners.length) continue;
+      emit("info", `Reading ${t.label} into the restic repository before freezing (${n + 1}/${total})`, 20 + (25 * (n + 1)) / total);
+      const w = await resticBackupPath(await resticFor(), workDir, t.source, t.resticPath(), [...tags, "pass:warm"], { excludes: job.excludes });
+      warm.set(t, w.id);
+      parts.push(w.id);
+      emit("info", `First pass on ${t.label}: ${describePass(w)}`);
+    }
+
+    // 4. One freeze for all of them.
+    const freezer = owners.length ? await openFreezer(getSettings().freezeMethod, (m) => emit("warn", m)) : null;
+    const health = new Map<string, Awaited<ReturnType<typeof healthCheckOf>>>();
+    for (const c of owners) {
+      const hc = await healthCheckOf(c);
+      if (!hc) continue;
+      health.set(c, hc);
+      if (freezer?.method === "pause") {
+        emit(
+          "warn",
+          `${c} has a health check every ${hc.intervalS}s: docker pause makes Docker report it unhealthy while frozen ` +
+            `and until its next check, so Coolify's proxy may not route to it for up to ~${hc.intervalS}s. ` +
+            `Set the agent's freeze method to "cgroup" (or shorten the check interval) to avoid it.`,
+        );
+      }
+    }
+    let frozenAt = 0;
+    try {
+      if (freezer) {
+        emit("info", `Freezing ${owners.join(", ")} once for a consistent copy of ${total} volume(s)/folder(s) (${freezer.method})`, 50);
+        await freezer.freeze(owners);
+        frozenAt = Date.now();
+      }
+      if (liveBackup) emit("warn", `Live copy without freezing (at your own risk) - may be inconsistent`);
+      for (const [n, { t, choice, needBytes }] of plans.entries()) {
+        const progress = 50 + (20 * (n + 1)) / total;
+        if (choice.where === "repository") {
+          const path = t.resticPath();
+          emit("info", owners.length ? `Final pass on ${t.label} while frozen` : `Backing up ${t.label} with restic (${n + 1}/${total})`, progress);
+          // Frozen: wait for another command's lock a minute at most, never longer.
+          const b = await resticBackupPath(await resticFor(), workDir, t.source, path, tags, {
+            lockWait: owners.length ? "1m" : undefined,
+            excludes: job.excludes,
+          });
+          parts.push(b.id);
+          emit("info", `${owners.length ? "Final pass on " : ""}${t.label}: ${describePass(b)}`);
+          const root = roots.get(t);
+          artifacts.push({
+            kind: "volume",
+            filename: t.fileName,
+            sizeBytes: b.bytes,
+            encrypted: false,
+            meta: {
+              ...t.meta,
+              [RESTIC_PART_META]: b.id,
+              resticPath: path,
+              ...(root ? { rootOwner: root.owner, rootMode: root.mode } : {}),
+            },
+          });
+          continue;
         }
-        if (liveBackup) emit("warn", `Live copy of ${t.source} without freezing (at your own risk) - may be inconsistent`);
-        emit("info", `Archiving ${t.label} (${i}/${total})`, 20 + (50 * i) / Math.max(1, total));
+        const filename = job.encryption.enabled ? `${t.fileName}.enc` : t.fileName;
+        emit("info", `Archiving ${t.label} (${n + 1}/${total})`, progress);
         // One pass: tar -> read-back check -> sha256 -> (encrypt) -> local file or
         // the destination. An encrypted copy no longer needs twice the room.
         const target = choice.where === "local" ? join(stage, filename) : `${job.destinationDir}/${filename}`;
@@ -304,14 +300,46 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
           meta: t.meta,
         });
         if (choice.where === "direct") sentDirect.add(filename);
-      } finally {
-        for (const c of paused.reverse()) {
-          emit("info", `Resuming ${c}`);
-          await unpauseContainer(c).catch((e) => emit("error", `Failed to resume ${c}: ${(e as Error).message}`));
-        }
+      }
+    } finally {
+      if (freezer) {
+        const failed = frozenAt ? await freezer.thaw(owners) : [];
+        if (frozenAt) emit("info", `Resumed ${owners.join(", ")} - frozen ${((Date.now() - frozenAt) / 1000).toFixed(1)}s`, 72);
+        for (const c of failed) emit("error", `Failed to resume ${c} - the agent retries at its next start`);
+        await freezer.close();
       }
     }
-    return total === 0 ? "none" : liveBackup ? "live" : "frozen";
+    // How long a health-checked container took to be reported healthy again
+    // (followed in the background; the backup waits for it before finishing).
+    for (const [c, hc] of health) if (hc && frozenAt) healthWatches.push(watchHealth(c, hc, Date.now()));
+
+    // 5. The first-pass snapshots: their data lives on in the final ones.
+    if (warm.size) {
+      const ctx = await resticFor();
+      const ids = [...warm.values()];
+      await resticForget(ctx, ids, false).catch((e) => emit("warn", `Could not drop the first-pass snapshots: ${(e as Error).message}`));
+      for (const id of ids) parts.splice(parts.indexOf(id), 1);
+    }
+    return liveBackup ? "live" : "frozen";
+  };
+
+  // Follow a container's health after a freeze, and say how long it took.
+  const healthWatches: Promise<void>[] = [];
+  const watchHealth = async (c: string, hc: NonNullable<Awaited<ReturnType<typeof healthCheckOf>>>, since: number) => {
+    const deadline = since + (hc.intervalS + hc.timeoutS + 10) * 1000;
+    for (;;) {
+      const st = await healthStatus(c);
+      if (st === "healthy") {
+        const s = (Date.now() - since) / 1000;
+        if (s >= 2) emit("warn", `${c} was reported healthy again ${s.toFixed(0)}s after the freeze`);
+        return;
+      }
+      if (st == null || Date.now() > deadline) {
+        emit("warn", `${c} not reported healthy ${hc.intervalS + hc.timeoutS + 10}s after the freeze (status: ${st ?? "unknown"})`);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
   };
 
   // Logical dump of one DB container (SQL via pg_dump/mysqldump/…, Redis via an
@@ -395,15 +423,20 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     const dumpPath = join(stage, dumpName);
     await dumpDatabase("postgresql", primary, resource.db ?? {}, dumpPath);
     artifacts.push(await finalizeArtifact("db-dump", dumpName, dumpPath, { engine: "postgresql" }, job, stage, emit));
-    let i = 0;
-    for (const vol of resource.volumes) {
-      i++;
-      emit("info", `Archiving Coolify data volume ${vol}`, 40 + 30 * (i / Math.max(1, resource.volumes.length)));
-      const name = volumeFileName(vol);
-      const path = join(stage, name);
-      await tarVolume(vol, path);
-      artifacts.push(await finalizeArtifact("volume", name, path, { volume: vol }, job, stage, emit));
+    // Its files on the host (read live: nothing to freeze). The APP_KEY in
+    // source/.env is what makes the database's secrets readable again on a new
+    // Coolify: without it the copy can't rebuild the control plane, so fail
+    // loudly (an alert) rather than store a useless snapshot.
+    const folders = resource.bindMounts.map((b) => b.source);
+    const sourceDir = folders.find((f) => f.endsWith("/source"));
+    if (!sourceDir || !(await hostEntries(sourceDir, [".env"], "-f")).length) {
+      throw new Error(
+        `Coolify's .env (with its APP_KEY) wasn't found${sourceDir ? ` in ${sourceDir}` : " (no source folder next to its data)"}: ` +
+          `a control-plane copy without it can't decrypt Coolify's secrets after a restore.`,
+      );
     }
+    emit("info", `Coolify files: ${[...folders, ...resource.volumes.map((v) => `volume ${v}`)].join(", ")}`, 30);
+    await copyVolumesAndBinds();
     captureMethod = "dump+live";
   } else if (isDb) {
     // Standalone database: a logical dump while running - no downtime, no
@@ -535,6 +568,7 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     if (missing.length) throw new Error(`Backup verification failed: missing at destination: ${missing.join(", ")}`);
   }
 
+  await Promise.all(healthWatches);
   emit("info", "Backup complete", 100);
   stored = true;
   return manifest;

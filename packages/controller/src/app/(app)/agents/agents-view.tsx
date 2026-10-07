@@ -69,7 +69,7 @@ export async function AgentsView({ items, defaults }: { items: AgentItem[]; defa
   const summary = (a: AgentRow) => {
     const s = a.settingsInEffect ? parseAgentSettings(a.settingsInEffect) : null;
     if (!s?.concurrency) return null;
-    return `${t("agents.settings.jobs", { count: s.concurrency })} · ${s.stagingMode ?? "auto"}`;
+    return `${t("agents.settings.jobs", { count: s.concurrency })} · ${s.stagingMode ?? "auto"}${s.freezeMethod === "cgroup" ? " · cgroup" : ""}`;
   };
   const isCustom = (a: AgentRow) => Object.keys(parseAgentSettings(a.settings)).length > 0;
 

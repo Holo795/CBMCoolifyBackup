@@ -46,6 +46,10 @@ immediately. See [MCP server](mcp.md).
 
 - The agent mounts the **Docker socket**, which grants root-equivalent access to its host. Run
   agents only on hosts you trust, and treat the agent image like any privileged workload.
+- With the **cgroup** freeze method, the agent starts a short-lived **privileged** helper
+  container (host PID namespace, the host's `/sys/fs/cgroup`, no network) for the time of a
+  freeze; it only writes the freeze switch of the containers being copied. It adds no access the
+  Docker socket doesn't already give.
 - The controller holds the metadata DB and the master key — protect it like any admin panel
   (TLS, restricted network, strong `BETTER_AUTH_SECRET`).
 - Backups can contain your application data and secrets; secure your destinations accordingly

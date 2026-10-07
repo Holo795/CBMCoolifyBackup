@@ -8,7 +8,8 @@ import { join } from "node:path";
  * for good: they are resumed on SIGTERM and swept at the next start.
  * Recorded BEFORE pausing/stopping, released after a successful resume.
  */
-export type HeldContainer = { name: string; action: "paused" | "stopped"; since: string };
+/** "frozen": frozen through its cgroup (freeze.ts), which Docker doesn't know about. */
+export type HeldContainer = { name: string; action: "paused" | "frozen" | "stopped"; since: string };
 
 let statePath: string | null = null;
 let held: HeldContainer[] = [];

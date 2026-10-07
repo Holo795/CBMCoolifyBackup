@@ -41,6 +41,7 @@ export function AgentSettingsFields({
   // A disabled field isn't submitted: keep a locked setting's stored value.
   const keep = (k: AgentSettingKey) =>
     isLocked(k) && values[k] !== undefined ? <input type="hidden" name={k} value={String(values[k])} /> : null;
+  const freezeLabel = { pause: t("agents.settings.freezePause"), cgroup: t("agents.settings.freezeCgroup") };
   const stagingLabel = { auto: t("agents.settings.stagingAuto"), local: t("agents.settings.stagingLocal"), direct: t("agents.settings.stagingDirect") };
 
   return (
@@ -120,6 +121,17 @@ export function AgentSettingsFields({
           />
         </Field>
       </div>
+      <Field label={t("agents.settings.freezeMethod")} htmlFor="as-freeze" hint={hint("freezeMethod", t("agents.settings.freezeHint"))}>
+        {keep("freezeMethod")}
+        <Select id="as-freeze" name="freezeMethod" defaultValue={values.freezeMethod ?? ""} disabled={isLocked("freezeMethod")}>
+          <option value="">{shown("freezeMethod", (v) => freezeLabel[v as keyof typeof freezeLabel] ?? v)}</option>
+          {(["pause", "cgroup"] as const).map((m) => (
+            <option key={m} value={m}>
+              {freezeLabel[m]}
+            </option>
+          ))}
+        </Select>
+      </Field>
       <Field label={t("agents.settings.logLevel")} htmlFor="as-log" hint={isLocked("logLevel") ? hint("logLevel", "") : undefined}>
         {keep("logLevel")}
         <Select id="as-log" name="logLevel" defaultValue={values.logLevel ?? ""} disabled={isLocked("logLevel")} className="sm:max-w-xs">

@@ -72,7 +72,14 @@ export interface DockerInspect {
   Id?: string;
   Image?: string;
   RepoDigests?: string[];
-  Config?: { Image?: string; Labels?: Record<string, string>; Env?: string[] };
+  Config?: {
+    Image?: string;
+    Labels?: Record<string, string>;
+    Env?: string[];
+    /** Durations in nanoseconds; Test ["NONE"] disables an image's check. */
+    Healthcheck?: { Test?: string[]; Interval?: number; Timeout?: number; Retries?: number };
+  };
+  State?: { Pid?: number; Health?: { Status?: string } };
   Mounts?: Array<{ Type?: string; Source?: string; Name?: string; RW?: boolean }>;
   [k: string]: unknown;
 }
@@ -162,7 +169,11 @@ export async function recoverHeldContainers(log: (msg: string) => void): Promise
     }
     try {
       if (h.action === "paused") await unpauseContainer(h.name);
-      else await startContainer(h.name);
+      else if (h.action === "frozen") {
+        const { thawLeftovers } = await import("./freeze.js");
+        const failed = await thawLeftovers([h.name]);
+        if (failed.length) throw new Error("thawing its cgroup failed");
+      } else await startContainer(h.name);
       log(`Resumed ${h.name} (left ${h.action} by an interrupted job since ${h.since})`);
     } catch (e) {
       log(`Could not resume ${h.name}: ${(e as Error).message} - will retry`);
@@ -229,6 +240,21 @@ export async function rootStat(source: string): Promise<{ owner: string; mode: s
   const r = await docker(["run", "--rm", "--network", "none", "-v", `${source}:/data:ro`, "alpine:3.24", "stat", "-c", "%u:%g %a", "/data"]);
   const [owner, mode] = r.code === 0 ? r.stdout.trim().split(" ") : [];
   return owner && mode && /^\d+:\d+$/.test(owner) && /^[0-7]{3,4}$/.test(mode) ? { owner, mode } : null;
+}
+
+/**
+ * Which of `names` exist under the host directory `dir` (`-d` folders, `-f`
+ * files). `--mount` (not `-v`) so a missing `dir` isn't created on the host.
+ */
+export async function hostEntries(dir: string, names: string[], kind: "-d" | "-f"): Promise<string[]> {
+  if (!names.length || !/^\/[A-Za-z0-9._/-]*$/.test(dir) || names.some((n) => !/^[A-Za-z0-9._-]+$/.test(n))) return [];
+  const script = names.map((n) => `[ ${kind} /b/${n} ] && echo ${n}`).join("; ") + "; true";
+  const r = await docker([
+    "run", "--rm", "--network", "none",
+    "--mount", `type=bind,source=${dir},target=/b,readonly`,
+    "alpine:3.24", "sh", "-c", script,
+  ]);
+  return r.code === 0 ? r.stdout.split("\n").map((l) => l.trim()).filter(Boolean) : [];
 }
 
 /** Spawn a docker command whose streams the caller wires (see capture.ts). */

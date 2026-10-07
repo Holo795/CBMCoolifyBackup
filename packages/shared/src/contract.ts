@@ -490,6 +490,15 @@ export type DiscoveredContainer = z.infer<typeof DiscoveredContainer>;
 export const StagingMode = z.enum(["auto", "local", "direct"]);
 export type StagingMode = z.infer<typeof StagingMode>;
 
+/**
+ * How containers are frozen during a copy: "pause" (`docker pause`; Docker then
+ * reports them unhealthy until their next health check, so a proxy such as
+ * Coolify's Traefik may stop routing to them for that long) or "cgroup" (the
+ * same kernel freezer, without telling Docker: they stay healthy).
+ */
+export const FreezeMethod = z.enum(["pause", "cgroup"]);
+export type FreezeMethod = z.infer<typeof FreezeMethod>;
+
 export const AgentLogLevel = z.enum(["debug", "info", "warn", "error"]);
 export type AgentLogLevel = z.infer<typeof AgentLogLevel>;
 
@@ -508,6 +517,8 @@ export const AgentSettings = z.object({
   /** Size of the packs restic writes, in MiB (RESTIC_PACK_SIZE): bigger means
    * fewer files on a remote (SFTP, S3), at the cost of memory. */
   resticPackSize: z.number().int().min(4).max(128).optional(),
+  /** See FreezeMethod (AGENT_FREEZE_METHOD). */
+  freezeMethod: FreezeMethod.optional(),
 });
 export type AgentSettings = z.infer<typeof AgentSettings>;
 export const AgentSettingKey = z.enum([
@@ -517,6 +528,7 @@ export const AgentSettingKey = z.enum([
   "logLevel",
   "resticReadConcurrency",
   "resticPackSize",
+  "freezeMethod",
 ]);
 export type AgentSettingKey = z.infer<typeof AgentSettingKey>;
 
@@ -529,6 +541,7 @@ export const AGENT_SETTING_DEFAULTS: Required<AgentSettings> = {
   // restic's own defaults.
   resticReadConcurrency: 2,
   resticPackSize: 16,
+  freezeMethod: "pause",
 };
 
 /** The host environment variable behind each setting (it wins over CBM). */
@@ -539,6 +552,7 @@ export const AGENT_SETTING_ENV: Record<AgentSettingKey, string> = {
   logLevel: "LOG_LEVEL",
   resticReadConcurrency: "RESTIC_READ_CONCURRENCY",
   resticPackSize: "RESTIC_PACK_SIZE",
+  freezeMethod: "AGENT_FREEZE_METHOD",
 };
 
 export const HeartbeatRequest = z.object({

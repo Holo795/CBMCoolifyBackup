@@ -62,6 +62,7 @@ test("agent settings: the host env wins over CBM, invalid env values are ignored
     logLevel: "debug",
     resticReadConcurrency: 6,
     resticPackSize: 64,
+    freezeMethod: "pause",
   });
   assert.equal(resolveSettings({}, undefined).stagingMode, "auto");
 });

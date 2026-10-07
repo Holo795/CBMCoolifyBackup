@@ -50,6 +50,13 @@ backups for good: versioning is off or suspended, or the key may delete old vers
 That setting is set by an environment variable on the host (e.g. `AGENT_CONCURRENCY`), which
 wins over CBM. Remove the variable from the agent container to manage it from CBM.
 
+### An app is unreachable for ~30 s after its backup
+Its container has a health check, and `docker pause` makes Docker report it unhealthy until its
+next check, so Coolify's proxy stops routing to it meanwhile (the backup log warns about it and
+says when it was healthy again). Set the agent's freeze method to **Invisible to Docker
+(cgroup)**, or shorten the health check interval. See
+[Backups → Freezing and health checks](backups.md#freezing-and-health-checks).
+
 ### restic over SSH/SFTP fails to connect
 restic's SFTP backend needs a working SSH connection from the **agent's host**:
 - key auth is most reliable; password auth uses `sshpass`;

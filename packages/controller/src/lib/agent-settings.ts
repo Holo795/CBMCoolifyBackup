@@ -39,6 +39,7 @@ export function settingsFromForm(fd: FormData): { settings?: AgentSettings; erro
   str("logLevel");
   num("resticReadConcurrency");
   num("resticPackSize");
+  str("freezeMethod");
   const parsed = AgentSettings.safeParse(raw);
   if (!parsed.success) return { error: parsed.error.issues[0]?.path.join(".") ?? "invalid" };
   return { settings: parsed.data };

@@ -12,11 +12,33 @@ and uptime through a backup.
 | **Applications** | Each named volume + Git commit / image provenance (so the code can be re-pinned to match the data on restore). |
 | **Docker-compose services** | Every named volume of the stack **plus** a logical dump of each database living inside the service (e.g. the Postgres in n8n) — application-consistent and restorable across engine versions. |
 | **Host bind mounts** | Data stored in host folders (RW binds) is captured too. System binds (docker socket, `/etc/*`, `/proc`, …) are skipped. |
+| **Coolify control plane** ("Back up Coolify") | A logical dump of Coolify's own database, plus its folders on the host (read live): `source/` (the `.env` holding the **APP_KEY** that decrypts the secrets stored in the database), `ssh/` (the keys to every server) and `proxy/` (Traefik's configuration and certificates) - found next to the `.env` the `coolify` container mounts, usually under `/data/coolify`. `applications/`, `services/`… are each resource's own data, backed up with that resource. The backup log lists the folders taken, and the backup **fails** if the `.env` is missing: without the APP_KEY the copy couldn't rebuild Coolify. (Before 2.4.4 only the database was kept on a standard install.) |
 | **Environment variables** | Captured into the snapshot (encrypted) so it can be restored even if the original resource no longer exists in Coolify. |
 
-For volumes, the agent briefly **freezes** (`docker pause`) only the running containers that
-mount the volume **read-write**, copies it, then resumes them. Read-only mounts and resources
-with no volumes are never touched.
+For volumes, the agent briefly **freezes** only the running containers that mount them
+**read-write**, copies them, then resumes them — **once per backup**, for all of a resource's
+volumes and folders together (with restic, after a first pass that runs without freezing).
+Read-only mounts and resources with no volumes are never touched. The backup log says how long
+the containers stayed frozen.
+
+### Freezing and health checks
+With `docker pause`, Docker reports a container that has a **health check** as *unhealthy* the
+moment it's frozen, and keeps doing so until its next check — after it's resumed. Coolify's
+proxy (Traefik) only routes to healthy containers, so a two-second freeze can make the app
+unreachable for up to its check **interval** (30 s by default), as soon as Traefik refreshes in
+between (any Docker event on the host). The backup log warns before freezing such a container,
+and says when it was reported healthy again.
+
+To avoid it, set the agent's **freeze method** to **Invisible to Docker (cgroup)** (**Agents** →
+default settings or the gear on an agent's row; `AGENT_FREEZE_METHOD=cgroup`). The containers are
+frozen the same way — the kernel's cgroup freezer, which `docker pause` uses — but without telling
+Docker: they stay healthy and keep their route; requests simply wait during the freeze. It runs a
+short-lived **privileged** helper container on the host (see [Security](security.md)); where that
+isn't possible the agent falls back to `docker pause` and says so. A container left frozen by an
+agent killed mid-backup is thawed when the agent starts again, whichever method froze it.
+
+Otherwise, shorten the app's health check interval in Coolify (the outage is at most that long),
+or use live mode below.
 
 ### Resources with nothing to copy
 
@@ -98,7 +120,8 @@ schedule must exist (enabling the toggle alone doesn't back anything up).
 You can also back up on demand (operators): **Backup** on a row of the **Resources** list or
 **Back up now** on a resource page, which use the resource's effective schedule for the
 destination and mode (with no schedule, any existing destination in `backup` mode). **Back up
-Coolify** (the control plane's own database + data) is on the instance card.
+Coolify** (the control plane's own database, `.env`, SSH keys and proxy configuration) is on the
+instance card.
 
 ---
 
