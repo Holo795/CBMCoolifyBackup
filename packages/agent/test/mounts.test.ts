@@ -1,32 +1,56 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { artifactExcludes, mountExcludeMeta, mountExcludes, nestedFolders } from "../src/excludes.js";
+import { artifactExcludes, classifyExcludes, excludesMeta, mountExcludes, nestedFolders } from "../src/excludes.js";
 import { staleWarmIds } from "../src/restic.js";
 
 const APP = "/data/coolify/applications/abc";
 
+const LOGS = { hostPath: `${APP}/logs`, destinations: ["/srv/app/var/log"] };
+const DATA = { hostPath: `${APP}/data`, destinations: ["/data", "/home/ftpdata"] };
+const SQL = { hostPath: `${APP}/backups/sql`, destinations: ["/backups"] };
+const DB = { destinations: ["/var/lib/mysql"] };
+const MOUNTS = [LOGS, DATA, SQL, DB];
+const effective = (mount: typeof DATA | typeof DB, excludes: string[]) => mountExcludes(mount, classifyExcludes(excludes, MOUNTS));
+
 test("an exclusion naming a whole mount leaves it out, by host path or container path", () => {
-  const logs = { hostPath: `${APP}/logs`, destinations: ["/srv/app/var/log"] };
-  assert.deepEqual(mountExcludes(logs, [`${APP}/logs`]), { skip: `${APP}/logs`, extra: [] });
-  assert.deepEqual(mountExcludes(logs, ["/srv/app/var/log"]), { skip: "/srv/app/var/log", extra: [] });
+  assert.deepEqual(effective(LOGS, [`${APP}/logs`]), { skip: `host path ${APP}/logs`, excludes: [] });
+  assert.deepEqual(effective(LOGS, ["/srv/app/var/log"]), { skip: "container path /srv/app/var/log", excludes: [] });
   // "/logs" keeps its meaning: a folder at the root of each mount.
-  assert.deepEqual(mountExcludes(logs, ["/logs"]), { extra: [] });
-  // A volume, by where it's mounted.
-  assert.deepEqual(mountExcludes({ destinations: ["/var/lib/mysql"] }, ["/var/lib/mysql"]), { skip: "/var/lib/mysql", extra: [] });
+  assert.deepEqual(effective(LOGS, ["/logs"]), { excludes: ["/logs"] });
+  assert.deepEqual(effective(DB, ["/var/lib/mysql"]), { skip: "container path /var/lib/mysql", excludes: [] });
 });
 
-test("a path inside a mount, written as on the host or in the container, applies to that mount only", () => {
-  const data = { hostPath: `${APP}/data`, destinations: ["/data", "/home/ftpdata"] };
-  assert.deepEqual(mountExcludes(data, [`${APP}/data/cache`, "/home/ftpdata/tmp", "*.log"]), { extra: ["/cache", "/tmp"] });
-  assert.deepEqual(mountExcludes({ hostPath: `${APP}/other`, destinations: ["/x"] }, [`${APP}/data/cache`]), { extra: [] });
+test("a host path is never read as a path in a container that mounts something at /data", () => {
+  // The host folders live under /data/coolify/..., and a container mounts the data folder at /data.
+  const ex = [`${APP}/logs`, `${APP}/backups/sql`];
+  assert.deepEqual(effective(DATA, ex), { excludes: [] });
+  // And a root-relative pattern isn't applied for them either.
+  assert.deepEqual(classifyExcludes(ex, MOUNTS).map((c) => c.kind), ["host", "host"]);
 });
 
-test("a restore in place keeps the mount's own exclusions too", () => {
-  const meta = mountExcludeMeta(["/cache"]);
-  assert.deepEqual(artifactExcludes(["/logs"], meta), ["/logs", "/cache"]);
+test("a path inside a mount applies to that mount only, as host path or container path", () => {
+  assert.deepEqual(effective(DATA, [`${APP}/data/cache`, "/home/ftpdata/tmp", "*.log"]), { excludes: ["/cache", "/tmp", "*.log"] });
+  assert.deepEqual(effective(LOGS, [`${APP}/data/cache`]), { excludes: [] });
+});
+
+test("host: and container: say which kind of path it is", () => {
+  assert.deepEqual(classifyExcludes(["host:/data/x", "container:/data/x", "/data/x"], MOUNTS), [
+    { kind: "host", path: "/data/x" },
+    { kind: "container", path: "/data/x" },
+    { kind: "container", path: "/data/x" },
+  ]);
+  // container:/data/x inside the data folder mounted at /data; host:/data/x matches no host folder.
+  assert.deepEqual(effective(DATA, ["container:/data/x"]), { excludes: ["/x"] });
+  assert.deepEqual(effective(DATA, ["host:/data/x"]), { excludes: [] });
+});
+
+test("a restore in place leaves exactly what the backup left out", () => {
+  assert.deepEqual(artifactExcludes(["/logs", "/data/coolify/x"], excludesMeta(["/logs", "/cache"])), ["/logs", "/cache"]);
+  // Before 2.4.7: the resource's list plus the mount's extras.
+  assert.deepEqual(artifactExcludes(["/logs", "host:/a"], { mountExcludes: JSON.stringify(["/cache"]) }), ["/logs", "/cache"]);
   assert.deepEqual(artifactExcludes(undefined, {}), []);
-  assert.deepEqual(artifactExcludes(["/a"], { mountExcludes: "not json" }), ["/a"]);
-  assert.deepEqual(mountExcludeMeta([]), {});
+  assert.deepEqual(artifactExcludes(["/a"], { excludes: "not json" }), ["/a"]);
+  assert.deepEqual(excludesMeta([]), {});
 });
 
 test("a host folder inside another one is read with it", () => {

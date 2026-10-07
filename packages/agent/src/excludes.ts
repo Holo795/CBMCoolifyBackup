@@ -38,47 +38,84 @@ export function wipeScript(dir: string, excludes: string[]): string {
   return `find ${dir} -mindepth 1 -depth \\( ${keep.join(" -o ")} \\) -o -delete 2>/dev/null; true`;
 }
 
+/** What an exclusion names: a path on the host, a path where a container
+ * mounts something, or (the original meaning) a path from the root of every
+ * volume / host folder, or a bare name at any depth. */
+export type ClassifiedExclude = { kind: "host" | "container" | "root"; path: string };
+
+type Mount = { hostPath?: string; destinations: string[] };
+
+const isUnder = (p: string, roots: string[]) => roots.some((r) => p === r || p.startsWith(`${r}/`));
+
 /**
- * How the exclusions apply to one mount (a volume or a host folder), given its
- * host path and where containers mount it. An exclusion naming the mount
- * itself - its host path or its path in a container - leaves it out entirely
- * (`skip`); one naming a path inside it, the same two ways, becomes a `/path`
- * from its root for this mount only (`extra`). Other exclusions keep their
- * usual meaning for every mount.
+ * Sort out the resource's exclusions once, against all of its mounts: `host:` /
+ * `container:` say it; otherwise a path that is (or is inside) one of its host
+ * folders is a host path, else one that is (or is inside) a place a container
+ * mounts something is a container path, else it keeps its original meaning. A
+ * host path is never matched against container paths, nor the other way round
+ * (a host folder under /data/... is not a path inside a container's /data).
  */
-export function mountExcludes(
-  mount: { hostPath?: string; destinations: string[] },
-  excludes: string[],
-): { skip?: string; extra: string[] } {
-  const roots = [mount.hostPath, ...mount.destinations].filter((r): r is string => !!r && r !== "/");
-  const extra: string[] = [];
-  for (const p of excludes) {
-    if (!p.startsWith("/")) continue;
-    if (roots.includes(p)) return { skip: p, extra: [] };
-    const root = roots.find((r) => p.startsWith(`${r}/`));
-    if (root) extra.push(p.slice(root.length));
+export function classifyExcludes(excludes: string[], mounts: Mount[]): ClassifiedExclude[] {
+  const hostRoots = mounts.map((m) => m.hostPath).filter((r): r is string => !!r && r !== "/");
+  const containerRoots = mounts.flatMap((m) => m.destinations).filter((d) => d && d !== "/");
+  return excludes.map((raw) => {
+    if (raw.startsWith("host:")) return { kind: "host", path: raw.slice("host:".length) };
+    if (raw.startsWith("container:")) return { kind: "container", path: raw.slice("container:".length) };
+    if (raw.startsWith("/") && isUnder(raw, hostRoots)) return { kind: "host", path: raw };
+    if (raw.startsWith("/") && isUnder(raw, containerRoots)) return { kind: "container", path: raw };
+    return { kind: "root", path: raw };
+  });
+}
+
+/**
+ * How the exclusions apply to one mount (a volume or a host folder): `skip` when
+ * one names the mount itself, else the patterns from its root to leave out -
+ * the root-relative ones, plus the host / container paths that fall inside
+ * this mount (each only against its own kind of path).
+ */
+export function mountExcludes(mount: Mount, classified: ClassifiedExclude[]): { skip?: string; excludes: string[] } {
+  const excludes: string[] = [];
+  for (const c of classified) {
+    if (c.kind === "root") {
+      excludes.push(c.path);
+      continue;
+    }
+    const roots = c.kind === "host" ? (mount.hostPath ? [mount.hostPath] : []) : mount.destinations.filter((d) => d && d !== "/");
+    if (roots.includes(c.path)) return { skip: `${c.kind} path ${c.path}`, excludes: [] };
+    const root = roots.find((r) => c.path.startsWith(`${r}/`));
+    if (root) excludes.push(c.path.slice(root.length));
   }
-  return { extra: [...new Set(extra)] };
+  return { excludes: [...new Set(excludes)] };
 }
 
-/** Artifact meta key: exclusions that applied to that mount only (JSON list),
- * which a restore in place leaves as they are, like the resource's own. */
-export const MOUNT_EXCLUDES_META = "mountExcludes";
+/** Artifact meta key: every exclusion that applied to that mount, from its
+ * root (JSON list) - what a restore in place leaves as it is. */
+export const EXCLUDES_META = "excludes";
+/** 2.4.6 snapshots: only the mount's own extras, on top of the manifest's list. */
+const LEGACY_MOUNT_EXCLUDES_META = "mountExcludes";
 
-export function mountExcludeMeta(extra: string[]): Record<string, string> {
-  return extra.length ? { [MOUNT_EXCLUDES_META]: JSON.stringify(extra) } : {};
+export function excludesMeta(excludes: string[]): Record<string, string> {
+  return excludes.length ? { [EXCLUDES_META]: JSON.stringify(excludes) } : {};
 }
+
+const parseList = (raw: string | undefined): string[] | null => {
+  if (raw === undefined) return null;
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && !!x && !/^(host|container):/.test(x)) : null;
+  } catch {
+    return null;
+  }
+};
 
 /** Every exclusion a restore of this artifact must leave alone. */
 export function artifactExcludes(manifestExcludes: string[] | undefined, meta: Record<string, string>): string[] {
-  let own: string[] = [];
-  try {
-    const v = JSON.parse(meta[MOUNT_EXCLUDES_META] ?? "[]");
-    if (Array.isArray(v)) own = v.filter((x): x is string => typeof x === "string" && x.startsWith("/"));
-  } catch {
-    /* ignore a malformed list */
-  }
-  return [...new Set([...(manifestExcludes ?? []), ...own])];
+  const own = parseList(meta[EXCLUDES_META]);
+  if (own) return own;
+  // Earlier snapshots: the resource's list (root-relative then) + the mount's extras.
+  const legacy = parseList(meta[LEGACY_MOUNT_EXCLUDES_META]) ?? [];
+  const base = (manifestExcludes ?? []).filter((x) => !/^(host|container):/.test(x));
+  return [...new Set([...base, ...legacy])];
 }
 
 /** Host folders that sit inside another one of the list: copying the outer one

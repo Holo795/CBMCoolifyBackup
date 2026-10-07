@@ -248,7 +248,13 @@ export type SnapshotManifest = z.infer<typeof SnapshotManifest>;
  */
 export const MAX_EXCLUDES = 50;
 export function excludeError(raw: string): string | null {
-  const p = raw.trim().replace(/\/+$/, "");
+  let p = raw.trim().replace(/\/+$/, "");
+  // host:/path and container:/path name a path on the host / in a container.
+  const prefix = /^(host|container):/.exec(p)?.[0];
+  if (prefix) {
+    p = p.slice(prefix.length);
+    if (!p.startsWith("/")) return `${prefix} needs an absolute path`;
+  }
   if (!p || p === "/") return "empty";
   if (p.length > 200) return "too long";
   if (/[\n\r\0\\]/.test(p)) return "invalid character";

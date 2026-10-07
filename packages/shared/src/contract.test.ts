@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Job, SnapshotManifest } from "./contract.js";
+import { Job, SnapshotManifest, excludeError, normalizeExcludes } from "./contract.js";
 import { snapshotDir, dumpFileName } from "./naming.js";
 
 test("BackupJob parses a valid payload", () => {
@@ -58,4 +58,12 @@ test("naming helpers are deterministic", () => {
   );
   assert.equal(dumpFileName("postgresql", "mydb"), "dump-postgresql-mydb.sql");
   assert.equal(dumpFileName("postgresql", undefined), "dump-postgresql-all.sql");
+});
+
+test("exclusions may say host: or container:, with an absolute path", () => {
+  assert.equal(excludeError("host:/data/coolify/applications/x/logs"), null);
+  assert.equal(excludeError("container:/var/log"), null);
+  assert.equal(excludeError("host:logs"), "host: needs an absolute path");
+  assert.equal(excludeError("container:/a/../b"), "no . or .. segments");
+  assert.deepEqual(normalizeExcludes(["host:/a/b/", "container:/c"]), ["host:/a/b", "container:/c"]);
 });

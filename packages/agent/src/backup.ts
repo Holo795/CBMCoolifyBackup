@@ -42,7 +42,7 @@ import { encryptFile, sha256File } from "./crypto.js";
 import { makeTransfer, type Transfer } from "./transfer.js";
 import { LOCK_WAIT_MESSAGE, resticEnsureRepo, resticBackupDir, resticContext, resticForget, type ResticCtx } from "./restic.js";
 import { resticBackupPaths, snapshotPath, type PathBackup } from "./restic-helper.js";
-import { mountExcludeMeta, mountExcludes, nestedFolders } from "./excludes.js";
+import { classifyExcludes, excludesMeta, mountExcludes, nestedFolders } from "./excludes.js";
 import { resolveResource, findDbContainers, readDbCredentials, resourceContainers } from "./resolve.js";
 import { assertFreeSpace, freeBytes, minFreeBytes } from "./disk.js";
 import { getSettings } from "./settings.js";
@@ -215,21 +215,26 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
         };
       }),
     ];
-    // An exclusion naming a whole mount (host path, or path in a container)
-    // leaves it out; one naming a path inside it applies to it alone.
+    // Exclusions: host paths, container paths and root-relative ones, told
+    // apart once against all mounts (see classifyExcludes). One naming a whole
+    // mount leaves it out; one inside a mount applies to that mount alone.
     const mountsAt = job.excludes.length ? await mountDestinations(containers) : new Map<string, string[]>();
+    const mountOf = (t: Target) => ({ hostPath: t.meta.bindSource, destinations: mountsAt.get(t.source) ?? [] });
+    const classified = classifyExcludes(job.excludes, candidates.map(mountOf));
+    const everywhere = classified.filter((c) => c.kind === "root").map((c) => c.path);
     const kept: Target[] = [];
     for (const t of candidates) {
-      const m = mountExcludes({ hostPath: t.meta.bindSource, destinations: mountsAt.get(t.source) ?? [] }, job.excludes);
+      const m = mountExcludes(mountOf(t), classified);
       if (m.skip) {
-        emit("info", `Left out entirely: ${t.label} (exclusion ${m.skip})`);
+        emit("info", `Left out entirely: ${t.label} (exclusion: ${m.skip})`);
         continue;
       }
-      if (m.extra.length) emit("info", `Left out of ${t.label}: ${m.extra.join(", ")}`);
+      const own = m.excludes.filter((x) => !everywhere.includes(x));
+      if (own.length) emit("info", `Left out of ${t.label}: ${own.join(", ")}`);
       kept.push({
         ...t,
-        excludes: [...job.excludes, ...m.extra],
-        meta: { ...t.meta, ...mountExcludeMeta(m.extra), ...(dbMounts.get(t.source) ?? {}) },
+        excludes: m.excludes,
+        meta: { ...t.meta, ...excludesMeta(m.excludes), ...(dbMounts.get(t.source) ?? {}) },
       });
     }
     // A host folder inside another one is read with it, not a second time.

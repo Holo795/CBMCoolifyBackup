@@ -221,6 +221,12 @@ re-downloaded from a registry… One per line:
   (`/var/www/var/log`). A path *inside* a mount, written either way
   (`/data/coolify/applications/<uuid>/data/cache`, `/data/cache`), leaves out only that part of it.
   The backup log says which mounts were left out entirely.
+- each exclusion is read **one way only**: a path that is (or is inside) one of the resource's
+  host folders is a host path; otherwise one that is (or is inside) a place where a container
+  mounts something is a container path; otherwise it keeps the meaning above. A host path is never
+  applied as a path inside a container (a host folder under `/data/...` isn't the `/data` a
+  container mounts), nor the other way round. Write `host:/…` or `container:/…` to say which one
+  you mean.
 
 Both engines honour them, and the backup log lists them. A **restore in place leaves excluded
 paths as they are** on the target — it never deletes what it didn't back up. Database dumps
