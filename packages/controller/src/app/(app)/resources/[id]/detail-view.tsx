@@ -1,3 +1,4 @@
+import { shownStatus } from "@/lib/snapshot-status";
 import Link from "next/link";
 import type { Prisma } from "@/generated/prisma/client";
 import { PageHeader } from "@/components/page-header";
@@ -176,7 +177,7 @@ export async function ResourceDetailView({
           hint={
             last ? (
               <span className="inline-flex items-center gap-1.5">
-                <StatusDot tone={statusTone(last.status)} /> {t(`snapshots.status.${last.status}`)} · {formatDateTime(last.startedAt, tz)}
+                <StatusDot tone={statusTone(shownStatus(last))} /> {t(`snapshots.status.${shownStatus(last)}`)} · {formatDateTime(last.startedAt, tz)}
               </span>
             ) : undefined
           }
@@ -247,8 +248,8 @@ export async function ResourceDetailView({
                           {modeLabel(s.mode, t)} · {captureLabel(s.captureMode, t)}
                         </TD>
                         <TD>
-                          <Badge tone={statusTone(s.status)} dot>
-                            {t(`snapshots.status.${s.status}`)}
+                          <Badge tone={statusTone(shownStatus(s))} dot>
+                            {t(`snapshots.status.${shownStatus(s)}`)}
                           </Badge>
                         </TD>
                         <TD className="tabular text-right text-[13px] text-muted-foreground">{formatBytes(s.sizeBytes)}</TD>

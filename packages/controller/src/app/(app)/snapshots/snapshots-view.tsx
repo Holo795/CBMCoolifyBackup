@@ -1,3 +1,4 @@
+import { shownStatus } from "@/lib/snapshot-status";
 import Link from "next/link";
 import type { Prisma } from "@/generated/prisma/client";
 import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
@@ -159,13 +160,15 @@ export async function SnapshotsView({
                       key={s.id}
                       className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 transition-colors hover:bg-surface sm:px-5"
                     >
-                      <StatusDot tone={statusTone(s.status)} pulse={s.status === "running"} />
+                      <StatusDot tone={statusTone(shownStatus(s))} pulse={s.status === "running"} />
                       <div className="min-w-0 flex-1 basis-48">
                         <div className="flex items-center gap-2">
                           <Link href={`/snapshots/${s.id}`} className="truncate font-medium hover:underline">
                             {s.resource.name}
                           </Link>
-                          {s.status !== "succeeded" && <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>}
+                          {shownStatus(s) !== "succeeded" && (
+                            <Badge tone={statusTone(shownStatus(s))}>{t(`snapshots.status.${shownStatus(s)}`)}</Badge>
+                          )}
                           {drill && drill.status !== "running" && (
                             <Tooltip content={t(`snapshots.drillBadge.${drill.status}`)}>
                               <span tabIndex={0} className="inline-flex">

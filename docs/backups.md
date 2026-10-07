@@ -7,12 +7,12 @@ and uptime through a backup.
 
 | Resource | What CBM does |
 | --- | --- |
-| **PostgreSQL / MySQL / MariaDB / MongoDB** (standalone) | Logical dump while running (`pg_dump` / `mysqldump --single-transaction` / `mongodump`). No freeze, application-consistent. **Every database of the server** is included, not only the one Coolify created (since 2.1; earlier versions dumped only that one). System schemas holding users and grants (`mysql`, Mongo's `admin`) are left out so a restore never replaces the target's own credentials. Credentials are read from the live container / Coolify API and never stored in the manifest. |
+| **PostgreSQL / MySQL / MariaDB / MongoDB** (standalone) | Logical dump while running (`pg_dump` / `mysqldump --single-transaction` / `mongodump`). No freeze, application-consistent. **Every database of the server** is included, not only the one Coolify created (since 2.1; earlier versions dumped only that one). System schemas holding users and grants (`mysql`, Mongo's `admin`) are left out so a restore never replaces the target's own credentials. Credentials are read from the live container / Coolify API and never stored in the manifest. MySQL / MariaDB are dumped as `root` when its password is known; when it isn't (`MARIADB_RANDOM_ROOT_PASSWORD` / `MYSQL_RANDOM_ROOT_PASSWORD`), as the application user the image created (`MARIADB_USER` / `MYSQL_USER`), which has every right on its database. |
 | **Redis / KeyDB / Dragonfly** | Live RDB export (`--rdb`), no freeze. Falls back to a frozen volume copy only if no compatible CLI is present. |
 | **Applications** | Each named volume + Git commit / image provenance (so the code can be re-pinned to match the data on restore). |
 | **Image versions** | For every container: the image as written, the digest it ran and its version, so a restore runs the same version as the data (see [Restore](restore.md#image-versions)). |
 | **Docker-compose services** | Every named volume of the stack **plus** a logical dump of each database living inside the service (e.g. the Postgres in n8n) — application-consistent and restorable across engine versions. |
-| **Host bind mounts** | Data stored in host folders (RW binds) is captured too. System binds (docker socket, `/etc/*`, `/proc`, …) are skipped. |
+| **Host bind mounts** | Data stored in host folders (RW binds) is captured too. System binds (docker socket, `/etc/*`, `/proc`, …) are skipped. A folder that sits inside another one of the resource (`…/data` and `…/data/uploads`) is copied with it, not read twice. |
 | **Coolify control plane** ("Back up Coolify") | A logical dump of Coolify's own database, plus its folders on the host (read live): `source/` (the `.env` holding the **APP_KEY** that decrypts the secrets stored in the database), `ssh/` (the keys to every server) and `proxy/` (Traefik's configuration and certificates) - found next to the `.env` the `coolify` container mounts, usually under `/data/coolify`. `applications/`, `services/`… are each resource's own data, backed up with that resource. The backup log lists the folders taken, and the backup **fails** if the `.env` is missing: without the APP_KEY the copy couldn't rebuild Coolify. (Before 2.4.4 only the database was kept on a standard install.) |
 | **Environment variables** | Captured into the snapshot (encrypted) so it can be restored even if the original resource no longer exists in Coolify. |
 
@@ -60,6 +60,15 @@ Per resource you can opt into **"Copy live, without freezing (at my own risk)"**
 **Options** tab) — copy volumes with zero interruption, accepting that a file rewritten exactly
 during the copy could be inconsistent. Avoid it for resources that write a lot outside a
 database.
+
+Live mode never applies to a database container whose logical dump failed: its files are then the
+only copy of the database, so that container is frozen anyway (the others stay live) and the log
+says so.
+
+### Backups with warnings
+A backup that completes but lost something on the way - a database inside the resource that
+couldn't be dumped, live mode not applied - is shown **with warnings** (orange) in the lists, and its
+page lists them. Check them: the data is there, but not everything you may count on.
 
 ### Integrity
 Each archive is streamed through `tar -tf` (it must open) before upload, and after upload the
@@ -158,11 +167,21 @@ backs up in seconds, and needs no room on the host.
 
 When containers must be frozen, the agent makes **two passes**: a first one **without freezing**
 carries the bulk of the changes, then a short **frozen** pass reads only what moved in between —
-typically about a second, even for the very first backup of a large volume. The backup log shows
-what each pass read (`12 new, 3 changed, 4 210 unchanged files - 1.2 MiB added`).
+typically about a second, even for the very first backup of a large volume. Each pass reads **all
+the resource's volumes and folders in one restic command**: restic's start (loading the
+repository's index) is paid once, not once per folder, which is most of what a frozen pass costs
+when little changed. The backup log shows what each pass read (`12 new, 3 changed, 4 210 unchanged
+files - 1.2 MiB added`).
 
-Each volume is stored as its own restic snapshot (tagged with the backup and `part:volume`), next
-to the backup's main snapshot (database dumps, configuration); CBM keeps them together: they are
+The first pass stays in the repository as the final pass's starting point (tagged `pass:warm`):
+removing it right away would need the repository's exclusive lock, and wait behind any other
+backup of the same destination. A later prune of that destination drops the first passes older
+than a day. While a job waits for the repository's lock (a prune behind a long backup, for
+instance), the activity bar says so and names the jobs using that destination.
+
+The volumes and folders are stored in a restic snapshot of their own (tagged with the backup and
+`part:volume`, each under its own path), next to the backup's main snapshot (database dumps,
+configuration); CBM keeps them together: they are
 restored, checked, mirrored and deleted as one backup. A restore writes straight into the volume
 (files that weren't in the backup are removed, and the folder's owner and permissions come back),
 and a restore drill reads the volume back from the repository without copying it to the host. A
@@ -183,7 +202,12 @@ re-downloaded from a registry… One per line:
 - `/path` starts at the root of **each** volume or folder of the resource (`/backups`, `/logs`);
 - a bare name, without a slash, is matched at **any depth** (`logs`, `*.tmp`);
 - `*` and `?` wildcards work. A path in the middle of a tree (`app/logs`) is refused: write
-  `/app/logs`.
+  `/app/logs`;
+- to leave out a **whole mounted folder or volume**, write its path **on the host**
+  (`/data/coolify/applications/<uuid>/logs`) or where a container **mounts** it
+  (`/var/www/var/log`). A path *inside* a mount, written either way
+  (`/data/coolify/applications/<uuid>/data/cache`, `/data/cache`), leaves out only that part of it.
+  The backup log says which mounts were left out entirely.
 
 Both engines honour them, and the backup log lists them. A **restore in place leaves excluded
 paths as they are** on the target — it never deletes what it didn't back up. Database dumps

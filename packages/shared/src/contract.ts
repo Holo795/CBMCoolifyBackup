@@ -218,6 +218,9 @@ export const SnapshotManifest = z.object({
   /** Paths left out of the volume copies (see normalizeExcludes): a restore in
    * place leaves them as they are. */
   excludes: z.array(z.string()).optional(),
+  /** What went wrong without failing the backup (a database that couldn't be
+   * dumped...): the snapshot is shown "with warnings". */
+  warnings: z.array(z.string().max(1000)).max(50).optional(),
   notes: z.string().optional(),
 });
 export type SnapshotManifest = z.infer<typeof SnapshotManifest>;

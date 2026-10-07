@@ -1,3 +1,4 @@
+import { shownStatus } from "@/lib/snapshot-status";
 import type { Prisma, RestoreJob, RestoreDrill } from "@/generated/prisma/client";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, Badge, Meta, Code, statusTone } from "@/components/ui";
@@ -12,7 +13,7 @@ import { getT } from "@/lib/i18n";
 import { can, requireUser } from "@/lib/session";
 import { modeLabel, captureLabel } from "@/lib/schedule";
 import { formatBytes, formatDateTime } from "@/lib/cn";
-import { GitCommitHorizontal, Info, ShieldCheck, Check, X, AlertCircle, Boxes, FileArchive, Lock, Database } from "lucide-react";
+import { GitCommitHorizontal, Info, ShieldCheck, Check, X, AlertCircle, Boxes, FileArchive, Lock, Database, AlertTriangle } from "lucide-react";
 import { drillTone } from "@/lib/status";
 import { type DESTINATION_SECRETS } from "@/lib/public-fields";
 import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
@@ -98,8 +99,8 @@ export async function SnapshotDetailView({
         back={{ href: "/snapshots", label: t("snapshots.title") }}
         title={snapshot.resource.name}
         badges={
-          <Badge tone={statusTone(snapshot.status)} dot>
-            {t(`snapshots.status.${snapshot.status}`)}
+          <Badge tone={statusTone(shownStatus(snapshot))} dot>
+            {t(`snapshots.status.${shownStatus(snapshot)}`)}
           </Badge>
         }
         description={`${modeLabel(snapshot.mode, t)} · ${captureLabel(snapshot.captureMode, t)} · ${snapshot.destination.name} · ${formatDateTime(snapshot.startedAt, tz)}`}
@@ -129,6 +130,22 @@ export async function SnapshotDetailView({
           <div className="min-w-0">
             <p className="font-medium">{t("snapshots.configOnlyTitle")}</p>
             <p className="text-muted-foreground">{t("snapshots.configOnlyBody")}</p>
+          </div>
+        </div>
+      )}
+
+      {snapshot.status === "succeeded" && snapshot.warnings.length > 0 && (
+        <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning-soft px-4 py-3 text-[13px]">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+          <div className="min-w-0">
+            <p className="font-semibold text-warning">{t("snapshots.warningsTitle")}</p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-foreground">
+              {snapshot.warnings.map((w) => (
+                <li key={w} className="break-words">
+                  {w}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       )}

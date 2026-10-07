@@ -33,7 +33,9 @@ const MYSQL_DUMP_SCRIPT =
   "('mysql','information_schema','performance_schema','sys') ORDER BY schema_name\") || exit 1; " +
   'if [ -z "$dbs" ]; then echo "-- no user databases"; exit 0; fi; ' +
   "IFS='\n'; set -f; " +
-  'exec "$t" -u"$u" --single-transaction --routines --events --triggers --databases $dbs';
+  // --no-tablespaces: dumping tablespaces needs the global PROCESS privilege,
+  // which an application user doesn't have (and Docker databases don't use).
+  'exec "$t" -u"$u" --single-transaction --no-tablespaces --routines --events --triggers --databases $dbs';
 // $1 = client, $2 = user.
 const MYSQL_LOAD_SCRIPT =
   'c="$1"; u="$2"; if command -v "$c" >/dev/null 2>&1; then exec "$c" -u"$u"; else exec mysql -u"$u"; fi';

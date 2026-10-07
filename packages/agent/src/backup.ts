@@ -29,14 +29,16 @@ import {
   rootStat,
   execShell,
   inspectContainer,
+  mountDestinations,
   type RunResult,
 } from "./docker.js";
 import { matchHookTargets, DEFAULT_HOOK_TIMEOUT_SEC } from "./hooks.js";
 import { captureImages, captureProvenance } from "./provenance.js";
 import { encryptFile, sha256File } from "./crypto.js";
 import { makeTransfer, type Transfer } from "./transfer.js";
-import { resticEnsureRepo, resticBackupDir, resticContext, resticForget, type ResticCtx } from "./restic.js";
-import { resticBackupPath, snapshotPath, type PathBackup } from "./restic-helper.js";
+import { LOCK_WAIT_MESSAGE, resticEnsureRepo, resticBackupDir, resticContext, resticForget, type ResticCtx } from "./restic.js";
+import { resticBackupPaths, snapshotPath, type PathBackup } from "./restic-helper.js";
+import { mountExcludeMeta, mountExcludes, nestedFolders } from "./excludes.js";
 import { resolveResource, findDbContainers, readDbCredentials, resourceContainers } from "./resolve.js";
 import { assertFreeSpace, freeBytes, minFreeBytes } from "./disk.js";
 import { getSettings } from "./settings.js";
@@ -109,11 +111,14 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     // Its ssh files go in the work dir (seen by helper containers), never in
     // the stage that becomes the snapshot.
     const ctx = await resticContext(job.destination, job.storage.resticPassword, workDir);
+    ctx.onLockWait = () => emit("info", LOCK_WAIT_MESSAGE);
     restic = ctx;
     await resticEnsureRepo(ctx);
     return ctx;
   };
   const parts: string[] = [];
+  // What the snapshot should show beyond its log (a database that couldn't be dumped...).
+  const warnings: string[] = [];
   let stored = false;
   const isDb = DUMPABLE_DB_TYPES.includes(resource.type);
   const containers = resourceContainers(resource);
@@ -150,7 +155,11 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
   // volume. With restic reading volumes in place, a first pass runs before the
   // freeze and carries the bulk of the changes; the frozen pass then only reads
   // what moved in between. Returns the capture method.
-  const copyVolumesAndBinds = async (): Promise<string> => {
+  const copyVolumesAndBinds = async (
+    /** Containers to freeze even in live mode: their database dump failed, so
+     * the copy of their files is the only consistent one there is. */
+    forceFreeze: string[] = [],
+  ): Promise<string> => {
     // Named volumes and host-path (bind) mounts are copied the same way; they
     // only differ in what to freeze and the artifact meta.
     type Target = {
@@ -161,8 +170,10 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
       /** Where restic keeps it when it reads it in place. */
       resticPath: () => string;
       freezeContainers: () => Promise<string[]>;
+      /** The resource's exclusions, plus those naming a path inside this mount. */
+      excludes: string[];
     };
-    const targets: Target[] = [
+    const candidates: Target[] = [
       ...resource.volumes.map((vol) => ({
         source: vol,
         fileName: volumeFileName(vol),
@@ -170,6 +181,7 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
         meta: { volume: vol },
         resticPath: () => snapshotPath("volume", vol),
         freezeContainers: () => runningRwContainersForVolume(vol),
+        excludes: job.excludes,
       })),
       ...resource.bindMounts.map((b) => {
         const slug = b.source.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
@@ -180,9 +192,27 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
           meta: { bindSource: b.source },
           resticPath: () => snapshotPath("bind", slug),
           freezeContainers: async () => ((await isContainerRunning(b.container)) ? [b.container] : []),
+          excludes: job.excludes,
         };
       }),
     ];
+    // An exclusion naming a whole mount (host path, or path in a container)
+    // leaves it out; one naming a path inside it applies to it alone.
+    const mountsAt = job.excludes.length ? await mountDestinations(containers) : new Map<string, string[]>();
+    const kept: Target[] = [];
+    for (const t of candidates) {
+      const m = mountExcludes({ hostPath: t.meta.bindSource, destinations: mountsAt.get(t.source) ?? [] }, job.excludes);
+      if (m.skip) {
+        emit("info", `Left out entirely: ${t.label} (exclusion ${m.skip})`);
+        continue;
+      }
+      if (m.extra.length) emit("info", `Left out of ${t.label}: ${m.extra.join(", ")}`);
+      kept.push({ ...t, excludes: [...job.excludes, ...m.extra], meta: { ...t.meta, ...mountExcludeMeta(m.extra) } });
+    }
+    // A host folder inside another one is read with it, not a second time.
+    const nested = nestedFolders(kept.filter((t) => t.meta.bindSource).map((t) => t.source));
+    for (const [inner, outer] of nested) emit("info", `Host folder ${inner} is inside ${outer}: copied with it`);
+    const targets = kept.filter((t) => !nested.has(t.source));
     const total = targets.length;
     if (total === 0) return "none";
     if (job.encryption.enabled && !job.encryption.key) throw new Error("Encryption enabled but no key provided");
@@ -206,8 +236,15 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
       plans.push({ t, choice, needBytes });
     }
 
-    // 2. Every container writing to any of them, frozen once below.
-    const owners = liveBackup ? [] : [...new Set((await Promise.all(targets.map((t) => t.freezeContainers()))).flat())];
+    // 2. Every container writing to any of them, frozen once below. In live
+    //    mode, only those whose database couldn't be dumped.
+    const writers = [...new Set((await Promise.all(targets.map((t) => t.freezeContainers()))).flat())];
+    const owners = liveBackup ? writers.filter((c) => forceFreeze.includes(c)) : writers;
+    if (liveBackup && owners.length) {
+      const msg = `Live mode not applied to ${owners.join(", ")}: its database dump failed, so its files are copied frozen to stay consistent`;
+      emit("warn", msg);
+      warnings.push(msg);
+    }
     for (const { t, choice } of plans) {
       if (choice.where === "direct") {
         emit(
@@ -219,19 +256,23 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
       }
     }
 
-    // 3. restic: a first pass without freezing (only worth it when freezing).
+    // 3. restic reads every volume and folder in ONE command (one start, one
+    //    index load): first without freezing (only worth it when freezing),
+    //    then frozen, when only what moved in between is read. The first pass
+    //    stays in the repository as the final one's parent (tag pass:warm) and
+    //    is dropped by the next prune: forgetting it here would wait for an
+    //    exclusive lock behind any other backup of the same destination.
     const tags = [`snap:${job.id}`, `res:${resource.coolifyUuid}`, "part:volume"];
-    const warm = new Map<Target, string>();
+    const repo = plans.filter((p) => p.choice.where === "repository").map((p) => p.t);
+    const items = repo.map((t) => ({ source: t.source, path: t.resticPath(), excludes: t.excludes }));
     const roots = new Map<Target, Awaited<ReturnType<typeof rootStat>>>();
-    for (const [n, { t, choice }] of plans.entries()) {
-      if (choice.where !== "repository") continue;
-      roots.set(t, await rootStat(t.source));
-      if (!owners.length) continue;
-      emit("info", `Reading ${t.label} into the restic repository before freezing (${n + 1}/${total})`, 20 + (25 * (n + 1)) / total);
-      const w = await resticBackupPath(await resticFor(), workDir, t.source, t.resticPath(), [...tags, "pass:warm"], { excludes: job.excludes });
-      warm.set(t, w.id);
-      parts.push(w.id);
-      emit("info", `First pass on ${t.label}: ${describePass(w)}`);
+    let sizes = new Map<string, number>();
+    for (const t of repo) roots.set(t, await rootStat(t.source));
+    if (repo.length && owners.length) {
+      emit("info", `Reading ${repo.length} volume(s)/folder(s) into the restic repository before freezing`, 30);
+      const w = await resticBackupPaths(await resticFor(), workDir, items, [...tags, "pass:warm"], { sizes: true });
+      sizes = w.sizes;
+      emit("info", `First pass: ${describePass(w)}`);
     }
 
     // 4. One freeze for all of them.
@@ -257,24 +298,24 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
         await freezer.freeze(owners);
         frozenAt = Date.now();
       }
-      if (liveBackup) emit("warn", `Live copy without freezing (at your own risk) - may be inconsistent`);
-      for (const [n, { t, choice, needBytes }] of plans.entries()) {
-        const progress = 50 + (20 * (n + 1)) / total;
-        if (choice.where === "repository") {
+      if (liveBackup && writers.length > owners.length) emit("warn", `Live copy without freezing (at your own risk) - may be inconsistent`);
+      if (repo.length) {
+        emit("info", owners.length ? `Final pass on ${repo.length} volume(s)/folder(s) while frozen` : `Backing up ${repo.length} volume(s)/folder(s) with restic`, 55);
+        // Frozen: wait for another command's lock a minute at most, never longer.
+        const b = await resticBackupPaths(await resticFor(), workDir, items, tags, {
+          lockWait: owners.length ? "1m" : undefined,
+          sizes: !owners.length,
+        });
+        if (!owners.length) sizes = b.sizes;
+        parts.push(b.id);
+        emit("info", `${owners.length ? "Final pass" : "Backed up"}: ${describePass(b)}`, 65);
+        for (const t of repo) {
           const path = t.resticPath();
-          emit("info", owners.length ? `Final pass on ${t.label} while frozen` : `Backing up ${t.label} with restic (${n + 1}/${total})`, progress);
-          // Frozen: wait for another command's lock a minute at most, never longer.
-          const b = await resticBackupPath(await resticFor(), workDir, t.source, path, tags, {
-            lockWait: owners.length ? "1m" : undefined,
-            excludes: job.excludes,
-          });
-          parts.push(b.id);
-          emit("info", `${owners.length ? "Final pass on " : ""}${t.label}: ${describePass(b)}`);
           const root = roots.get(t);
           artifacts.push({
             kind: "volume",
             filename: t.fileName,
-            sizeBytes: b.bytes,
+            sizeBytes: sizes.get(path) ?? 0,
             encrypted: false,
             meta: {
               ...t.meta,
@@ -283,8 +324,11 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
               ...(root ? { rootOwner: root.owner, rootMode: root.mode } : {}),
             },
           });
-          continue;
         }
+      }
+      for (const [n, { t, choice, needBytes }] of plans.entries()) {
+        if (choice.where === "repository") continue;
+        const progress = 50 + (20 * (n + 1)) / total;
         const filename = job.encryption.enabled ? `${t.fileName}.enc` : t.fileName;
         emit("info", `Archiving ${t.label} (${n + 1}/${total})`, progress);
         // One pass: tar -> read-back check -> sha256 -> (encrypt) -> local file or
@@ -294,7 +338,7 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
           choice.where === "local"
             ? (body: Readable) => pipeline(body, createWriteStream(target))
             : async (body: Readable) => (await transferFor()).putStream(body, target, needBytes ?? undefined);
-        const res = await captureTar(t.source, sink, job.encryption.enabled ? job.encryption.key : undefined, job.excludes);
+        const res = await captureTar(t.source, sink, job.encryption.enabled ? job.encryption.key : undefined, t.excludes);
         artifacts.push({
           kind: "volume",
           filename,
@@ -316,15 +360,7 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     // How long a health-checked container took to be reported healthy again
     // (followed in the background; the backup waits for it before finishing).
     for (const [c, hc] of health) if (hc && frozenAt) healthWatches.push(watchHealth(c, hc, Date.now()));
-
-    // 5. The first-pass snapshots: their data lives on in the final ones.
-    if (warm.size) {
-      const ctx = await resticFor();
-      const ids = [...warm.values()];
-      await resticForget(ctx, ids, false).catch((e) => emit("warn", `Could not drop the first-pass snapshots: ${(e as Error).message}`));
-      for (const id of ids) parts.splice(parts.indexOf(id), 1);
-    }
-    return liveBackup ? "live" : "frozen";
+    return liveBackup && writers.length > owners.length ? "live" : "frozen";
   };
 
   // Follow a container's health after a freeze, and say how long it took.
@@ -353,6 +389,8 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     engine: Engine,
     meta: Record<string, string>,
     progress: number,
+    /** false: a fallback follows, the failure is only logged. */
+    warnIfFailed = true,
   ): Promise<Artifact | null> => {
     try {
       if (isRedisEngine(engine)) {
@@ -372,7 +410,9 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
       const sqlMeta = { engine, container, ...meta, ...(await imageMeta(container)) };
       return await finalizeArtifact("db-dump", name, path, sqlMeta, job, stage, emit);
     } catch (e) {
-      emit("warn", `Logical export of ${container} (${engine}) failed: ${(e as Error).message}`);
+      const msg = `Logical export of ${container} (${engine}) failed: ${(e as Error).message}`;
+      emit("warn", msg);
+      if (warnIfFailed) warnings.push(msg);
       return null;
     }
   };
@@ -465,14 +505,14 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     const dataVolume = resource.volumes[0] ?? "";
     const art =
       primary && (await containerExists(primary))
-        ? await dumpContainer(primary, resource.type as Engine, { volume: dataVolume }, 20)
+        ? await dumpContainer(primary, resource.type as Engine, { volume: dataVolume }, 20, false)
         : null;
     if (art) {
       artifacts.push(art);
       captureMethod = "dump";
     } else {
       emit("warn", `Falling back to a frozen volume copy for ${resource.type}`);
-      captureMethod = await copyVolumesAndBinds();
+      captureMethod = await copyVolumesAndBinds(primary ? [primary] : []);
     }
   } else {
     // Apps & services: capture every volume + bind mount (no restart), AND give
@@ -481,14 +521,15 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     // across engine versions. The volume copy is kept so "→ new" still works.
     const dbs = await findDbContainers(containers);
     let dumped = 0;
+    const notDumped: string[] = [];
     for (const db of dbs) {
       const art = await dumpContainer(db.container, db.engine, { volume: db.volumes[0] ?? "" }, 15);
       if (art) {
         artifacts.push(art);
         dumped++;
-      }
+      } else notDumped.push(db.container);
     }
-    const volMethod = await copyVolumesAndBinds();
+    const volMethod = await copyVolumesAndBinds(notDumped);
     captureMethod = dumped > 0 ? `dump+${volMethod}` : volMethod;
   }
 
@@ -536,6 +577,7 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     encrypted: job.encryption.enabled,
     destinationDir: job.destinationDir,
     ...(job.excludes.length ? { excludes: job.excludes } : {}),
+    ...(warnings.length ? { warnings } : {}),
   };
 
   // Persist the manifest into the staging dir (it's part of what gets stored).
@@ -578,7 +620,8 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
   return manifest;
   } finally {
     if (!stored && restic && parts.length) {
-      await resticForget(restic, parts, false).catch((e) => emit("warn", `Could not drop restic snapshots of the failed backup: ${(e as Error).message}`));
+      // Short wait: never hold a job slot behind another job's exclusive lock.
+      await resticForget(restic, parts, false, "1m").catch((e) => emit("warn", `Could not drop restic snapshots of the failed backup: ${(e as Error).message}`));
     }
     await restic?.cleanup().catch(() => undefined);
     // Post-backup hooks always run (e.g. bring an app back out of maintenance),

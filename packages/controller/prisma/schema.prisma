@@ -315,6 +315,9 @@ model Snapshot {
   mode          String       // backup | sync
   captureMode   String       // cold | hot
   status        String       @default("running") // running | succeeded | failed | missing
+  // What went wrong without failing the run (a database that couldn't be
+  // dumped...): a succeeded snapshot with warnings is shown as such.
+  warnings      String[]     @default([])
   destinationDir String
   manifest      Json?
   sizeBytes     BigInt       @default(0)

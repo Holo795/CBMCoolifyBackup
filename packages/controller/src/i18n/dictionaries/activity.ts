@@ -22,7 +22,9 @@ export const en = {
     failed: "failed",
     skipped: "skipped",
     cancelled: "cancelled",
+    lock: "waiting for the lock",
   },
+  lockHeldBy: "Waiting for the destination's repository, in use by: {jobs}",
 };
 
 export const fr: typeof en = {
@@ -48,5 +50,7 @@ export const fr: typeof en = {
     failed: "échoué",
     skipped: "ignoré",
     cancelled: "annulé",
+    lock: "en attente du verrou",
   },
+  lockHeldBy: "En attente du dépôt de la destination, utilisé par : {jobs}",
 };

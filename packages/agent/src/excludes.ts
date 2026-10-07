@@ -37,3 +37,57 @@ export function wipeScript(dir: string, excludes: string[]): string {
   // Kept paths are matched and skipped; the rest is deleted children first.
   return `find ${dir} -mindepth 1 -depth \\( ${keep.join(" -o ")} \\) -o -delete 2>/dev/null; true`;
 }
+
+/**
+ * How the exclusions apply to one mount (a volume or a host folder), given its
+ * host path and where containers mount it. An exclusion naming the mount
+ * itself - its host path or its path in a container - leaves it out entirely
+ * (`skip`); one naming a path inside it, the same two ways, becomes a `/path`
+ * from its root for this mount only (`extra`). Other exclusions keep their
+ * usual meaning for every mount.
+ */
+export function mountExcludes(
+  mount: { hostPath?: string; destinations: string[] },
+  excludes: string[],
+): { skip?: string; extra: string[] } {
+  const roots = [mount.hostPath, ...mount.destinations].filter((r): r is string => !!r && r !== "/");
+  const extra: string[] = [];
+  for (const p of excludes) {
+    if (!p.startsWith("/")) continue;
+    if (roots.includes(p)) return { skip: p, extra: [] };
+    const root = roots.find((r) => p.startsWith(`${r}/`));
+    if (root) extra.push(p.slice(root.length));
+  }
+  return { extra: [...new Set(extra)] };
+}
+
+/** Artifact meta key: exclusions that applied to that mount only (JSON list),
+ * which a restore in place leaves as they are, like the resource's own. */
+export const MOUNT_EXCLUDES_META = "mountExcludes";
+
+export function mountExcludeMeta(extra: string[]): Record<string, string> {
+  return extra.length ? { [MOUNT_EXCLUDES_META]: JSON.stringify(extra) } : {};
+}
+
+/** Every exclusion a restore of this artifact must leave alone. */
+export function artifactExcludes(manifestExcludes: string[] | undefined, meta: Record<string, string>): string[] {
+  let own: string[] = [];
+  try {
+    const v = JSON.parse(meta[MOUNT_EXCLUDES_META] ?? "[]");
+    if (Array.isArray(v)) own = v.filter((x): x is string => typeof x === "string" && x.startsWith("/"));
+  } catch {
+    /* ignore a malformed list */
+  }
+  return [...new Set([...(manifestExcludes ?? []), ...own])];
+}
+
+/** Host folders that sit inside another one of the list: copying the outer one
+ * already reads them, so they aren't read a second time. */
+export function nestedFolders(folders: string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const f of folders) {
+    const outer = folders.find((o) => o !== f && f.startsWith(`${o.replace(/\/+$/, "")}/`));
+    if (outer) out.set(f, outer);
+  }
+  return out;
+}

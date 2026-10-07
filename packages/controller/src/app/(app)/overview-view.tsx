@@ -1,3 +1,4 @@
+import { shownStatus } from "@/lib/snapshot-status";
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, Archive, Boxes, CheckCircle2, Cpu, Server } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -23,6 +24,7 @@ export type OverviewSnapshot = {
   mode: string;
   captureMode: string;
   status: string;
+  warnings: string[];
   sizeBytes: bigint;
   startedAt: Date | null;
   resource: { name: string };
@@ -145,7 +147,7 @@ export async function OverviewView({
                     href={`/snapshots/${s.id}`}
                     className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-surface focus-visible:bg-surface focus-visible:outline-none"
                   >
-                    <StatusDot tone={statusTone(s.status)} pulse={s.status === "running"} />
+                    <StatusDot tone={statusTone(shownStatus(s))} pulse={s.status === "running"} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-medium">{s.resource.name}</p>
                       <p className="truncate text-xs text-muted-foreground">
@@ -153,10 +155,10 @@ export async function OverviewView({
                       </p>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-0.5">
-                      {s.status === "succeeded" ? (
+                      {shownStatus(s) === "succeeded" ? (
                         <span className="tabular text-xs text-muted-foreground">{formatBytes(s.sizeBytes)}</span>
                       ) : (
-                        <Badge tone={statusTone(s.status)}>{t(`snapshots.status.${s.status}`)}</Badge>
+                        <Badge tone={statusTone(shownStatus(s))}>{t(`snapshots.status.${shownStatus(s)}`)}</Badge>
                       )}
                       <span className="text-xs text-subtle-foreground">{timeAgo(s.startedAt, t)}</span>
                     </div>

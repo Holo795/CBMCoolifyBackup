@@ -1038,7 +1038,9 @@ export async function enqueuePrune(opts: {
     dirs,
     resticSnapshotIds,
     snapshotIds: opts.snapshotIds,
-  };
+    // Extra payload field (the agent ignores it): who uses which destination.
+    destinationId: opts.destination.id,
+  } as PruneJob & { snapshotIds?: string[]; destinationId: string };
   await createAgentJob({ id: jobId, agentId: agent.id, type: "prune", payload: job });
   return { jobId, agentId: agent.id };
 }

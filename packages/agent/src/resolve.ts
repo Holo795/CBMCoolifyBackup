@@ -174,18 +174,8 @@ export async function readDbCredentials(container: string, type: ResourceType): 
         database: env.POSTGRES_DB || env.POSTGRES_USER || "postgres",
       };
     case "mysql":
-      // Use root for dump/restore - it needs CREATE DATABASE + full privileges.
-      return {
-        user: "root",
-        password: env.MYSQL_ROOT_PASSWORD || env.MYSQL_PASSWORD || "",
-        database: env.MYSQL_DATABASE || "",
-      };
     case "mariadb":
-      return {
-        user: "root",
-        password: env.MARIADB_ROOT_PASSWORD || env.MYSQL_ROOT_PASSWORD || env.MARIADB_PASSWORD || "",
-        database: env.MARIADB_DATABASE || env.MYSQL_DATABASE || "",
-      };
+      return mysqlCredentials(env, type);
     case "mongodb":
       return {
         user: env.MONGO_INITDB_ROOT_USERNAME || "",
@@ -195,6 +185,26 @@ export async function readDbCredentials(container: string, type: ResourceType): 
     default:
       return undefined;
   }
+}
+
+/**
+ * Who dumps and restores a MySQL/MariaDB container. root when its password is
+ * known (it sees every database); otherwise - a random or unset root password
+ * (`*_RANDOM_ROOT_PASSWORD`) - the application user the image created, which
+ * has every right on its own database. Never the application user's password
+ * for root: that only ever gets "Access denied".
+ */
+export function mysqlCredentials(env: Record<string, string>, engine: "mysql" | "mariadb"): DbCredentials {
+  const pick = (...keys: string[]) => keys.map((k) => env[k]).find((v) => v);
+  const keys = (suffix: string) => (engine === "mariadb" ? [`MARIADB_${suffix}`, `MYSQL_${suffix}`] : [`MYSQL_${suffix}`]);
+  const database = pick(...keys("DATABASE")) ?? "";
+  const rootPassword = pick(...keys("ROOT_PASSWORD"));
+  if (rootPassword) return { user: "root", password: rootPassword, database };
+  const user = pick(...keys("USER"));
+  const password = pick(...keys("PASSWORD"));
+  if (user && user !== "root" && password) return { user, password, database };
+  // Root with an empty password (MARIADB_ALLOW_EMPTY_ROOT_PASSWORD / MYSQL_ALLOW_EMPTY_PASSWORD).
+  return { user: "root", password: "", database };
 }
 
 /** A resource's container names: the explicit list if present, else the single

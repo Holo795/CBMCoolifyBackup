@@ -29,8 +29,8 @@ function describe(args: string[]): string {
 }
 
 /** Run a docker command, buffering stdout/stderr as strings. */
-export function docker(args: string[], secrets?: SecretEnv): Promise<RunResult> {
-  return runCapture(DOCKER, args, { env: childEnv(secrets) });
+export function docker(args: string[], secrets?: SecretEnv, onStderr?: (chunk: string) => void): Promise<RunResult> {
+  return runCapture(DOCKER, args, { env: childEnv(secrets), onStderr });
 }
 
 /** Run a docker command and stream stdout into a file (for dumps). */
@@ -81,7 +81,7 @@ export interface DockerInspect {
     Healthcheck?: { Test?: string[]; Interval?: number; Timeout?: number; Retries?: number };
   };
   State?: { Pid?: number; Health?: { Status?: string } };
-  Mounts?: Array<{ Type?: string; Source?: string; Name?: string; RW?: boolean }>;
+  Mounts?: Array<{ Type?: string; Source?: string; Name?: string; Destination?: string; RW?: boolean }>;
   [k: string]: unknown;
 }
 
@@ -374,6 +374,21 @@ export async function containerImageIds(ids: string[]): Promise<Map<string, stri
   for (const line of r.stdout.split("\n")) {
     const [id, image] = line.trim().split(" ");
     if (id && image) out.set(id.slice(0, 12), image);
+  }
+  return out;
+}
+
+/** Where the given containers mount each volume (by name) and host folder (by
+ * path): the paths an exclusion may name to leave a whole mount out. */
+export async function mountDestinations(containers: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  for (const c of containers) {
+    const info = await inspectContainer(c).catch(() => null);
+    for (const m of info?.Mounts ?? []) {
+      const key = m.Type === "volume" ? m.Name : m.Type === "bind" ? m.Source : undefined;
+      if (!key || !m.Destination) continue;
+      out.set(key, [...new Set([...(out.get(key) ?? []), m.Destination])]);
+    }
   }
   return out;
 }

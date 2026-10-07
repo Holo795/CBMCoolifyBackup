@@ -35,6 +35,25 @@ export interface ResticCtx {
    * connect script and keys) - mounted into a helper container when the agent
    * doesn't run in one itself (see restic-helper.ts). */
   paths: string[];
+  /** Called when a command waits for another one's lock on the repository. */
+  onLockWait?: () => void;
+}
+
+/** Logged when a restic command waits for the repository (the controller shows it as a state). */
+export const LOCK_WAIT_MESSAGE = "Waiting for the repository lock: another job is using this destination";
+
+/** restic's line when --retry-lock starts waiting ("repo already locked, waiting up to 30m0s for the lock"). */
+const LOCK_WAIT_LINE = /repo already locked, waiting|repository is already locked/;
+
+/** A stderr listener that reports the first lock wait of one command. */
+export function lockWatcher(ctx: ResticCtx): ((chunk: string) => void) | undefined {
+  if (!ctx.onLockWait) return undefined;
+  let told = false;
+  return (chunk) => {
+    if (told || !LOCK_WAIT_LINE.test(chunk)) return;
+    told = true;
+    ctx.onLockWait?.();
+  };
 }
 
 /** Environment variables a restic context sets (forwarded to helper containers). */
@@ -200,7 +219,7 @@ export const LOCK_WAIT = "30m";
 
 /** Run a restic command, buffering stdout/stderr. Global ctx args come first. */
 export function restic(ctx: ResticCtx, args: string[]): Promise<ResticRun> {
-  return runCapture(RESTIC, [...ctx.args, ...args], { env: ctx.env });
+  return runCapture(RESTIC, [...ctx.args, ...args], { env: ctx.env, onStderr: lockWatcher(ctx) });
 }
 
 // Serialise repo initialisation per repository so concurrent jobs (the agent
@@ -267,9 +286,9 @@ export async function resticRestoreById(ctx: ResticCtx, snapshotId: string, targ
 }
 
 /** Forget specific snapshots by id and (unless `prune` is false) prune freed data. */
-export async function resticForget(ctx: ResticCtx, snapshotIds: string[], prune = true): Promise<void> {
+export async function resticForget(ctx: ResticCtx, snapshotIds: string[], prune = true, lockWait = LOCK_WAIT): Promise<void> {
   if (snapshotIds.length === 0) return;
-  const r = await restic(ctx, ["forget", ...snapshotIds, ...(prune ? ["--prune"] : []), "--retry-lock", LOCK_WAIT]);
+  const r = await restic(ctx, ["forget", ...snapshotIds, ...(prune ? ["--prune"] : []), "--retry-lock", lockWait]);
   if (r.code !== 0) throw new Error(`restic forget failed: ${r.stderr.slice(0, 500)}`);
 }
 
@@ -303,6 +322,28 @@ export async function resticRawSize(ctx: ResticCtx, tag?: string): Promise<numbe
   const size = line ? Number((JSON.parse(line) as { total_size?: number }).total_size ?? 0) : NaN;
   if (!Number.isFinite(size)) throw new Error("restic stats reported no size");
   return size;
+}
+
+/** A backup's first pass (tag pass:warm) is kept as its final pass's parent:
+ * dropped by a later prune once older than this - never while a backup that
+ * started from it may still be running. */
+export const WARM_SNAPSHOT_MAX_AGE_MS = 24 * 3600_000;
+
+/** First-pass snapshots old enough to drop (see WARM_SNAPSHOT_MAX_AGE_MS). */
+export function staleWarmIds(snapshots: Array<{ id?: string; time?: string }>, now = Date.now()): string[] {
+  return snapshots
+    .filter((s) => s.id && s.time && now - Date.parse(s.time) > WARM_SNAPSHOT_MAX_AGE_MS)
+    .map((s) => s.id!);
+}
+
+export async function resticStaleWarmIds(ctx: ResticCtx): Promise<string[]> {
+  const r = await restic(ctx, ["snapshots", "--no-lock", "--json", "--tag", "pass:warm"]);
+  if (r.code !== 0) return [];
+  try {
+    return staleWarmIds(JSON.parse(r.stdout) as Array<{ id?: string; time?: string }>);
+  } catch {
+    return [];
+  }
 }
 
 /** List all snapshot ids currently in the repo (full + short ids). */

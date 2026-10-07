@@ -61,6 +61,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           // The agent's manifest is authoritative for how it actually captured
           // (e.g. a Redis resource dumped logically, not frozen).
           captureMode: m.captureMode,
+          warnings: (m.warnings ?? []).map((w) => redactSecrets(w)),
           resticSnapshotId: result.resticSnapshotId ?? m.resticSnapshotId ?? undefined,
           resticPartIds: resticPartIds(m),
           sizeBytes: BigInt(totalSize),
@@ -157,6 +158,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             agentId: agent.id,
             mode: src.mode,
             captureMode: src.captureMode,
+            warnings: src.warnings,
             status: "succeeded",
             destinationDir: src.destinationDir,
             manifest: m as unknown as object,

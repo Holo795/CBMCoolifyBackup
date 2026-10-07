@@ -19,6 +19,7 @@ import { resticRestoreById, withResticCtx } from "./restic.js";
 import { resticRestorePath } from "./restic-helper.js";
 import { resolveResource, readDbCredentials, resourceContainers } from "./resolve.js";
 import type { Emit } from "./backup.js";
+import { artifactExcludes } from "./excludes.js";
 
 export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): Promise<void> {
   const stage = join(workDir, job.id);
@@ -70,7 +71,7 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
     const putVolume = async (v: Artifact, target: string, isHostPath: boolean) => {
       const part = v.meta[RESTIC_PART_META];
       // Paths the backup left out stay as they are on the target.
-      const excludes = manifest.excludes ?? [];
+      const excludes = artifactExcludes(manifest.excludes, v.meta);
       if (!part) {
         await (isHostPath
           ? restoreToPath(target, localFiles[v.filename], excludes)

@@ -1,7 +1,7 @@
 import { posix } from "node:path";
 import type { PruneJob } from "@cbm/shared";
 import { makeTransfer, type Transfer } from "./transfer.js";
-import { resticForget, withResticCtx } from "./restic.js";
+import { LOCK_WAIT_MESSAGE, resticForget, resticStaleWarmIds, withResticCtx } from "./restic.js";
 import type { Emit } from "./backup.js";
 
 /**
@@ -26,8 +26,14 @@ export async function runPrune(job: PruneJob, emit: Emit): Promise<void> {
     const ids = job.resticSnapshotIds ?? [];
     if (ids.length === 0) return;
     if (!job.storage.resticPassword) throw new Error("restic prune requires the repository password");
-    emit("info", `Forgetting ${ids.length} restic snapshot(s) and pruning`, 10);
-    await withResticCtx(job.destination, job.storage.resticPassword, (ctx) => resticForget(ctx, ids));
+    await withResticCtx(job.destination, job.storage.resticPassword, async (ctx) => {
+      ctx.onLockWait = () => emit("info", LOCK_WAIT_MESSAGE);
+      // Backups' first passes, left as their final pass's parent: this prune
+      // takes the exclusive lock anyway, so they go with it.
+      const warm = (await resticStaleWarmIds(ctx)).filter((id) => !ids.includes(id));
+      emit("info", `Forgetting ${ids.length} restic snapshot(s)${warm.length ? ` and ${warm.length} first-pass snapshot(s)` : ""} and pruning`, 10);
+      await resticForget(ctx, [...ids, ...warm]);
+    });
     emit("info", "Prune complete", 100);
     return;
   }

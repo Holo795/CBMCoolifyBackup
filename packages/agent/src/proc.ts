@@ -18,7 +18,7 @@ export interface RunResult {
 export function runCapture(
   bin: string,
   args: string[],
-  opts: { env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
+  opts: { env?: NodeJS.ProcessEnv; timeoutMs?: number; onStderr?: (chunk: string) => void } = {},
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { env: opts.env, stdio: ["ignore", "pipe", "pipe"] });
@@ -33,7 +33,11 @@ export function runCapture(
           }, opts.timeoutMs)
         : undefined;
     child.stdout!.on("data", (d) => (stdout += d.toString()));
-    child.stderr!.on("data", (d) => (stderr += d.toString()));
+    child.stderr!.on("data", (d) => {
+      const chunk = d.toString();
+      stderr += chunk;
+      opts.onStderr?.(chunk);
+    });
     child.on("error", (e) => {
       if (timer) clearTimeout(timer);
       reject(e);

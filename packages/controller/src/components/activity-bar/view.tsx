@@ -15,6 +15,8 @@ export type ActivityJob = {
   error: string | null;
   createdAt: string;
   finishedAt: string | null;
+  /** Running but waiting for the destination's repository, used by these jobs. */
+  lockHeldBy: { type: string; label: string | null }[] | null;
 };
 
 const TYPE_ICON: Record<string, typeof Database> = {
@@ -55,6 +57,8 @@ export function ActivityBarView({
               {jobs.map((j) => {
                 const Icon = TYPE_ICON[j.type] ?? Activity;
                 const live = j.status === "queued" || j.status === "running";
+                const holders = j.lockHeldBy?.map((h) => `${t(`activity.type.${h.type}`)}${h.label ? ` · ${h.label}` : ""}`).join(", ");
+                const message = holders ? t("activity.lockHeldBy", { jobs: holders }) : j.message;
                 return (
                   <li key={j.id} className="flex items-center gap-3 px-4 py-2.5 sm:px-5">
                     <span className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-surface text-muted-foreground">
@@ -65,8 +69,13 @@ export function ActivityBarView({
                         <span className="font-medium">{t(`activity.type.${j.type}`)}</span>
                         {j.label && <span className="text-muted-foreground"> · {j.label}</span>}
                       </p>
-                      {(live && j.message) || j.error ? (
-                        <p className={cn("truncate text-xs", j.error ? "text-danger" : "text-muted-foreground")}>{j.error ?? j.message}</p>
+                      {(live && message) || j.error ? (
+                        <p
+                          title={j.error ?? message ?? undefined}
+                          className={cn("truncate text-xs", j.error ? "text-danger" : holders ? "text-warning" : "text-muted-foreground")}
+                        >
+                          {j.error ?? message}
+                        </p>
                       ) : null}
                     </div>
                     {live && j.progress != null && (
@@ -75,8 +84,8 @@ export function ActivityBarView({
                       </span>
                     )}
                     <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                      <StatusDot tone={statusTone(j.status)} pulse={j.status === "running"} />
-                      {t(`activity.status.${j.status}`)}
+                      <StatusDot tone={holders ? "warning" : statusTone(j.status)} pulse={j.status === "running"} />
+                      {t(`activity.status.${holders ? "lock" : j.status}`)}
                     </span>
                     <span className="tabular hidden w-20 shrink-0 text-right text-xs text-subtle-foreground sm:block">
                       {timeAgo(new Date(j.finishedAt ?? j.createdAt), t)}
