@@ -14,6 +14,7 @@ import {
   snapshotDir,
   CONFIG_ONLY_CAPTURE,
   redactSecrets,
+  normalizePrivateKey,
 } from "@cbm/shared";
 import { randomUUID } from "node:crypto";
 import { prisma } from "./prisma";
@@ -31,7 +32,13 @@ const VOLUME_DB_ENGINES = ["redis", "keydb", "dragonfly", "clickhouse"];
 
 /** Decrypt a destination's stored config into a ResolvedDestination. */
 export function resolveDestination(dest: Destination): ResolvedDestination {
-  return JSON.parse(decryptSecret(dest.configEnc)) as ResolvedDestination;
+  const d = JSON.parse(decryptSecret(dest.configEnc)) as ResolvedDestination;
+  // Keys saved before 2.4.3 may hold the form's CRLF line ends.
+  if (d.type === "ssh") {
+    d.privateKey = normalizePrivateKey(d.privateKey);
+    d.jumpPrivateKey = normalizePrivateKey(d.jumpPrivateKey);
+  }
+  return d;
 }
 
 export function resolveEncryption(dest: Destination): EncryptionSpec {

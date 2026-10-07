@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { dirname, join, posix } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { Readable } from "node:stream";
-import type { ResolvedDestination } from "@cbm/shared";
+import { normalizePrivateKey, type ResolvedDestination } from "@cbm/shared";
 
 /** Above this an S3 upload goes multipart (a single PUT is capped at 5 GiB). */
 const MULTIPART_THRESHOLD = 64 * 1024 * 1024;
@@ -90,7 +90,7 @@ function sshTransfer(dest: Extract<ResolvedDestination, { type: "ssh" }>): Promi
     const mod = await import("ssh2-sftp-client");
     const SftpClient = mod.default;
     const client = new SftpClient();
-    const targetAuth = { username: dest.username, password: dest.password, privateKey: dest.privateKey };
+    const targetAuth = { username: dest.username, password: dest.password, privateKey: normalizePrivateKey(dest.privateKey) };
 
     // Optional bastion: open an SSH connection to the jump host, tunnel a channel
     // to the real target, and hand that socket to the SFTP client. Auth falls
@@ -108,7 +108,7 @@ function sshTransfer(dest: Extract<ResolvedDestination, { type: "ssh" }>): Promi
             port: dest.jumpPort,
             username: dest.jumpUsername || dest.username,
             password: dest.jumpPassword || dest.password,
-            privateKey: dest.jumpPrivateKey || dest.privateKey,
+            privateKey: normalizePrivateKey(dest.jumpPrivateKey || dest.privateKey),
           });
       });
       const sock = await new Promise<import("stream").Duplex>((resolve, reject) => {

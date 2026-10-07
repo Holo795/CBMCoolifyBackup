@@ -1,7 +1,7 @@
 import { readdir, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
-import type { ResolvedDestination } from "@cbm/shared";
+import { normalizePrivateKey, type ResolvedDestination } from "@cbm/shared";
 import { runCapture, type RunResult } from "./proc.js";
 import { getSettings } from "./settings.js";
 
@@ -117,7 +117,8 @@ export async function resticContext(dest: ResolvedDestination, password: string,
   const hop = async (tag: string, key?: string, pwd?: string): Promise<{ prefix: string[]; keyOpt: string[] }> => {
     const prefix: string[] = [];
     const keyOpt: string[] = [];
-    if (key) keyOpt.push("-i", await secretFile(`key_${tag}`, key, true));
+    // CRLF line ends (a key pasted in a form) make `ssh -i` fail with "error in libcrypto".
+    if (key) keyOpt.push("-i", await secretFile(`key_${tag}`, normalizePrivateKey(key), true));
     if (pwd) prefix.push("sshpass", "-f", await secretFile(`pw_${tag}`, pwd, false));
     return { prefix, keyOpt };
   };

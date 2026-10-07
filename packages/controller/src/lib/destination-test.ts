@@ -17,6 +17,15 @@ export async function testDestination(
     }
 
     if (dest.type === "ssh") {
+      // Check the keys the way the agent's OpenSSH reads them, not only ssh2's way.
+      const { sshKeyProblem } = await import("./ssh-key");
+      for (const [msg, key] of [
+        ["messages.sshKeyUnreadable", dest.privateKey],
+        ["messages.sshJumpKeyUnreadable", dest.jumpPrivateKey],
+      ] as const) {
+        const problem = await sshKeyProblem(key);
+        if (problem) return { ok: false, error: { key: msg, vars: { problem } } };
+      }
       const mod = await import("ssh2-sftp-client");
       const client = new mod.default();
       const auth = { username: dest.username, password: dest.password, privateKey: dest.privateKey };

@@ -23,7 +23,7 @@ import { setTimezone, isValidTimezone } from "@/lib/settings";
 import { removeSnapshots } from "@/lib/snapshot-removal";
 import { resetTwoFactor, isTwoFactorPolicy } from "@/lib/two-factor";
 import { settingsFromForm } from "@/lib/agent-settings";
-import { MAX_EXCLUDES, excludeError, normalizeExcludes } from "@cbm/shared";
+import { MAX_EXCLUDES, excludeError, normalizeExcludes, normalizePrivateKey } from "@cbm/shared";
 
 function s(fd: FormData, key: string): string {
   return (fd.get(key) ?? "").toString().trim();
@@ -549,7 +549,8 @@ export async function createDestination(fd: FormData) {
       username: s(fd, "username"),
       basePath: s(fd, "basePath"),
       password: s(fd, "password") || undefined,
-      privateKey: s(fd, "privateKey") || undefined,
+      // A textarea posts CRLF line ends; OpenSSH (on the agent) wants LF.
+      privateKey: normalizePrivateKey(s(fd, "privateKey") || undefined),
       // Optional bastion / jump host.
       ...(jumpHost
         ? {
@@ -557,7 +558,7 @@ export async function createDestination(fd: FormData) {
             jumpPort: Number(s(fd, "jumpPort") || "22"),
             jumpUsername: s(fd, "jumpUsername") || undefined,
             jumpPassword: s(fd, "jumpPassword") || undefined,
-            jumpPrivateKey: s(fd, "jumpPrivateKey") || undefined,
+            jumpPrivateKey: normalizePrivateKey(s(fd, "jumpPrivateKey") || undefined),
           }
         : {}),
     };

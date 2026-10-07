@@ -237,6 +237,20 @@ export function normalizeExcludes(raw: string[]): string[] {
   return out;
 }
 
+/**
+ * A private key as OpenSSH reads it: LF line ends and a final newline. A key
+ * pasted in a form arrives with CRLF (multipart/form-data turns every line
+ * break of a textarea into \r\n); ssh2 shrugs it off, but `ssh -i` then fails
+ * with "error in libcrypto: unsupported".
+ */
+export function normalizePrivateKey(key: string): string;
+export function normalizePrivateKey(key: string | undefined): string | undefined;
+export function normalizePrivateKey(key: string | undefined): string | undefined {
+  if (!key) return key;
+  const k = key.replace(/\r\n?/g, "\n").trim();
+  return k ? `${k}\n` : undefined;
+}
+
 /* ------------------------------------------------------------------ *
  * Jobs (controller -> agent)                                          *
  * ------------------------------------------------------------------ */
