@@ -6,6 +6,8 @@ import type { Readable } from "node:stream";
 import {
   type Artifact,
   type BackupJob,
+  type DbCredentials,
+  withDumpCredentials,
   type DiscoveredContainer,
   type Provenance,
   type SnapshotManifest,
@@ -17,7 +19,7 @@ import {
   CONFIG_ONLY_CAPTURE,
   RESTIC_PART_META,
 } from "@cbm/shared";
-import { dumpDatabase, dumpRedis } from "./dump.js";
+import { dumpDatabase, dumpRedis, mysqlUnseenDatabases } from "./dump.js";
 import { REDIS_ENGINES, isRedisEngine, type Engine } from "./engines.js";
 import {
   hostEntries,
@@ -402,11 +404,13 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
         const rdbMeta = { engine, container, ...meta, ...(await imageMeta(container)) };
         return await finalizeArtifact("db-dump", name, path, rdbMeta, job, stage, emit);
       }
-      const creds = await readDbCredentials(container, engine);
+      // The login set in CBM for this resource, if any, wins over the container's environment.
+      const creds = withDumpCredentials(await readDbCredentials(container, engine), job.dumpCredentials);
       const name = `dump-${engine}-${container}.sql`.replace(/[^a-zA-Z0-9._-]+/g, "_");
       const path = join(stage, name);
-      emit("info", `Dumping ${engine} (${container}) - no downtime`, progress);
+      emit("info", `Dumping ${engine} (${container}) as ${creds?.user || "the default user"} - no downtime`, progress);
       await dumpDatabase(engine, container, creds ?? {}, path);
+      await warnUnseenDatabases(engine, container, creds);
       const sqlMeta = { engine, container, ...meta, ...(await imageMeta(container)) };
       return await finalizeArtifact("db-dump", name, path, sqlMeta, job, stage, emit);
     } catch (e) {
@@ -415,6 +419,19 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
       if (warnIfFailed) warnings.push(msg);
       return null;
     }
+  };
+
+  // A MySQL/MariaDB dumped as a user other than root only holds the databases
+  // that user sees: say which others are only in the volume copy.
+  const warnUnseenDatabases = async (engine: string, container: string, creds: DbCredentials | undefined) => {
+    if ((engine !== "mysql" && engine !== "mariadb") || !creds?.user || creds.user === "root") return;
+    const unseen = await mysqlUnseenDatabases(engine, container, creds);
+    if (!unseen.length) return;
+    const msg =
+      `The dump of ${container} as ${creds.user} leaves out database(s) this user can't see: ${unseen.join(", ")} - ` +
+      `they are only in the volume copy (set a login that sees them in the resource's Options)`;
+    emit("warn", msg);
+    warnings.push(msg);
   };
 
   // Hook targets: "" → the primary container; otherwise a compose service name
@@ -492,7 +509,9 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
       const engine = resource.type;
       const dumpName = dumpFileName(engine, resource.db?.database);
       const dumpPath = join(stage, dumpName);
-      await dumpDatabase(resource.type, primary, resource.db ?? {}, dumpPath);
+      const creds = withDumpCredentials(resource.db, job.dumpCredentials) ?? {};
+      await dumpDatabase(resource.type, primary, creds, dumpPath);
+      await warnUnseenDatabases(engine, primary, creds);
       const dumpMeta = { engine, ...(await imageMeta(primary)) };
       artifacts.push(await finalizeArtifact("db-dump", dumpName, dumpPath, dumpMeta, job, stage, emit));
       captureMethod = "dump";

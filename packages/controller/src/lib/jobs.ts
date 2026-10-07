@@ -11,6 +11,7 @@ import {
   type ResourceType,
   type StorageSpec,
   type CapturedConfig,
+  type DumpCredentials,
   snapshotDir,
   CONFIG_ONLY_CAPTURE,
   redactSecrets,
@@ -166,7 +167,7 @@ async function assertResourceIdle(resourceId: string, resourceName: string): Pro
 
 /** Create a Snapshot + queued AgentJob for a backup. */
 export async function enqueueBackup(resourceId: string, policyId?: string, runId?: string) {
-  const resource = await prisma.resource.findUniqueOrThrow({ where: { id: resourceId } });
+  const resource = await prisma.resource.findUniqueOrThrow({ where: { id: resourceId }, omit: { dumpPasswordEnc: false } });
   await assertResourceIdle(resource.id, resource.name);
   let policy = policyId
     ? await prisma.backupPolicy.findUniqueOrThrow({ where: { id: policyId }, include: { destination: true } })
@@ -258,6 +259,7 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
     storage: resolveStorage(dest),
     hooks: parseResourceHooks(resource.hooks),
     destinationDir: dir,
+    dumpCredentials: dumpCredentialsOf(resource),
   };
 
   await createAgentJob({ id: jobId, agentId: agent.id, type: "backup", payload: job, snapshotId: snapshot.id });
@@ -522,6 +524,12 @@ function buildVolumeMap(
 
 /** Authoritative dump/restore DB credentials from the Coolify API (the
  * container env isn't always reliable). undefined for non-DB / coolify-self. */
+/** The login set in CBM for a resource's database dumps, decrypted for the agent. */
+function dumpCredentialsOf(resource: { dumpUser: string | null; dumpPasswordEnc: string | null }): DumpCredentials | undefined {
+  if (!resource.dumpUser) return undefined;
+  return { user: resource.dumpUser, password: resource.dumpPasswordEnc ? decryptSecret(resource.dumpPasswordEnc) : "" };
+}
+
 async function dbCredsFor(resource: {
   type: string;
   coolifyUuid: string;
@@ -881,7 +889,7 @@ export async function enqueueRestore(
 ) {
   const snapshot = await prisma.snapshot.findUniqueOrThrow({
     where: { id: snapshotId },
-    include: { destination: true, resource: true },
+    include: { destination: true, resource: { omit: { dumpPasswordEnc: false } } },
   });
   if (!snapshot.manifest) throw new UserError("messages.noManifestRestore");
   // The control-plane pseudo-resource has no Coolify counterpart to clone.
@@ -976,6 +984,7 @@ export async function enqueueRestore(
     // Same DB keeps its name/creds in the clone, so the original's creds work.
     // Prefer the snapshot's captured creds (survive the source Coolify).
     db: dbCredsFromCaptured(manifest.capturedConfig, snapshot.resource.type) ?? (await dbCredsFor(snapshot.resource)),
+    dumpCredentials: dumpCredentialsOf(snapshot.resource),
     // Redeployed on the snapshot's versions once the data is back: the version
     // running now must not start on it first.
     ...(target === "in_place" && imageChoice === "snapshot" && canRedeployOnSnapshot(snapshot.resource.type, manifest)

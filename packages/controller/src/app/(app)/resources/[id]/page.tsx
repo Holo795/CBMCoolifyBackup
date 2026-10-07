@@ -37,7 +37,13 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
   const removed = resource.status === "deleted"; // no longer in Coolify
   const tz = await getTimezone();
   const isAdmin = can(await requireUser(), "admin");
-  if (!isAdmin) resource.hooks = null;
+  if (!isAdmin) {
+    resource.hooks = null;
+    resource.dumpUser = null;
+  }
+  // Whether a dump password is saved: the (encrypted) value itself never leaves here.
+  const hasDumpPassword =
+    isAdmin && !!(await prisma.resource.findUnique({ where: { id }, select: { dumpPasswordEnc: true } }))?.dumpPasswordEnc;
 
   return (
     <ResourceDetailView
@@ -48,6 +54,7 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
       eff={eff}
       agentDown={agentDown}
       removed={removed}
+      hasDumpPassword={hasDumpPassword}
       tz={tz}
       isAdmin={isAdmin}
       usage={usage}

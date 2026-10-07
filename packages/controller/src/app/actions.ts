@@ -1025,6 +1025,34 @@ export async function updateResourceExcludes(resourceId: string, fd: FormData): 
   }
 }
 
+/**
+ * The login the agent uses for the logical dumps (and their restores) of a
+ * resource's databases, instead of their containers' environment. Admin. An
+ * empty password keeps the one saved; "clear" (or no user) removes the login.
+ */
+export async function updateDumpCredentials(resourceId: string, fd: FormData): Promise<{ ok?: boolean; error?: string }> {
+  const t = await getT();
+  try {
+    await requireRole("admin");
+    const user = String(fd.get("dumpUser") ?? "").trim();
+    const password = String(fd.get("dumpPassword") ?? "");
+    if (fd.get("clear") || !user) {
+      await prisma.resource.update({ where: { id: resourceId }, data: { dumpUser: null, dumpPasswordEnc: null } });
+    } else {
+      if (user.length > 200 || /[\s'"`;\\]/.test(user)) return { error: t("messages.dumpUserInvalid") };
+      if (password.length > 1000) return { error: t("messages.dumpPasswordTooLong") };
+      await prisma.resource.update({
+        where: { id: resourceId },
+        data: { dumpUser: user, ...(password ? { dumpPasswordEnc: encryptSecret(password) } : {}) },
+      });
+    }
+    revalidatePath(`/resources/${resourceId}`);
+    return { ok: true };
+  } catch (e) {
+    return { error: errorText(e, t) };
+  }
+}
+
 /** Save a resource's per-container pre/post-backup hooks (empty entries dropped). */
 /**
  * Save per-container pre/post-backup hooks. Admin-only: a hook runs an arbitrary

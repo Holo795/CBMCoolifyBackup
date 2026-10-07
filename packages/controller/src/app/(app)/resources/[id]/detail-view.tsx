@@ -27,6 +27,7 @@ import {
   TabsTrigger,
   TabsContent,
   Field,
+  Input,
   Textarea,
   statusTone,
   buttonClass,
@@ -34,7 +35,7 @@ import {
 import { ResourceToggles } from "@/components/resource-toggles";
 import { ResourceIcon } from "@/components/resource-icon";
 import { HooksForm } from "@/components/hooks-form";
-import { setResourceSchedule, removeResourceOverride, backupNow, updateResourceExcludes } from "@/app/actions";
+import { setResourceSchedule, removeResourceOverride, backupNow, updateResourceExcludes, updateDumpCredentials } from "@/app/actions";
 import { ActionForm } from "@/components/action-form";
 import { snapshotDeleteItems } from "@/components/snapshot-delete";
 import type { Usage } from "@/lib/storage-usage";
@@ -48,9 +49,9 @@ import { effectivePolicy, describeCron, cronToFrequency, modeLabel, captureLabel
 import { resourceStatusLabel, resourceStatusTone } from "@/lib/status";
 import { formatBytes, formatDateTime, timeAgo } from "@/lib/cn";
 import { Play, Unplug, Archive, CalendarClock, HardDrive, Clock, ExternalLink, Undo2, Trash } from "lucide-react";
-import { type DESTINATION_SECRETS, type INSTANCE_SECRETS, type PublicDestination } from "@/lib/public-fields";
+import { type DESTINATION_SECRETS, type INSTANCE_SECRETS, type PublicDestination, type RESOURCE_SECRETS } from "@/lib/public-fields";
 
-type ResourceRow = Prisma.ResourceGetPayload<{ include: { instance: { omit: typeof INSTANCE_SECRETS } } }>;
+type ResourceRow = Prisma.ResourceGetPayload<{ omit: typeof RESOURCE_SECRETS; include: { instance: { omit: typeof INSTANCE_SECRETS } } }>;
 type OverrideRow = Prisma.BackupPolicyGetPayload<{ include: { destination: { omit: typeof DESTINATION_SECRETS } } }>;
 type SnapshotRow = Prisma.SnapshotGetPayload<{
   include: { destination: { omit: typeof DESTINATION_SECRETS }; _count: { select: { mirrors: true } } };
@@ -69,6 +70,7 @@ export async function ResourceDetailView({
   tz,
   isAdmin,
   usage,
+  hasDumpPassword,
 }: {
   resource: ResourceRow;
   destinations: PublicDestination[];
@@ -82,6 +84,8 @@ export async function ResourceDetailView({
   isAdmin: boolean;
   /** Logical size of the backups and what they really take (see lib/storage-usage). */
   usage: Usage;
+  /** A dump password is saved (never the password itself). */
+  hasDumpPassword: boolean;
 }) {
   const t = await getT();
   // Coolify's own control plane can only be restored in place, never "→ new".
@@ -393,6 +397,40 @@ export async function ResourceDetailView({
               </CardContent>
             </Card>
           </Gate>
+
+          {isAdmin && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{t("resources.dumpLoginTitle")}</CardTitle>
+                <CardDescription>{t("resources.dumpLoginDesc")}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ActionForm action={updateDumpCredentials.bind(null, resource.id)} resetOnSuccess={false}>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label={t("resources.dumpLoginUser")} htmlFor="dumpUser">
+                      <Input id="dumpUser" name="dumpUser" autoComplete="off" spellCheck={false} defaultValue={resource.dumpUser ?? ""} />
+                    </Field>
+                    <Field label={t("resources.dumpLoginPassword")} htmlFor="dumpPassword">
+                      <Input
+                        id="dumpPassword"
+                        name="dumpPassword"
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder={hasDumpPassword ? t("resources.dumpLoginPasswordSet") : undefined}
+                      />
+                    </Field>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t("resources.dumpLoginHint")}</p>
+                  {resource.dumpUser && (
+                    <label className="flex items-center gap-2 text-[13px]">
+                      <input type="checkbox" name="clear" className="size-4 accent-[var(--accent)]" />
+                      {t("resources.dumpLoginClear")}
+                    </label>
+                  )}
+                </ActionForm>
+              </CardContent>
+            </Card>
+          )}
 
           {isAdmin && (
             <Card>

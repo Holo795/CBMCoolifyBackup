@@ -161,7 +161,7 @@ async function pickPrimary(containers: string[], type: ResourceType): Promise<st
 
 export async function readDbCredentials(container: string, type: ResourceType): Promise<DbCredentials | undefined> {
   const info = await inspectContainer(container);
-  const env = parseEnv(info?.Config?.Env ?? []);
+  const env = await withFileSecrets(container, parseEnv(info?.Config?.Env ?? []));
   switch (type) {
     case "redis":
     case "keydb":
@@ -205,6 +205,24 @@ export function mysqlCredentials(env: Record<string, string>, engine: "mysql" | 
   if (user && user !== "root" && password) return { user, password, database };
   // Root with an empty password (MARIADB_ALLOW_EMPTY_ROOT_PASSWORD / MYSQL_ALLOW_EMPTY_PASSWORD).
   return { user: "root", password: "", database };
+}
+
+/** Database variables the official images also take from a file (`*_FILE`, e.g. Docker secrets). */
+const FILE_SECRET = /^(MARIADB|MYSQL|POSTGRES|MONGO_INITDB_ROOT|MONGO_INITDB|REDIS|KEYDB)_[A-Z_]*_FILE$/;
+
+/** Variables an image reads from a file (`MARIADB_PASSWORD_FILE=/run/secrets/db`):
+ * read that file inside the container, as the image's entrypoint does, unless
+ * the variable itself is set. */
+export async function withFileSecrets(container: string, env: Record<string, string>): Promise<Record<string, string>> {
+  const out = { ...env };
+  for (const [key, path] of Object.entries(env)) {
+    if (!FILE_SECRET.test(key) || !path.startsWith("/")) continue;
+    const base = key.slice(0, -"_FILE".length);
+    if (out[base]) continue;
+    const r = await docker(["exec", container, "cat", "--", path]).catch(() => null);
+    if (r?.code === 0) out[base] = r.stdout.replace(/\r?\n$/, "");
+  }
+  return out;
 }
 
 /** A resource's container names: the explicit list if present, else the single

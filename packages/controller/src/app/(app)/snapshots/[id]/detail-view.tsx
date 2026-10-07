@@ -15,7 +15,7 @@ import { modeLabel, captureLabel } from "@/lib/schedule";
 import { formatBytes, formatDateTime } from "@/lib/cn";
 import { GitCommitHorizontal, Info, ShieldCheck, Check, X, AlertCircle, Boxes, FileArchive, Lock, Database, AlertTriangle } from "lucide-react";
 import { drillTone } from "@/lib/status";
-import { type DESTINATION_SECRETS } from "@/lib/public-fields";
+import { type DESTINATION_SECRETS, type RESOURCE_SECRETS } from "@/lib/public-fields";
 import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
 import { localizeDrillDetail } from "@/lib/drill-detail";
 
@@ -23,7 +23,7 @@ type DrillCheckRow = { artifact: string; kind: string; engine?: string; ok: bool
 
 type SnapshotDetail = Prisma.SnapshotGetPayload<{
   include: {
-    resource: true;
+    resource: { omit: typeof RESOURCE_SECRETS };
     destination: { omit: typeof DESTINATION_SECRETS };
     artifacts: true;
     _count: { select: { mirrors: true } };

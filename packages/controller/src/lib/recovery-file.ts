@@ -247,7 +247,7 @@ async function pgRestore(dumpFile: string): Promise<void> {
 /**
  * Re-encrypt every master-key-encrypted secret from `oldKey` to the current
  * env master key: instance API tokens, destination configs/keys/restic
- * passwords, the SMTP password, and the encrypted fields inside every
+ * passwords, resources' dump passwords, the SMTP password, and the encrypted fields inside every
  * snapshot manifest (envEnc + capturedConfig.dbCredsEnc/composeEnc) — without
  * these, restores and restic repos would be unreadable after the key change.
  */
@@ -266,6 +266,13 @@ async function reencryptAllSecrets(oldKey: Buffer): Promise<void> {
         resticPasswordEnc: d.resticPasswordEnc ? re(d.resticPasswordEnc) : null,
       },
     });
+  }
+  // Dump logins set on resources.
+  for (const r of await prisma.resource.findMany({
+    where: { dumpPasswordEnc: { not: null } },
+    select: { id: true, dumpPasswordEnc: true },
+  })) {
+    await prisma.resource.update({ where: { id: r.id }, data: { dumpPasswordEnc: re(r.dumpPasswordEnc!) } });
   }
   const setting = await prisma.setting.findUnique({ where: { id: "global" } });
   if (setting?.smtpPasswordEnc) {

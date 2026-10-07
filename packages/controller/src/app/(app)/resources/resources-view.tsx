@@ -14,10 +14,11 @@ import { Pager } from "@/components/pager";
 import { resourceStatusLabel, resourceStatusTone } from "@/lib/status";
 import { Boxes, Play, Unplug, ChevronRight, Cloud, Server, ExternalLink } from "lucide-react";
 import { coolifyResourceUrl } from "@/lib/coolify-link";
-import { type INSTANCE_SECRETS } from "@/lib/public-fields";
+import { type INSTANCE_SECRETS, type RESOURCE_SECRETS } from "@/lib/public-fields";
 
-type ResourceRow = Prisma.ResourceGetPayload<{ include: { instance: { omit: typeof INSTANCE_SECRETS } } }>;
+type ResourceRow = Prisma.ResourceGetPayload<{ omit: typeof RESOURCE_SECRETS; include: { instance: { omit: typeof INSTANCE_SECRETS } } }>;
 type OrphanedRow = Prisma.ResourceGetPayload<{
+  omit: typeof RESOURCE_SECRETS;
   include: { instance: { omit: typeof INSTANCE_SECRETS }; _count: { select: { snapshots: true } } };
 }>;
 

@@ -17,11 +17,11 @@ import { formatBytes } from "@/lib/cn";
 import { drillTone } from "@/lib/status";
 import { modeLabel, captureLabel } from "@/lib/schedule";
 import { Archive, RefreshCw, X, ShieldCheck, ExternalLink, Boxes } from "lucide-react";
-import { type DESTINATION_SECRETS } from "@/lib/public-fields";
+import { type DESTINATION_SECRETS, type RESOURCE_SECRETS } from "@/lib/public-fields";
 
 type SnapshotRow = Prisma.SnapshotGetPayload<{
   include: {
-    resource: true;
+    resource: { omit: typeof RESOURCE_SECRETS };
     destination: { omit: typeof DESTINATION_SECRETS };
     _count: { select: { artifacts: true; mirrors: true } };
     drills: { select: { status: true } };

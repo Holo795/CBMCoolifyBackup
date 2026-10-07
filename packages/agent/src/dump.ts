@@ -48,6 +48,54 @@ const MONGO_SCRIPT =
   'if [ -n "$d" ]; then set -- "$@" --db "$d"; fi; ' +
   'exec "$t" "$@"';
 
+// $1 = client, $2 = user: the server's data directory, then the databases the
+// user sees, then the folders of that directory (one per database).
+const MYSQL_COVERAGE_SCRIPT =
+  'c="$1"; u="$2"; command -v "$c" >/dev/null 2>&1 || c=mysql; ' +
+  'd=$("$c" -u"$u" -N -B -e "SELECT @@datadir") || exit 1; ' +
+  'echo "-- visible"; "$c" -u"$u" -N -B -e "SELECT schema_name FROM information_schema.schemata" || exit 1; ' +
+  'echo "-- folders"; ls -1p "$d"';
+
+/** Folders of a MySQL/MariaDB data directory that aren't databases. */
+const NOT_DATABASES = new Set(["mysql", "performance_schema", "sys", "information_schema", "lost+found"]);
+
+/** A data-directory folder name back to its database name (`my@002ddb` -> `my-db`). */
+export function decodeMysqlFolder(name: string): string {
+  return name.replace(/@([0-9a-f]{4})/gi, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+/** From MYSQL_COVERAGE_SCRIPT's output: databases on the server the dump's user can't see. */
+export function unseenDatabases(output: string): string[] {
+  const visible = new Set<string>();
+  const folders: string[] = [];
+  let part: "" | "visible" | "folders" = "";
+  for (const raw of output.split("\n")) {
+    const line = raw.trim();
+    if (line === "-- visible" || line === "-- folders") {
+      part = line === "-- visible" ? "visible" : "folders";
+      continue;
+    }
+    if (!line) continue;
+    if (part === "visible") visible.add(line);
+    // `ls -p`: folders end with "/", files (logs, ibdata...) don't.
+    else if (part === "folders" && line.endsWith("/") && !line.startsWith("#") && !line.startsWith("."))
+      folders.push(decodeMysqlFolder(line.slice(0, -1)));
+  }
+  return folders.filter((f) => !NOT_DATABASES.has(f) && !visible.has(f)).sort();
+}
+
+/**
+ * Databases of a MySQL/MariaDB server that a dump as `db.user` leaves out: an
+ * application user only sees its own. Those are then only in the copy of the
+ * volume. [] when nothing is missing or it can't tell.
+ */
+export async function mysqlUnseenDatabases(type: ResourceType, container: string, db: DbCredentials): Promise<string[]> {
+  const s = secret("MYSQL_PWD", db.password ?? "");
+  const client = type === "mariadb" ? "mariadb" : "mysql";
+  const r = await docker(["exec", ...s.args, container, "sh", "-c", MYSQL_COVERAGE_SCRIPT, "sh", client, db.user || "root"], s.env).catch(() => null);
+  return r?.code === 0 ? unseenDatabases(r.stdout) : [];
+}
+
 /** Produce a logical dump of a database container into outFile. */
 export async function dumpDatabase(
   type: ResourceType,

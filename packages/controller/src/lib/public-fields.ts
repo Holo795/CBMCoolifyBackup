@@ -6,6 +6,8 @@ import type { Agent, CoolifyInstance, Destination } from "@/generated/prisma/cli
 export const DESTINATION_SECRETS = { configEnc: true, encryptionKeyEnc: true, resticPasswordEnc: true } as const;
 export const INSTANCE_SECRETS = { apiTokenEnc: true, enrollTokenHash: true } as const;
 export const AGENT_SECRETS = { tokenHash: true } as const;
+// Omitted by the Prisma client itself (see lib/prisma); for payload types.
+export const RESOURCE_SECRETS = { dumpPasswordEnc: true } as const;
 
 export type PublicDestination = Omit<Destination, keyof typeof DESTINATION_SECRETS>;
 export type PublicInstance = Omit<CoolifyInstance, keyof typeof INSTANCE_SECRETS>;

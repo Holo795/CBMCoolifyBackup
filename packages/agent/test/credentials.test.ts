@@ -24,3 +24,22 @@ test("MySQL: never the application user's password for root", () => {
   // Empty root password allowed: root without one.
   assert.deepEqual(mysqlCredentials({ MYSQL_ALLOW_EMPTY_PASSWORD: "yes" }, "mysql"), { user: "root", password: "", database: "" });
 });
+
+test("a non-root dump says which databases it leaves out", async () => {
+  const { unseenDatabases, decodeMysqlFolder } = await import("../src/dump.js");
+  assert.equal(decodeMysqlFolder("my@002ddb"), "my-db");
+  const out = ["-- visible", "information_schema", "shop", "-- folders", "#innodb_redo/", "ibdata1", "mysql/", "performance_schema/", "shop/", "sys/", "billing/", "my@002ddb/", "lost+found/", "tc.log"].join("\n");
+  assert.deepEqual(unseenDatabases(out), ["billing", "my-db"]);
+  assert.deepEqual(unseenDatabases("-- visible\nshop\n-- folders\nshop/\nmysql/\n"), []);
+});
+
+test("the login set in CBM replaces the environment's user and password, not the database", async () => {
+  const { withDumpCredentials } = await import("@cbm/shared");
+  assert.deepEqual(withDumpCredentials({ user: "app", password: "x", database: "shop" }, { user: "backup", password: "y" }), {
+    user: "backup",
+    password: "y",
+    database: "shop",
+  });
+  assert.deepEqual(withDumpCredentials({ user: "app" }, undefined), { user: "app" });
+  assert.deepEqual(withDumpCredentials(undefined, { user: "root", password: "" }), { user: "root", password: "" });
+});

@@ -7,7 +7,7 @@ and uptime through a backup.
 
 | Resource | What CBM does |
 | --- | --- |
-| **PostgreSQL / MySQL / MariaDB / MongoDB** (standalone) | Logical dump while running (`pg_dump` / `mysqldump --single-transaction` / `mongodump`). No freeze, application-consistent. **Every database of the server** is included, not only the one Coolify created (since 2.1; earlier versions dumped only that one). System schemas holding users and grants (`mysql`, Mongo's `admin`) are left out so a restore never replaces the target's own credentials. Credentials are read from the live container / Coolify API and never stored in the manifest. MySQL / MariaDB are dumped as `root` when its password is known; when it isn't (`MARIADB_RANDOM_ROOT_PASSWORD` / `MYSQL_RANDOM_ROOT_PASSWORD`), as the application user the image created (`MARIADB_USER` / `MYSQL_USER`), which has every right on its database. |
+| **PostgreSQL / MySQL / MariaDB / MongoDB** (standalone) | Logical dump while running (`pg_dump` / `mysqldump --single-transaction` / `mongodump`). No freeze, application-consistent. **Every database of the server** is included, not only the one Coolify created (since 2.1; earlier versions dumped only that one). System schemas holding users and grants (`mysql`, Mongo's `admin`) are left out so a restore never replaces the target's own credentials. Credentials are read from the live container / Coolify API and never stored in the manifest. MySQL / MariaDB are dumped as `root` when its password is known; when it isn't (`MARIADB_RANDOM_ROOT_PASSWORD` / `MYSQL_RANDOM_ROOT_PASSWORD`), as the application user the image created (`MARIADB_USER` / `MYSQL_USER`), which has every right on its database. Passwords given as files (`*_PASSWORD_FILE`, Docker secrets) are read inside the container. A login set in CBM wins over all of this (see [Database dump login](#database-dump-login)). |
 | **Redis / KeyDB / Dragonfly** | Live RDB export (`--rdb`), no freeze. Falls back to a frozen volume copy only if no compatible CLI is present. |
 | **Applications** | Each named volume + Git commit / image provenance (so the code can be re-pinned to match the data on restore). |
 | **Image versions** | For every container: the image as written, the digest it ran and its version, so a restore runs the same version as the data (see [Restore](restore.md#image-versions)). |
@@ -64,6 +64,19 @@ database.
 Live mode never applies to a database container whose logical dump failed: its files are then the
 only copy of the database, so that container is frozen anyway (the others stay live) and the log
 says so.
+
+### Database dump login
+By default the agent dumps a database with the credentials its container's environment gives
+(see the table above). When that isn't enough - the password was changed in the database since
+the container was created, the root password is random and a database created by another user
+must be in the dump, or the image takes its credentials some other way - an admin can set the
+login to use on the resource's **Options** tab → **Database dump login**: a user and a password,
+stored encrypted (master key) and never shown again. It is used for every database container of
+the resource, for backups and for restores in place. Remove it to go back to the environment.
+
+A MySQL / MariaDB dumped as a user other than `root` only holds the databases that user can see.
+When the server has others, the backup says which ones, with a warning: they are then only in the
+copy of the volume - set a login that sees them.
 
 ### Backups with warnings
 A backup that completes but lost something on the way - a database inside the resource that

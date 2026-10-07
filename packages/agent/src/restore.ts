@@ -1,6 +1,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { RESTIC_PART_META, type Artifact, type RestoreJob, type ResourceType } from "@cbm/shared";
+import { RESTIC_PART_META, type Artifact, type RestoreJob, type ResourceType, withDumpCredentials } from "@cbm/shared";
 import { restoreDatabase } from "./dump.js";
 import {
   restoreVolume,
@@ -121,7 +121,7 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
       if (!container) throw new Error(`DB restore requires a target container (resolving ${into.name})`);
       // Prefer the controller-provided creds (authoritative, from the Coolify
       // API) over whatever was read from the container env.
-      const creds = job.db ?? resolved.db ?? {};
+      const creds = withDumpCredentials(job.db ?? resolved.db, job.dumpCredentials) ?? {};
       for (const d of standaloneDumps) {
         const engine = ((d.meta.engine as ResourceType) || into.type) as ResourceType;
         emit("info", `Restoring dump ${d.filename} into ${into.name} (${container})`, 50);
@@ -228,7 +228,7 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
           continue;
         }
         const engine = d.meta.engine as ResourceType;
-        const creds = (await readDbCredentials(container, engine)) ?? {};
+        const creds = withDumpCredentials(await readDbCredentials(container, engine), job.dumpCredentials) ?? {};
         emit("info", `Loading ${engine} dump into ${container}`, 88);
         await restoreDatabase(engine, container, creds, localFiles[d.filename]).catch((e) =>
           emit("error", `Service DB restore into ${container} failed: ${(e as Error).message}`),

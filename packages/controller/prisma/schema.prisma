@@ -204,6 +204,11 @@ model Resource {
   // Paths left out of the volume and host-folder copies (see normalizeExcludes
   // in @cbm/shared): `/path` from each root, or a bare name at any depth.
   backupExcludes String[]    @default([])
+  // Login an admin set for the logical dumps of this resource's databases,
+  // instead of what their containers' environment gives (password master-key
+  // encrypted). Null: the environment / Coolify's credentials.
+  dumpUser        String?
+  dumpPasswordEnc String?
   // Optional pre/post-backup commands, one entry per container (so a multi-
   // container service can quiesce each part). JSON array of
   // { container: string; pre?: string; post?: string } — container "" = primary.

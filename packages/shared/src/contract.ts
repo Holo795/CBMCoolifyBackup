@@ -81,6 +81,21 @@ export const DbCredentials = z.object({
 });
 export type DbCredentials = z.infer<typeof DbCredentials>;
 
+/** Login an operator set in CBM for the logical dumps of a resource's databases:
+ * it replaces the user and password the containers' environment gives (a
+ * password changed since, a root password nobody knows...). */
+export const DumpCredentials = z.object({
+  user: z.string().min(1).max(200),
+  password: z.string().max(1000).default(""),
+});
+export type DumpCredentials = z.infer<typeof DumpCredentials>;
+
+/** Credentials with the operator's login (if any) in place of user and password. */
+export function withDumpCredentials(db: DbCredentials | undefined, login: DumpCredentials | undefined): DbCredentials | undefined {
+  if (!login) return db;
+  return { ...db, user: login.user, password: login.password };
+}
+
 export const ResourceDescriptor = z.object({
   coolifyUuid: z.string(),
   name: z.string(),
@@ -320,6 +335,8 @@ export const BackupJob = z.object({
     .optional(),
   /** Relative directory to write into (controller decides naming). */
   destinationDir: z.string(),
+  /** Login set in CBM for this resource's database dumps (see DumpCredentials). */
+  dumpCredentials: DumpCredentials.optional(),
 });
 export type BackupJob = z.infer<typeof BackupJob>;
 
@@ -357,6 +374,8 @@ export const RestoreJob = z.object({
    * are restarted as usual when the restore fails. Default: restart.
    */
   restart: z.boolean().optional(),
+  /** Login set in CBM for this resource's database dumps (see DumpCredentials). */
+  dumpCredentials: DumpCredentials.optional(),
 });
 export type RestoreJob = z.infer<typeof RestoreJob>;
 
