@@ -8,6 +8,7 @@ import {
 } from "@cbm/shared";
 import { readFileSync } from "node:fs";
 import type { AgentConfig } from "./config.js";
+import { controllerFetch } from "./http.js";
 
 /** This agent's real version (was hard-coded to an old one). */
 export const AGENT_VERSION: string = (() => {
@@ -24,7 +25,7 @@ async function req(cfg: AgentConfig, path: string, init: RequestInit, auth = tru
     ...(init.headers as Record<string, string> | undefined),
   };
   if (auth && cfg.agentToken) headers["authorization"] = `Bearer ${cfg.agentToken}`;
-  return fetch(`${cfg.controllerUrl}${path}`, { ...init, headers });
+  return controllerFetch(`${cfg.controllerUrl}${path}`, { ...init, headers });
 }
 
 export async function register(cfg: AgentConfig): Promise<AgentRegisterResponse> {

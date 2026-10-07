@@ -56,7 +56,19 @@ restic's SFTP backend needs a working SSH connection from the **agent's host**:
 - if you use a **jump host**, the agent's host must reach the bastion;
 - the **base path must already exist** on the target (restic won't `mkdir -p` it);
 - run **Test** from the destination's **…** menu to confirm reachability (note: Test runs from
-  the controller).
+  the controller). It also checks the private key the way the agent's OpenSSH reads it: an
+  OpenSSH/PEM key without a passphrase (a PuTTY `.ppk` must be converted with puttygen).
+- `Load key …: error in libcrypto: unsupported` came from a key pasted with Windows line ends
+  (CRLF), which OpenSSH refuses; since 2.4.3 keys are normalised, stored ones included — update
+  the agent, nothing to re-enter.
+
+### The agent logs "Controller unreachable"
+The agent polls the controller every few seconds. A single failed poll is retried at once and
+isn't logged as a warning; only several failures in a row are, with the real cause (e.g.
+`EAI_AGAIN`: the host's DNS resolver didn't answer). The agent caches the controller's address
+for a minute and keeps using the last known one while the resolver fails. If a host's resolver is
+unreliable, give the agent its own DNS servers: reinstall it with
+`AGENT_DNS="1.1.1.1 9.9.9.9"` before the install command (see [Installation](installation.md)).
 
 ### The controller didn't pick up the new image
 Container registries can lag on `:latest`. On the host: `docker pull

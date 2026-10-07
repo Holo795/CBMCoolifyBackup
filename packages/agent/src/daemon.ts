@@ -15,11 +15,15 @@ import { runJobForController } from "./runner.js";
 import { initHeldContainers } from "./held.js";
 import { sweepOrphanedStages } from "./disk.js";
 import { deliverResult, flushPendingResults, pendingResultIds } from "./outbox.js";
+import { PollHealth, withQuickRetries } from "./poll-health.js";
+import { describeHttpError } from "./http.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Jobs running in this process, reported with each heartbeat. */
 const activeJobs = new Set<string>();
+// Whether the controller answers polls: warns only past a few failures in a row.
+const pollHealth = new PollHealth();
 
 export async function startDaemon(): Promise<void> {
   const cfg = loadConfig();
@@ -97,9 +101,13 @@ export async function startDaemon(): Promise<void> {
     while (inFlight.size < getSettings().concurrency) {
       let job = null;
       try {
-        ({ job } = await client.poll(cfg));
+        // A blip (DNS, a reset connection) gets two quick retries before it counts.
+        ({ job } = await withQuickRetries(() => client.poll(cfg), [1000, 3000], sleep));
+        const back = pollHealth.succeeded();
+        if (back) logger[back.level](back.message);
       } catch (e) {
-        logger.warn(`poll error: ${(e as Error).message}`);
+        const log = pollHealth.failed(describeHttpError(e));
+        logger[log.level](log.message);
         break;
       }
       if (!job) break;
@@ -156,7 +164,7 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 30):
       lastErr = e;
       // Auth failures aren't transient - don't burn retries on a bad token.
       if (/\b401\b/.test((e as Error).message)) throw e;
-      logger.warn(`${label} attempt ${i + 1} failed: ${(e as Error).message}`);
+      logger.warn(`${label} attempt ${i + 1} failed: ${describeHttpError(e)}`);
       await sleep(2000);
     }
   }

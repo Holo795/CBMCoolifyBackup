@@ -7,6 +7,8 @@ export const dynamic = "force-dynamic";
  *
  * Usage (the per-instance token comes from the controller UI, shown once):
  *   curl -fsSL <controller>/install.sh | CBM_TOKEN=cbm_xxx sh
+ * Optional: AGENT_DNS="1.1.1.1 9.9.9.9" gives the agent its own DNS servers
+ * (a host whose single resolver is flaky).
  *
  * It mounts the Docker socket (which Coolify's own deploy path strips, so the
  * agent must be run directly) and, if a cbm-agent container already exists on
@@ -24,6 +26,9 @@ set -e
 CONTROLLER_URL="${base}"
 IMAGE="${image}"
 TOKEN="\${CBM_TOKEN:-\$1}"
+# Optional DNS servers for the agent, space-separated (AGENT_DNS="1.1.1.1 9.9.9.9").
+DNS_ARGS=""
+for d in \${AGENT_DNS:-}; do DNS_ARGS="\$DNS_ARGS --dns \$d"; done
 
 if [ -z "\$TOKEN" ]; then
   echo "error: no enrollment token provided." >&2
@@ -54,7 +59,7 @@ echo "==> Starting cbm-agent"
 docker run -d --name cbm-agent --restart unless-stopped \\
   -v /var/run/docker.sock:/var/run/docker.sock \\
   -v /backups:/backups \\
-  -v cbm-agent-work:/var/lib/cbm-agent \\
+  -v cbm-agent-work:/var/lib/cbm-agent \$DNS_ARGS \\
   -e CONTROLLER_URL="\$CONTROLLER_URL" \\
   -e ENROLLMENT_TOKEN="\$TOKEN" \\
   -e AGENT_HOSTNAME="\$(hostname)" \\

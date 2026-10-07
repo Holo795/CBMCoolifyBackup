@@ -88,6 +88,13 @@ one-liner **on each host** you want to back up:
 curl -fsSL https://cbm.example.com/install.sh | CBM_TOKEN=cbm_… sh
 ```
 
+On a host whose DNS resolver is unreliable, give the agent its own DNS servers (passed to
+`docker run --dns`):
+
+```bash
+curl -fsSL https://cbm.example.com/install.sh | AGENT_DNS="1.1.1.1 9.9.9.9" CBM_TOKEN=cbm_… sh
+```
+
 This starts the `cbm-agent` container with:
 
 - the Docker socket mounted (`/var/run/docker.sock`) — required to dump/freeze/inspect,
