@@ -82,7 +82,10 @@ the container was created, the root password is random and a database created by
 must be in the dump, or the image takes its credentials some other way - an admin can set the
 login to use on the resource's **Options** tab → **Database dump login**: a user and a password,
 stored encrypted (master key) and never shown again. It is used for every database container of
-the resource, for backups and for restores in place. Remove it to go back to the environment.
+the resource, for backups and for restores in place. Remove it to go back to the environment. The
+card only shows for a resource with a database: a database itself, one whose containers include a
+PostgreSQL, MySQL, MariaDB or MongoDB (as its agent reports), one whose last backup holds a dump, or
+one that already has a login set.
 
 A MySQL / MariaDB dumped as a user other than `root` only holds the databases that user can see.
 When the server has others, the backup says which ones, with a warning: they are then only in the

@@ -1,4 +1,5 @@
 import type { DiscoveredContainer } from "@cbm/shared";
+import { detectEngine } from "./engines.js";
 
 /**
  * Per-container hooks: which containers a resource has, and which of them a
@@ -12,7 +13,7 @@ import type { DiscoveredContainer } from "@cbm/shared";
 const UUID_RE = /^[a-z0-9]{20,32}$/;
 const COOLIFY_LABEL_RE = /(?:^|,)coolify\.(?:resourceUuid|serviceId|applicationId|name)=([a-z0-9]{20,32})(?=,|$)/g;
 /** Format string for `docker ps` matching groupContainersByResource. */
-export const PS_FORMAT = '{{.Names}}\t{{.Label "com.docker.compose.service"}}\t{{.Labels}}\t{{.Mounts}}\t{{.ID}}';
+export const PS_FORMAT = '{{.Names}}\t{{.Label "com.docker.compose.service"}}\t{{.Labels}}\t{{.Mounts}}\t{{.ID}}\t{{.Image}}';
 
 const uuidTokens = (s: string) => s.split(/[-_.,/\s]+/).filter((t) => UUID_RE.test(t));
 
@@ -28,7 +29,7 @@ export function groupContainersByResource(
   const out = new Map<string, Map<string, DiscoveredContainer>>();
   for (const line of psOutput.split("\n")) {
     if (!line.trim()) continue;
-    const [name = "", service = "", labels = "", mounts = ""] = line.split("\t");
+    const [name = "", service = "", labels = "", mounts = "", , image = ""] = line.split("\t");
     if (!name) continue;
     const uuids = new Set<string>(uuidTokens(name));
     for (const m of labels.matchAll(COOLIFY_LABEL_RE)) uuids.add(m[1]);
@@ -38,7 +39,10 @@ export function groupContainersByResource(
         if (out.size >= maxResources) continue;
         out.set(u, new Map());
       }
-      out.get(u)!.set(name, service ? { name, service } : { name });
+      // The database engine its image runs, if any (CBM shows a resource's
+      // dump login only when it has a database).
+      const engine = detectEngine(image.trim());
+      out.get(u)!.set(name, { name, ...(service ? { service } : {}), ...(engine ? { engine } : {}) });
     }
   }
   const result: Record<string, DiscoveredContainer[]> = {};

@@ -49,7 +49,10 @@ export async function POST(req: Request) {
       });
       const canon = (list: unknown) =>
         Array.isArray(list)
-          ? (list as { name?: string; service?: string }[]).map((c) => `${c.name}|${c.service ?? ""}`).sort().join(",")
+          ? (list as { name?: string; service?: string; imageId?: string; engine?: string }[])
+              .map((c) => `${c.name}|${c.service ?? ""}|${c.imageId ?? ""}|${c.engine ?? ""}`)
+              .sort()
+              .join(",")
           : "";
       for (const r of rows) {
         const next = data.resourceContainers[r.coolifyUuid] ?? [];

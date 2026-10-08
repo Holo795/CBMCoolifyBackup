@@ -528,6 +528,8 @@ export const DiscoveredContainer = z.object({
   service: z.string().optional(),
   /** Local id of the image it runs (compared with a snapshot's before an in-place restore). */
   imageId: z.string().optional(),
+  /** The database engine its image runs (postgresql, mariadb...), if any. */
+  engine: z.string().max(40).optional(),
 });
 export type DiscoveredContainer = z.infer<typeof DiscoveredContainer>;
 

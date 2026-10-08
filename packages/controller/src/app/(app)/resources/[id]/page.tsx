@@ -6,6 +6,7 @@ import { effectivePolicy } from "@/lib/schedule";
 import { getTimezone } from "@/lib/settings";
 import { can, requireUser } from "@/lib/session";
 import { ResourceDetailView } from "./detail-view";
+import { showsDumpLogin } from "@/lib/dump-login";
 import { DESTINATION_SECRETS, INSTANCE_SECRETS } from "@/lib/public-fields";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +42,12 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
     resource.hooks = null;
     resource.dumpUser = null;
   }
+  // Its last backup held a database dump (a database, even if its agent doesn't report engines yet).
+  const lastSnapshotHasDump = !!(await prisma.artifact.findFirst({
+    where: { kind: "db-dump", snapshot: { resourceId: id, status: "succeeded" } },
+    orderBy: { snapshot: { startedAt: "desc" } },
+    select: { id: true },
+  }));
   // Whether a dump password is saved: the (encrypted) value itself never leaves here.
   const hasDumpPassword =
     isAdmin && !!(await prisma.resource.findUnique({ where: { id }, select: { dumpPasswordEnc: true } }))?.dumpPasswordEnc;
@@ -55,6 +62,7 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
       agentDown={agentDown}
       removed={removed}
       hasDumpPassword={hasDumpPassword}
+      showDumpLogin={isAdmin && showsDumpLogin({ ...resource, lastSnapshotHasDump })}
       tz={tz}
       isAdmin={isAdmin}
       usage={usage}

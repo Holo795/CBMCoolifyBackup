@@ -71,6 +71,7 @@ export async function ResourceDetailView({
   isAdmin,
   usage,
   hasDumpPassword,
+  showDumpLogin,
 }: {
   resource: ResourceRow;
   destinations: PublicDestination[];
@@ -86,6 +87,8 @@ export async function ResourceDetailView({
   usage: Usage;
   /** A dump password is saved (never the password itself). */
   hasDumpPassword: boolean;
+  /** The resource has a database to dump (see lib/dump-login). */
+  showDumpLogin: boolean;
 }) {
   const t = await getT();
   // Coolify's own control plane can only be restored in place, never "→ new".
@@ -398,7 +401,7 @@ export async function ResourceDetailView({
             </Card>
           </Gate>
 
-          {isAdmin && (
+          {showDumpLogin && (
             <Card>
               <CardHeader>
                 <CardTitle>{t("resources.dumpLoginTitle")}</CardTitle>

@@ -119,3 +119,15 @@ test("each reported container carries the image it runs, looked up by container 
     { name: `redis-${uuid}`, service: "redis" },
   ]);
 });
+
+test("each reported container says which database engine it runs, if any", () => {
+  const uuid = "abcdefghij0123456789klmn";
+  const ps = [
+    `database-${uuid}\tdatabase\tcoolify.serviceId=${uuid}\t\t0123456789ab\tmariadb:11.7.2`,
+    `php-${uuid}\tphp\tcoolify.serviceId=${uuid}\t\tba9876543210\tghcr.io/acme/php:8`,
+  ].join("\n");
+  assert.deepEqual(groupContainersByResource(ps)[uuid], [
+    { name: `database-${uuid}`, service: "database", engine: "mariadb" },
+    { name: `php-${uuid}`, service: "php" },
+  ]);
+});
