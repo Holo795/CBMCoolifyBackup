@@ -7,7 +7,7 @@ and uptime through a backup.
 
 | Resource | What CBM does |
 | --- | --- |
-| **PostgreSQL / MySQL / MariaDB / MongoDB** (standalone) | Logical dump while running (`pg_dump` / `mysqldump --single-transaction` / `mongodump`). No freeze, application-consistent. **Every database of the server** is included, not only the one Coolify created (since 2.1; earlier versions dumped only that one). System schemas holding users and grants (`mysql`, Mongo's `admin`) are left out so a restore never replaces the target's own credentials. Credentials are read from the live container / Coolify API and never stored in the manifest. MySQL / MariaDB are dumped as `root` when its password is known; when it isn't (`MARIADB_RANDOM_ROOT_PASSWORD` / `MYSQL_RANDOM_ROOT_PASSWORD`), as the application user the image created (`MARIADB_USER` / `MYSQL_USER`), which has every right on its database. Passwords given as files (`*_PASSWORD_FILE`, Docker secrets) are read inside the container. When the database's image has no client tools (`mariadb-dump`, `pg_dump`…), the dump runs from a short-lived container of the engine's **official image** - the server's version when the container says it (`MARIADB_VERSION`, `PG_MAJOR`, the data folder's `PG_VERSION`…) - attached to the database's network; restores do the same. A login set in CBM wins over all of this (see [Database dump login](#database-dump-login)). |
+| **PostgreSQL / MySQL / MariaDB / MongoDB** (standalone) | Logical dump while running (`pg_dump` / `mysqldump --single-transaction` / `mongodump`). No freeze, application-consistent. **Every database of the server** is included, not only the one Coolify created (since 2.1; earlier versions dumped only that one). System schemas holding users and grants (`mysql`, Mongo's `admin`) are left out so a restore never replaces the target's own credentials. Credentials are read from the live container / Coolify API and never stored in the manifest. MySQL / MariaDB are dumped as `root` when its password is known; when it isn't (`MARIADB_RANDOM_ROOT_PASSWORD` / `MYSQL_RANDOM_ROOT_PASSWORD`), as the application user the image created (`MARIADB_USER` / `MYSQL_USER`), which has every right on its database. A login the database refuses (a password changed in the database after the container was created - MySQL only reads these variables the first time) moves on to the next one before the dump is declared failed. Passwords given as files (`*_PASSWORD_FILE`, Docker secrets) are read inside the container. When the database's image has no client tools (`mariadb-dump`, `pg_dump`…), the dump runs from a short-lived container of the engine's **official image** - the server's version when the container says it (`MARIADB_VERSION`, `PG_MAJOR`, the data folder's `PG_VERSION`…) - attached to the database's network; restores do the same. A login set in CBM wins over all of this (see [Database dump login](#database-dump-login)). |
 | **Redis / KeyDB / Dragonfly** | Live RDB export (`--rdb`), no freeze. Falls back to a frozen volume copy only if no compatible CLI is present. |
 | **Applications** | Each named volume + Git commit / image provenance (so the code can be re-pinned to match the data on restore). |
 | **Image versions** | For every container: the image as written, the digest it ran and its version, so a restore runs the same version as the data (see [Restore](restore.md#image-versions)). |
@@ -54,6 +54,16 @@ or use live mode below.
   redeploys — add a volume if they are data.
 - **No container on the host at all** (never deployed, deleted, or stopped and removed): the run
   is marked *skipped* — nothing is stored and no alert is sent.
+
+### SQLite databases
+With the restic engine, a SQLite database found in a volume or host folder (a `.sqlite`,
+`.sqlite3` or `.db` file of 32 MiB or more, four levels deep at most - n8n, Uptime Kuma…) is copied
+consistently **while the application runs** (`VACUUM INTO`, from a short-lived container of the
+agent's image; the live database is opened read-only), and that copy is backed up in place of the
+live file; its `-wal` / `-shm` files are left out. A frozen pass then doesn't re-read a large
+database that changed, and the copy is never caught half-written. A restore puts back that
+consistent file, without the old journal. The copy needs the database's size free on the agent
+host; without it, the live file is backed up as before (the log says so).
 
 ### Live mode (no freeze)
 Per resource you can opt into **"Copy live, without freezing (at my own risk)"** (resource →

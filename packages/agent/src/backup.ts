@@ -20,7 +20,7 @@ import {
   CONFIG_ONLY_CAPTURE,
   RESTIC_PART_META,
 } from "@cbm/shared";
-import { dumpDatabase, dumpDatabaseAnyway, dumpRedis, mysqlUnseenDatabases } from "./dump.js";
+import { accessDenied, dumpDatabase, dumpDatabaseAnyway, dumpRedis, mysqlUnseenDatabases } from "./dump.js";
 import { REDIS_ENGINES, isRedisEngine, type Engine } from "./engines.js";
 import {
   hostEntries,
@@ -41,9 +41,17 @@ import { captureImages, captureProvenance } from "./provenance.js";
 import { encryptFile, sha256File } from "./crypto.js";
 import { makeTransfer, type Transfer } from "./transfer.js";
 import { LOCK_WAIT_MESSAGE, resticEnsureRepo, resticBackupDir, resticContext, resticForget, type ResticCtx } from "./restic.js";
-import { resticBackupPaths, snapshotPath, type PathBackup } from "./restic-helper.js";
+import {
+  findSqliteFiles,
+  hostPathOf,
+  resticBackupPaths,
+  snapshotPath,
+  sqliteConsistentCopy,
+  type PathBackup,
+  type PathSource,
+} from "./restic-helper.js";
 import { classifyExcludes, excludesMeta, mountExcludes, nestedFolders } from "./excludes.js";
-import { resolveResource, findDbContainers, readDbCredentials, resourceContainers } from "./resolve.js";
+import { resolveResource, findDbContainers, readDbCredentials, readDbLogins, resourceContainers, uniqueLogins } from "./resolve.js";
 import { assertFreeSpace, freeBytes, minFreeBytes } from "./disk.js";
 import { getSettings } from "./settings.js";
 import { chooseStaging, needsMeasure } from "./staging.js";
@@ -132,6 +140,9 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     return ctx;
   };
   const parts: string[] = [];
+  // Consistent copies of SQLite databases, read in place of the live files
+  // (outside the stage: it becomes the main snapshot).
+  const sqliteDir = join(workDir, `${job.id}-sqlite`);
   // What the snapshot should show beyond its log (a database that couldn't be dumped...).
   const warnings: string[] = [];
   let stored = false;
@@ -292,7 +303,36 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     //    exclusive lock behind any other backup of the same destination.
     const tags = [`snap:${job.id}`, `res:${resource.coolifyUuid}`, "part:volume"];
     const repo = plans.filter((p) => p.choice.where === "repository").map((p) => p.t);
-    const items = repo.map((t) => ({ source: t.source, path: t.resticPath(), excludes: t.excludes }));
+    const items: PathSource[] = repo.map((t) => ({ source: t.source, path: t.resticPath(), excludes: t.excludes }));
+    // SQLite databases in the copied folders (n8n, Uptime Kuma...): a copy made
+    // consistently while the application runs is read in place of the live
+    // file - which a frozen pass would re-read whole whenever it changed, and
+    // which a live copy could catch half-written.
+    for (const [n, t] of repo.entries()) {
+      if (t.meta.dbEngine) continue; // a database server's own data folder: dumped or frozen as such
+      for (const [k, f] of (await findSqliteFiles(t.source).catch(() => [])).entries()) {
+        const room = await freeBytes(workDir);
+        if (room !== null && room - f.bytes < minFreeBytes()) {
+          emit("warn", `No room on the agent host for a consistent copy of the SQLite database ${f.path} in ${t.label}: the live file is backed up`);
+          continue;
+        }
+        const out = join(sqliteDir, `${n}-${k}.sqlite`);
+        const t0 = Date.now();
+        try {
+          await mkdir(sqliteDir, { recursive: true });
+          await sqliteConsistentCopy(await resticFor(), workDir, t.source, f.path, out);
+          const item = items[n];
+          item.overlays = [...(item.overlays ?? []), { hostFile: await hostPathOf(out), at: f.path }];
+          item.skip = [...(item.skip ?? []), `/${f.path}-wal`, `/${f.path}-shm`, `/${f.path}-journal`];
+          emit(
+            "info",
+            `SQLite database ${f.path} in ${t.label} (${mib(f.bytes)}): consistent copy made while running in ${((Date.now() - t0) / 1000).toFixed(1)}s, backed up in place of the live file`,
+          );
+        } catch (e) {
+          emit("warn", `Could not copy the SQLite database ${f.path} in ${t.label} consistently (${(e as Error).message}): the live file is backed up`);
+        }
+      }
+    }
     const roots = new Map<Target, Awaited<ReturnType<typeof rootStat>>>();
     let sizes = new Map<string, number>();
     for (const t of repo) roots.set(t, await rootStat(t.source));
@@ -431,21 +471,52 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
         return await finalizeArtifact("db-dump", name, path, rdbMeta, job, stage, emit);
       }
       // The login set in CBM for this resource, if any, wins over the container's environment.
-      const creds = withDumpCredentials(await readDbCredentials(container, engine), job.dumpCredentials);
+      const logins = job.dumpCredentials
+        ? [withDumpCredentials(await readDbCredentials(container, engine), job.dumpCredentials) ?? {}]
+        : await readDbLogins(container, engine);
       const name = `dump-${engine}-${container}.sql`.replace(/[^a-zA-Z0-9._-]+/g, "_");
       const path = join(stage, name);
-      emit("info", `Dumping ${engine} (${container}) as ${creds?.user || "the default user"} - no downtime`, progress);
-      const client = await dumpDatabaseAnyway(engine, container, creds ?? {}, path);
-      if (client) emit("info", `${container} has no ${engine} client tools: dumped with ${client}`);
+      const { creds, client } = await dumpWithLogins(engine, container, logins, path, progress);
       await warnUnseenDatabases(engine, container, creds, client);
       const sqlMeta = { engine, container, ...meta, ...(await imageMeta(container)) };
       return await finalizeArtifact("db-dump", name, path, sqlMeta, job, stage, emit);
     } catch (e) {
-      const msg = `Logical export of ${container} (${engine}) failed: ${(e as Error).message}`;
+      const msg =
+        `Logical export of ${container} (${engine}) failed: ${(e as Error).message}` +
+        (accessDenied(e) ? ` - set the login to use in the resource's Options (Database dump login)` : "");
       emit("warn", msg);
       if (warnIfFailed) warnings.push(msg);
       return null;
     }
+  };
+
+  // Which login a dump uses, for the log - never the user name itself (some are
+  // generated, close to a secret).
+  const loginLabel = (engine: string, creds: DbCredentials) =>
+    job.dumpCredentials
+      ? "the login set in CBM"
+      : engine !== "mysql" && engine !== "mariadb"
+        ? "the configured user"
+        : creds.user === "root"
+          ? "root"
+          : "the application user";
+
+  // A dump with the first login the database accepts: a refused one (a
+  // password changed since the container was created) moves on to the next.
+  const dumpWithLogins = async (engine: Engine, container: string, logins: DbCredentials[], path: string, progress: number) => {
+    for (const [i, creds] of logins.entries()) {
+      emit("info", `Dumping ${engine} (${container}) as ${loginLabel(engine, creds)} - no downtime`, progress);
+      try {
+        const client = await dumpDatabaseAnyway(engine, container, creds, path);
+        if (client) emit("info", `${container} has no ${engine} client tools: dumped with ${client}`);
+        return { creds, client };
+      } catch (e) {
+        const next = logins[i + 1];
+        if (!next || !accessDenied(e)) throw e;
+        emit("info", `${loginLabel(engine, creds)} was refused by ${container}: trying ${loginLabel(engine, next)}`);
+      }
+    }
+    throw new Error("no login to dump with");
   };
 
   // A MySQL/MariaDB dumped as a user other than root only holds the databases
@@ -455,7 +526,7 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     const unseen = await mysqlUnseenDatabases(engine, container, creds, image);
     if (!unseen.length) return;
     const msg =
-      `The dump of ${container} as ${creds.user} leaves out database(s) this user can't see: ${unseen.join(", ")} - ` +
+      `The dump of ${container} as ${loginLabel(engine, creds)} leaves out database(s) it can't see: ${unseen.join(", ")} - ` +
       `they are only in the volume copy (set a login that sees them in the resource's Options)`;
     emit("warn", msg);
     warnings.push(msg);
@@ -532,13 +603,14 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     // container), there's nothing on the host to dump - fall through to the
     // "nothing to back up" check below rather than failing.
     if (primary && (await containerExists(primary))) {
-      emit("info", `Dumping database via ${resource.type} (no downtime)`, 20);
       const engine = resource.type;
       const dumpName = dumpFileName(engine, resource.db?.database);
       const dumpPath = join(stage, dumpName);
-      const creds = withDumpCredentials(resource.db, job.dumpCredentials) ?? {};
-      const client = await dumpDatabaseAnyway(resource.type, primary, creds, dumpPath);
-      if (client) emit("info", `${primary} has no ${engine} client tools: dumped with ${client}`);
+      // Coolify's credentials first, then what the container's environment offers.
+      const logins = job.dumpCredentials
+        ? [withDumpCredentials(resource.db, job.dumpCredentials) ?? {}]
+        : uniqueLogins([resource.db ?? {}, ...(await readDbLogins(primary, resource.type).catch(() => []))]);
+      const { creds, client } = await dumpWithLogins(resource.type as Engine, primary, logins, dumpPath, 20);
       await warnUnseenDatabases(engine, primary, creds, client);
       const dumpMeta = { engine, ...(await imageMeta(primary)) };
       artifacts.push(await finalizeArtifact("db-dump", dumpName, dumpPath, dumpMeta, job, stage, emit));
@@ -700,6 +772,7 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     }
     await transfer?.close().catch(() => undefined);
     await rm(stage, { recursive: true, force: true }).catch(() => undefined);
+    await rm(sqliteDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 

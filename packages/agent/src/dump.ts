@@ -44,6 +44,12 @@ function into(container: string, envArgs: string[], image?: string, interactive 
 /** mongodump/mongorestore in a throwaway container reach the database over TCP. */
 const mongoHost = (image?: string) => (image ? ["--host", "127.0.0.1"] : []);
 
+/** The database refused the login (MySQL / MariaDB 1045, PostgreSQL authentication). */
+export function accessDenied(e: unknown): boolean {
+  const m = e instanceof Error ? e.message : String(e);
+  return /ERROR 1045|Access denied for user|password authentication failed|Authentication failed/i.test(m);
+}
+
 /** The command failed because the container has no such tool (or no shell). */
 export function toolMissing(e: unknown): boolean {
   const m = e instanceof Error ? e.message : String(e);

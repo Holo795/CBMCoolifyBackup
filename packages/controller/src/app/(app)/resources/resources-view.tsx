@@ -27,6 +27,7 @@ export async function ResourcesView({
   rows,
   orphaned,
   liveInstanceIds,
+  nothingOnHost,
   total,
   page,
   totalPages,
@@ -43,6 +44,8 @@ export async function ResourcesView({
   rows: ResourceRow[];
   orphaned: OrphanedRow[];
   liveInstanceIds: Set<string | null>;
+  /** Their last backup found nothing on the host. */
+  nothingOnHost: Set<string>;
   total: number;
   page: number;
   totalPages: number;
@@ -227,6 +230,13 @@ export async function ResourcesView({
                                   {r.name}
                                 </Link>
                                 {isControlPlane && <Badge tone="accent">{t("resources.controlPlane")}</Badge>}
+                                {nothingOnHost.has(r.id) && (
+                                  <Tooltip content={t("resources.nothingOnHostHint")}>
+                                    <span tabIndex={0} className="inline-flex">
+                                      <Badge tone="neutral">{t("resources.nothingOnHost")}</Badge>
+                                    </span>
+                                  </Tooltip>
+                                )}
                               </div>
                               <p className="truncate text-xs text-muted-foreground">{subtitle(r)}</p>
                             </div>

@@ -43,3 +43,24 @@ test("the login set in CBM replaces the environment's user and password, not the
   assert.deepEqual(withDumpCredentials({ user: "app" }, undefined), { user: "app" });
   assert.deepEqual(withDumpCredentials(undefined, { user: "root", password: "" }), { user: "root", password: "" });
 });
+
+test("every login the environment offers is tried, root first, then the application user", async () => {
+  const { mysqlLogins, uniqueLogins } = await import("../src/resolve.js");
+  assert.deepEqual(mysqlLogins({ MYSQL_ROOT_PASSWORD: "r", MYSQL_USER: "app", MYSQL_PASSWORD: "p", MYSQL_DATABASE: "d" }, "mysql"), [
+    { user: "root", password: "r", database: "d" },
+    { user: "app", password: "p", database: "d" },
+  ]);
+  assert.deepEqual(mysqlLogins({}, "mariadb"), [{ user: "root", password: "", database: "" }]);
+  // Coolify's credentials and the environment's, when they're the same, are tried once.
+  assert.deepEqual(uniqueLogins([{ user: "root", password: "r" }, { user: "root", password: "r", database: "d" }, { user: "app", password: "p" }]), [
+    { user: "root", password: "r" },
+    { user: "app", password: "p" },
+  ]);
+});
+
+test("only a refused login moves on to the next one", async () => {
+  const { accessDenied } = await import("../src/dump.js");
+  assert.equal(accessDenied(new Error("exited 1: ERROR 1045 (28000): Access denied for user 'root'@'localhost'")), true);
+  assert.equal(accessDenied(new Error('pg_dump: error: FATAL:  password authentication failed for user "x"')), true);
+  assert.equal(accessDenied(new Error("ERROR 2002: Can't connect to local server")), false);
+});

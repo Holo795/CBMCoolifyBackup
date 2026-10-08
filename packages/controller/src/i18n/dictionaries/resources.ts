@@ -20,6 +20,9 @@ export const en = {
   agentUnavailable: "Agent unavailable",
   agentUnavailableRow: "Agent unavailable - this resource can't be backed up",
   controlPlane: "control plane",
+  nothingOnHost: "nothing on the host",
+  nothingOnHostHint:
+    "Its last backup found nothing on the host to copy - not deployed, removed, or running on a server without an agent. If it's no longer used, turn off Scheduled.",
   queued: "Queued",
   backup: "Backup",
   resourceCountOne: "{count} resource",
@@ -168,6 +171,9 @@ export const fr: typeof en = {
   agentUnavailable: "Agent indisponible",
   agentUnavailableRow: "Agent indisponible - cette ressource ne peut pas être sauvegardée",
   controlPlane: "plan de contrôle",
+  nothingOnHost: "rien sur l'hôte",
+  nothingOnHostHint:
+    "Sa dernière sauvegarde n'a rien trouvé à copier sur l'hôte - pas déployée, supprimée, ou sur un serveur sans agent. Si elle ne sert plus, décochez Planifiée.",
   queued: "En file",
   backup: "Sauvegarder",
   resourceCountOne: "{count} ressource",

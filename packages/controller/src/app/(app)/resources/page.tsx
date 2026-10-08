@@ -85,12 +85,22 @@ export default async function ResourcesPage({
   const rows = [...controlPlanes, ...resources];
 
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
+  // Resources whose last backup found nothing on the host (not deployed,
+  // removed, on another server): worth unscheduling.
+  const lastRuns = await prisma.snapshot.findMany({
+    where: { resourceId: { in: resources.map((r) => r.id) } },
+    orderBy: { startedAt: "desc" },
+    distinct: ["resourceId"],
+    select: { resourceId: true, status: true },
+  });
+  const nothingOnHost = new Set(lastRuns.filter((s) => s.status === "skipped").map((s) => s.resourceId));
 
   return (
     <ResourcesView
       rows={rows}
       orphaned={orphaned}
       liveInstanceIds={liveInstanceIds}
+      nothingOnHost={nothingOnHost}
       total={total}
       page={page}
       totalPages={totalPages}

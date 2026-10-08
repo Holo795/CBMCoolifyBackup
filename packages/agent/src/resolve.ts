@@ -195,16 +195,49 @@ export async function readDbCredentials(container: string, type: ResourceType): 
  * for root: that only ever gets "Access denied".
  */
 export function mysqlCredentials(env: Record<string, string>, engine: "mysql" | "mariadb"): DbCredentials {
+  return mysqlLogins(env, engine)[0];
+}
+
+/**
+ * Every login the environment offers, best first: root when its password is
+ * set, then the application user. The variables are only read when the data
+ * folder is first created: one changed since no longer works, so a refused
+ * login (1045) moves on to the next one.
+ */
+export function mysqlLogins(env: Record<string, string>, engine: "mysql" | "mariadb"): DbCredentials[] {
   const pick = (...keys: string[]) => keys.map((k) => env[k]).find((v) => v);
   const keys = (suffix: string) => (engine === "mariadb" ? [`MARIADB_${suffix}`, `MYSQL_${suffix}`] : [`MYSQL_${suffix}`]);
   const database = pick(...keys("DATABASE")) ?? "";
+  const out: DbCredentials[] = [];
   const rootPassword = pick(...keys("ROOT_PASSWORD"));
-  if (rootPassword) return { user: "root", password: rootPassword, database };
+  if (rootPassword) out.push({ user: "root", password: rootPassword, database });
   const user = pick(...keys("USER"));
   const password = pick(...keys("PASSWORD"));
-  if (user && user !== "root" && password) return { user, password, database };
+  if (user && user !== "root" && password) out.push({ user, password, database });
   // Root with an empty password (MARIADB_ALLOW_EMPTY_ROOT_PASSWORD / MYSQL_ALLOW_EMPTY_PASSWORD).
-  return { user: "root", password: "", database };
+  if (!out.length) out.push({ user: "root", password: "", database });
+  return out;
+}
+
+/** The same login listed twice (Coolify's and the environment's) is tried once. */
+export function uniqueLogins(logins: DbCredentials[]): DbCredentials[] {
+  const seen = new Set<string>();
+  return logins.filter((l) => {
+    const k = `${l.user ?? ""}\0${l.password ?? ""}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+/** The logins to try for a database container, best first (see mysqlLogins). */
+export async function readDbLogins(container: string, type: ResourceType): Promise<DbCredentials[]> {
+  if (type === "mysql" || type === "mariadb") {
+    const info = await inspectContainer(container);
+    return mysqlLogins(await withFileSecrets(container, parseEnv(info?.Config?.Env ?? [])), type);
+  }
+  const one = await readDbCredentials(container, type);
+  return one ? [one] : [{}];
 }
 
 /** Database variables the official images also take from a file (`*_FILE`, e.g. Docker secrets). */

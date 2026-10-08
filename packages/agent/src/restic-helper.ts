@@ -42,6 +42,22 @@ export function selfContainer(): Promise<Self> {
   return selfP;
 }
 
+/**
+ * The host path of a path inside the agent (a bind mount source must be a host
+ * path): the agent's mount that holds it, else the path itself (native agent).
+ */
+export async function hostPathOf(path: string): Promise<string> {
+  const self = await selfContainer();
+  if (!self) return path;
+  const r = await docker(["inspect", "--format", "{{json .Mounts}}", self.id]);
+  const mounts = (r.code === 0 ? JSON.parse(r.stdout || "[]") : []) as Array<{ Source?: string; Destination?: string }>;
+  const m = mounts
+    .filter((x) => x.Source && x.Destination && (path === x.Destination || path.startsWith(`${x.Destination.replace(/\/+$/, "")}/`)))
+    .sort((a, b) => b.Destination!.length - a.Destination!.length)[0];
+  if (!m) throw new Error(`${path} is not on a volume the agent shares with the host`);
+  return `${m.Source}${path.slice(m.Destination!.replace(/\/+$/, "").length)}`;
+}
+
 /** Single-quote a token for POSIX sh. */
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
@@ -169,7 +185,17 @@ export async function resticBackupPath(
 }
 
 /** One volume or host folder of a grouped backup (see resticBackupPaths). */
-export type PathSource = { source: string; path: string; excludes?: string[] };
+export type PathSource = {
+  source: string;
+  path: string;
+  excludes?: string[];
+  /** Files read in place of the live ones (a consistent SQLite copy), each a
+   * host file mounted at `at` (relative to the folder) over the live file. */
+  overlays?: Array<{ hostFile: string; at: string }>;
+  /** Left out of this backup only (a SQLite database's -wal / -shm): unlike
+   * `excludes`, a restore doesn't keep them, it removes them. */
+  skip?: string[];
+};
 
 /**
  * Back up several volumes / host folders as ONE restic snapshot (each under its
@@ -189,9 +215,13 @@ export async function resticBackupPaths(
   if (!items.length) throw new Error("nothing to back up");
   for (const i of items) if (!SNAPSHOT_PATH.test(i.path)) throw new Error(`unsupported restic path: ${i.path}`);
   const args = ["backup", ...items.map((i) => i.path), "--host", "cbm", "--json", "--quiet", "--retry-lock", opts.lockWait ?? LOCK_WAIT];
-  for (const i of items) args.push(...resticBackupExcludes(i.path, i.excludes ?? []));
+  for (const i of items) args.push(...resticBackupExcludes(i.path, [...(i.excludes ?? []), ...(i.skip ?? [])]));
   for (const t of tags) args.push("--tag", t);
-  const mounts = items.map((i) => `${i.source}:${i.path}:ro`);
+  const mounts = [
+    ...items.map((i) => `${i.source}:${i.path}:ro`),
+    // Docker mounts nested paths after their parent: the copy hides the live file.
+    ...items.flatMap((i) => (i.overlays ?? []).map((o) => `${o.hostFile}:${i.path}/${o.at.replace(/^\/+/, "")}:ro`)),
+  ];
   const paths = items.map((i) => shq(i.path)).join(" ");
   const r = await helper(
     ctx,
@@ -231,6 +261,52 @@ export async function resticBackupPaths(
     added: s.data_added ?? 0,
     sizes,
   };
+}
+
+/** SQLite files at least this big get a consistent copy (smaller ones are read fast enough). */
+export const SQLITE_MIN_BYTES = 32 * 1024 * 1024;
+
+/**
+ * SQLite databases in a volume or host folder (a `.sqlite`, `.sqlite3` or `.db`
+ * file of at least SQLITE_MIN_BYTES starting with "SQLite format 3"), with
+ * their size, as paths relative to its root. Four levels deep at most.
+ */
+export async function findSqliteFiles(source: string): Promise<Array<{ path: string; bytes: number }>> {
+  const kib = Math.floor(SQLITE_MIN_BYTES / 1024);
+  const script =
+    `find /data -xdev -maxdepth 4 -type f -size +${kib}k \\( -name '*.sqlite' -o -name '*.sqlite3' -o -name '*.db' \\) 2>/dev/null | head -20 | ` +
+    `while IFS= read -r f; do [ "$(head -c 15 "$f")" = "SQLite format 3" ] && echo "$(stat -c %s "$f") \${f#/data/}"; done; true`;
+  const r = await docker(["run", "--rm", "--network", "none", "-v", `${source}:/data:ro`, "alpine:3.24", "sh", "-c", script]);
+  if (r.code !== 0) return [];
+  return r.stdout
+    .split("\n")
+    .map((l) => /^(\d+) (.+)$/.exec(l.trim()))
+    .filter((m): m is RegExpExecArray => !!m)
+    .map((m) => ({ path: m[2], bytes: Number(m[1]) }));
+}
+
+// VACUUM INTO: one read transaction - a consistent copy while the application
+// keeps writing (WAL: readers don't block writers). The online backup API would
+// restart on every write of the application, and never end. Read-only: never
+// a checkpoint or any write to the live database.
+const SQLITE_COPY_JS =
+  'const { DatabaseSync } = require("node:sqlite"); const [src, dst] = process.argv.slice(1);' +
+  'require("node:fs").rmSync(dst, { force: true });' +
+  'const db = new DatabaseSync(src, { readOnly: true }); db.exec("PRAGMA busy_timeout=60000");' +
+  'db.prepare("VACUUM INTO ?").run(dst); db.close();' +
+  'const c = new DatabaseSync(dst, { readOnly: true }); const ok = Object.values(c.prepare("PRAGMA quick_check").get())[0];' +
+  'if (ok !== "ok") { console.error("the copy fails quick_check: " + ok); process.exit(2); }';
+
+/**
+ * A consistent copy of a live SQLite database (see SQLITE_COPY_JS), made by a
+ * helper from the agent's image (Node's built-in SQLite). The volume is
+ * mounted read-write only so SQLite can share its lock file with the
+ * application; the database itself is opened read-only.
+ */
+export async function sqliteConsistentCopy(ctx: ResticCtx, workDir: string, source: string, rel: string, outFile: string): Promise<void> {
+  const src = `/data/${rel.replace(/^\/+/, "")}`;
+  const r = await helper(ctx, workDir, [`${source}:/data`], { sh: `exec node -e ${shq(SQLITE_COPY_JS)} ${shq(src)} ${shq(outFile)}` });
+  if (r.code !== 0) throw fail(`consistent copy of ${rel}`, r);
 }
 
 /** `target` is a shell word as written in the script (a fixed path or "$T"). */

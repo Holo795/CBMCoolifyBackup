@@ -1,7 +1,7 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { RESTIC_PART_META, type Artifact, type RestoreJob, type ResourceType, withDumpCredentials } from "@cbm/shared";
-import { restoreDatabaseAnyway } from "./dump.js";
+import { RESTIC_PART_META, type Artifact, type RestoreJob, type ResourceType, type DbCredentials, withDumpCredentials } from "@cbm/shared";
+import { accessDenied, restoreDatabaseAnyway } from "./dump.js";
 import {
   restoreVolume,
   restoreToPath,
@@ -17,7 +17,7 @@ import { decryptFile } from "./crypto.js";
 import { makeTransfer } from "./transfer.js";
 import { resticRestoreById, withResticCtx } from "./restic.js";
 import { resticRestorePath } from "./restic-helper.js";
-import { resolveResource, readDbCredentials, resourceContainers } from "./resolve.js";
+import { resolveResource, readDbCredentials, readDbLogins, resourceContainers, uniqueLogins } from "./resolve.js";
 import type { Emit } from "./backup.js";
 import { artifactExcludes } from "./excludes.js";
 
@@ -65,6 +65,21 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
         localFiles[a.filename] = usable;
       }
     }
+
+    // A load with the first login the database accepts (see readDbLogins): a
+    // refused one is rejected before anything is written, so the next is tried.
+    const restoreWithLogins = async (engine: ResourceType, container: string, logins: DbCredentials[], file: string) => {
+      for (const [i, creds] of logins.entries()) {
+        try {
+          const client = await restoreDatabaseAnyway(engine, container, creds, file);
+          if (client) emit("info", `${container} has no ${engine} client tools: restored with ${client}`);
+          return;
+        } catch (e) {
+          if (!logins[i + 1] || !accessDenied(e)) throw e;
+          emit("info", `A login was refused by ${container}: trying the next one`);
+        }
+      }
+    };
 
     // A volume restic read in place is its own restic snapshot: restored straight
     // into the target (no local copy), with its root folder's owner and mode.
@@ -121,12 +136,13 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
       if (!container) throw new Error(`DB restore requires a target container (resolving ${into.name})`);
       // Prefer the controller-provided creds (authoritative, from the Coolify
       // API) over whatever was read from the container env.
-      const creds = withDumpCredentials(job.db ?? resolved.db, job.dumpCredentials) ?? {};
+      const logins = job.dumpCredentials
+        ? [withDumpCredentials(job.db ?? resolved.db, job.dumpCredentials) ?? {}]
+        : uniqueLogins([job.db ?? resolved.db ?? {}, ...(await readDbLogins(container, into.type).catch(() => []))]);
       for (const d of standaloneDumps) {
         const engine = ((d.meta.engine as ResourceType) || into.type) as ResourceType;
         emit("info", `Restoring dump ${d.filename} into ${into.name} (${container})`, 50);
-        const client = await restoreDatabaseAnyway(engine, container, creds, localFiles[d.filename]);
-        if (client) emit("info", `${container} has no ${engine} client tools: restored with ${client}`);
+        await restoreWithLogins(engine, container, logins, localFiles[d.filename]);
       }
     }
 
@@ -229,11 +245,13 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
           continue;
         }
         const engine = d.meta.engine as ResourceType;
-        const creds = withDumpCredentials(await readDbCredentials(container, engine), job.dumpCredentials) ?? {};
+        const logins = job.dumpCredentials
+          ? [withDumpCredentials(await readDbCredentials(container, engine), job.dumpCredentials) ?? {}]
+          : await readDbLogins(container, engine);
         emit("info", `Loading ${engine} dump into ${container}`, 88);
-        await restoreDatabaseAnyway(engine, container, creds, localFiles[d.filename])
-          .then((client) => client && emit("info", `${container} has no ${engine} client tools: restored with ${client}`))
-          .catch((e) => emit("error", `Service DB restore into ${container} failed: ${(e as Error).message}`));
+        await restoreWithLogins(engine, container, logins, localFiles[d.filename]).catch((e) =>
+          emit("error", `Service DB restore into ${container} failed: ${(e as Error).message}`),
+        );
       }
     } else if (isNew && serviceDumps.length > 0) {
       emit("warn", `${serviceDumps.length} service-internal database dump(s) not applied to the clone - its volumes were restored instead.`);

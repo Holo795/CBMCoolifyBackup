@@ -27,6 +27,20 @@ removed them; the database record stays so you can see the loss.
 The backup's files are gone from the destination (or, for a local destination, the producing
 agent's host is down). Check the destination and run **Verify** from its **…** menu.
 
+### "429 Too Many Attempts" from the Coolify API
+Coolify limits its API per user (`API_RATE_LIMIT`, 200 calls a minute by default), and a schedule
+reads every resource from Coolify when it starts. CBM paces its own calls (`COOLIFY_API_RATE_LIMIT`,
+120 a minute per instance by default) and retries a 429 after the wait Coolify asks for, so a
+backup only fails once those attempts are spent. If you use the same Coolify token for other tools,
+lower `COOLIFY_API_RATE_LIMIT`; or raise Coolify's `API_RATE_LIMIT`.
+
+### "Access denied" (1045) when dumping a database
+MySQL / MariaDB read `*_ROOT_PASSWORD`, `*_USER` and `*_PASSWORD` only when the data folder is first
+created: a password changed afterwards no longer matches the variable. CBM tries root, then the
+application user; when both are refused, set the login to use on the resource's **Options** tab →
+**Database dump login**. Until then, the backup is shown *with warnings* and the database is only in
+the frozen copy of its volume.
+
 ### "Not enough free space on the agent host"
 A volume didn't fit in the agent's work dir (minus `AGENT_MIN_FREE_MB`). The message gives the
 size needed and the space usable. Free some space on the host, lower **Free space kept**, or set
