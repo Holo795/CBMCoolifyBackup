@@ -116,6 +116,40 @@ is managed from Profile only.
 API tokens (MCP) and agents aren't concerned: they authenticate with their own tokens, not a
 sign-in.
 
+## Single sign-on
+
+Admins can let users sign in with **Google**, **GitHub**, **GitLab** (gitlab.com or a self-managed
+instance) or any **OpenID Connect** provider such as **Authentik** or Keycloak, from **Settings →
+Single sign-on** (or with environment variables, see [Configuration](configuration.md#optional-single-sign-on)).
+For each provider:
+
+1. Create an OAuth application at the provider. The form shows the exact **redirect URL** to
+   register (`<BETTER_AUTH_URL>/api/auth/callback/<provider>`, with a copy button) and where to
+   create it:
+   - **Google** - Google Cloud console → APIs & Services → Credentials → OAuth client ID (Web
+     application); also add your CBM URL as an authorized JavaScript origin.
+   - **GitHub** - Settings → Developer settings → OAuth Apps.
+   - **GitLab** - Preferences (or Admin area) → Applications: confidential, scope `read_user`.
+   - **Authentik** - Applications → Providers → OAuth2/OpenID Provider (confidential client,
+     scopes `openid email profile`), then an Application using it. The **issuer URL** is the
+     provider's *OpenID Configuration Issuer* (`https://auth.example.com/application/o/<slug>/`);
+     any other OpenID Connect provider works the same way.
+2. Paste the client ID and secret (the secret is stored encrypted with the master key and never
+   shown again; leave the field empty to keep it), and click **Check**: CBM asks the provider
+   whether it knows this client, without signing anyone in.
+3. Turn on **Offer this provider on the sign-in page** and save. A **Continue with …** button then
+   appears on the sign-in and invitation pages (the OpenID Connect one shows its label).
+
+Accounts still exist **by invitation only**. A provider signs in the CBM user with the **same
+email**: an existing user (who signed up with a password) is linked on first use, and an invited
+person can accept the invitation with the provider instead of a password. An email with no account
+and no invitation is refused, and the sign-in page says so. An admin trusts a provider by
+configuring it: the email it returns is taken as proven, even when the provider doesn't say it
+was verified (GitLab never does). Two-factor authentication still applies after a provider sign-in.
+
+When a provider sign-in fails, you come back to the sign-in page with the reason (cancelled,
+provider refused the client, sign-in expired, no account for that email…).
+
 ## Forgot a password?
 
 If SMTP is configured, the sign-in page shows **Forgot password?** — it emails a reset link.

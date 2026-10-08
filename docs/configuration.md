@@ -48,18 +48,21 @@ a move to a fresh key by re-entering your secrets.
 A failed database migration also stops the container now, instead of starting the app on an
 out-of-date schema.
 
-### Optional OAuth login
+### Optional single sign-on
 
-Set the pair(s) you want: each configured provider gets a **Continue with …** button on the
-sign-in page. `GITLAB_ISSUER` is only needed for a self-managed GitLab (default `https://gitlab.com`).
-The callback URL to register with the provider is `<BETTER_AUTH_URL>/api/auth/callback/<provider>`
-(`github`, `google` or `gitlab`).
+Single sign-on is configured in **Settings → Single sign-on** (see
+[Accounts & roles](accounts.md#single-sign-on)). These variables configure a provider as code
+instead: a provider set here wins over its Settings form, which then shows it locked.
+`GITLAB_ISSUER` is only needed for a self-managed GitLab (default `https://gitlab.com`). The
+callback URL to register with the provider is `<BETTER_AUTH_URL>/api/auth/callback/<provider>`
+(`github`, `google`, `gitlab` or `oidc`).
 
 | Provider | Variables |
 | --- | --- |
 | GitHub | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` |
 | Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
 | GitLab | `GITLAB_ISSUER`, `GITLAB_CLIENT_ID`, `GITLAB_CLIENT_SECRET` |
+| OpenID Connect (Authentik, Keycloak…) | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_LABEL` (the button's label) |
 
 ### Email (SMTP)
 
