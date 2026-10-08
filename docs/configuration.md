@@ -10,6 +10,7 @@
 | `MASTER_KEY` | recommended | falls back to `BETTER_AUTH_SECRET` | Base64, 32 bytes. Encrypts all secrets at rest (and restic repo passwords). **Back this up.** |
 | `AGENT_IMAGE` | — | `ghcr.io/holo795/cbm-agent` | Agent image the install command / `/install.sh` tells hosts to run. |
 | `AGENT_IMAGE_TAG` | — | `latest` | Tag for the agent image. |
+| `COOLIFY_API_RATE_LIMIT` | — | `120` | Calls per minute CBM allows itself towards each Coolify instance. Coolify limits its API per user (its own `API_RATE_LIMIT`, 200 a minute by default); a call that still gets "429 Too Many Attempts" waits what Coolify asks and is retried. Lower it if you use the same Coolify token elsewhere. |
 | `AGENT_CONTROLLER_URL` | — | falls back to `BETTER_AUTH_URL` | URL agents dial to reach the controller, if it differs from the browser URL (e.g. `http://host.docker.internal:3000` in local dev). |
 | `PASSWORD_BREACH_CHECK` | — | `true` | Refuse new passwords (sign-up, change, reset) that appear in a known breach, via HaveIBeenPwned's k-anonymity API (only the first 5 characters of the password's SHA-1 leave the server). If the API can't be reached within 3 s the password is accepted. `false` turns it off. |
 

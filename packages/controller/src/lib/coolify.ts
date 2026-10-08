@@ -178,6 +178,67 @@ export const GENERATED_SECRET = /^SERVICE_(USER|PASSWORD|BASE64|REALBASE64)_/;
  * scheduler (it enqueues backups through these calls) for minutes. */
 const COOLIFY_TIMEOUT_MS = 30_000;
 
+/**
+ * Calls per minute CBM allows itself towards one Coolify instance. Coolify
+ * limits its API per user (API_RATE_LIMIT, 200 a minute by default) and a
+ * schedule enqueues dozens of backups at once, each reading the resource from
+ * Coolify: past the limit, Coolify answers 429 for the rest of the minute.
+ */
+export const COOLIFY_RATE_PER_MIN = Math.max(10, Number(process.env.COOLIFY_API_RATE_LIMIT) || 120);
+/** Attempts after a 429 / 503 before the call fails. */
+const COOLIFY_RETRIES = 5;
+
+type Bucket = { tokens: number; updated: number; tail: Promise<unknown> };
+const buckets = new Map<string, Bucket>();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Wait for a call slot towards one instance (token bucket: bursts of up to a
+ * quarter of the rate, then the rate). In-process: the controller runs as a
+ * single replica.
+ */
+export async function coolifySlot(key: string, perMin = COOLIFY_RATE_PER_MIN, now: () => number = Date.now): Promise<void> {
+  const capacity = Math.max(1, Math.floor(perMin / 4));
+  const b = buckets.get(key) ?? { tokens: capacity, updated: now(), tail: Promise.resolve() };
+  buckets.set(key, b);
+  const turn = b.tail.then(async () => {
+    for (;;) {
+      const t = now();
+      b.tokens = Math.min(capacity, b.tokens + ((t - b.updated) * perMin) / 60_000);
+      b.updated = t;
+      if (b.tokens >= 1) {
+        b.tokens -= 1;
+        return;
+      }
+      await sleep(Math.ceil(((1 - b.tokens) * 60_000) / perMin));
+    }
+  });
+  b.tail = turn.catch(() => undefined);
+  return turn;
+}
+
+/** Coolify said "too many": no more calls to it until the wait is over. */
+function drainSlots(key: string): void {
+  const b = buckets.get(key);
+  if (b) b.tokens = 0;
+}
+
+/** How long to wait before retrying a 429 / 503: Coolify's Retry-After when it
+ * gives one (seconds or an HTTP date), else 2, 4, 8... seconds; at most 65 s. */
+export function retryDelayMs(attempt: number, retryAfter: string | null, now = Date.now()): number {
+  if (retryAfter) {
+    const secs = Number(retryAfter);
+    if (Number.isFinite(secs)) return Math.min(65_000, Math.max(1000, secs * 1000));
+    const at = Date.parse(retryAfter);
+    if (Number.isFinite(at)) return Math.min(65_000, Math.max(1000, at - now));
+  }
+  return Math.min(65_000, 2000 * 2 ** attempt);
+}
+
+/** Coolify's version per instance, read once in a while (each backup records it). */
+const versions = new Map<string, { version?: string; at: number }>();
+const VERSION_TTL_MS = 10 * 60_000;
+
 export class CoolifyClient {
   constructor(
     private baseUrl: string,
@@ -186,11 +247,35 @@ export class CoolifyClient {
     this.baseUrl = baseUrl.replace(/\/$/, "");
   }
 
+  /**
+   * Every call to Coolify: paced per instance (coolifySlot), and retried when
+   * Coolify answers 429 (rate limit) or 503 - waiting what it asks. Only once
+   * the attempts are spent does the 429 reach the caller.
+   */
+  private async request(path: string, init: { method?: string; body?: string; json?: boolean } = {}): Promise<Response> {
+    for (let attempt = 0; ; attempt++) {
+      await coolifySlot(this.baseUrl);
+      const res = await fetch(`${this.baseUrl}${path}`, {
+        signal: AbortSignal.timeout(COOLIFY_TIMEOUT_MS),
+        method: init.method ?? "GET",
+        headers: {
+          authorization: `Bearer ${this.token}`,
+          accept: "application/json",
+          ...(init.json ? { "content-type": "application/json" } : {}),
+        },
+        ...(init.body !== undefined ? { body: init.body } : {}),
+      });
+      if ((res.status !== 429 && res.status !== 503) || attempt >= COOLIFY_RETRIES) return res;
+      drainSlots(this.baseUrl);
+      const wait = retryDelayMs(attempt, res.headers.get("retry-after"));
+      await res.body?.cancel().catch(() => undefined);
+      console.warn(`[coolify] ${init.method ?? "GET"} ${path} -> ${res.status}: retrying in ${Math.round(wait / 1000)}s (${attempt + 1}/${COOLIFY_RETRIES})`);
+      await sleep(wait);
+    }
+  }
+
   private async get<T>(path: string): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      signal: AbortSignal.timeout(COOLIFY_TIMEOUT_MS),
-      headers: { authorization: `Bearer ${this.token}`, accept: "application/json" },
-    });
+    const res = await this.request(path);
     if (!res.ok) {
       throw new Error(`Coolify GET ${path} -> ${res.status} ${await res.text().catch(() => "")}`);
     }
@@ -198,24 +283,14 @@ export class CoolifyClient {
   }
 
   private async patch<T>(path: string, body: unknown): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      signal: AbortSignal.timeout(COOLIFY_TIMEOUT_MS),
-      method: "PATCH",
-      headers: { authorization: `Bearer ${this.token}`, accept: "application/json", "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const res = await this.request(path, { method: "PATCH", body: JSON.stringify(body), json: true });
     const text = await res.text();
     if (!res.ok) throw new Error(`Coolify PATCH ${path} -> ${res.status} ${text.slice(0, 300)}`);
     return (text ? JSON.parse(text) : {}) as T;
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      signal: AbortSignal.timeout(COOLIFY_TIMEOUT_MS),
-      method: "POST",
-      headers: { authorization: `Bearer ${this.token}`, accept: "application/json", "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const res = await this.request(path, { method: "POST", body: JSON.stringify(body), json: true });
     const text = await res.text();
     if (!res.ok) throw new Error(`Coolify POST ${path} -> ${res.status} ${text.slice(0, 400)}`);
     return (text ? JSON.parse(text) : {}) as T;
@@ -244,11 +319,7 @@ export class CoolifyClient {
   /** Trigger an action endpoint: POST since Coolify 4.2 (GET now answers 405),
    * GET on older versions (whose GET-only routes answer a POST with 405). */
   private async action(path: string): Promise<void> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      signal: AbortSignal.timeout(COOLIFY_TIMEOUT_MS),
-      method: "POST",
-      headers: { authorization: `Bearer ${this.token}`, accept: "application/json" },
-    });
+    const res = await this.request(path, { method: "POST" });
     if (res.status === 405) {
       await this.get(path);
       return;
@@ -714,11 +785,10 @@ export class CoolifyClient {
       }));
     if (data.length === 0) return 0;
     // The bulk endpoint upserts by key.
-    const res = await fetch(`${this.baseUrl}/api/v1/${kind}/${uuid}/envs/bulk`, {
-      signal: AbortSignal.timeout(COOLIFY_TIMEOUT_MS),
+    const res = await this.request(`/api/v1/${kind}/${uuid}/envs/bulk`, {
       method: "PATCH",
-      headers: { authorization: `Bearer ${this.token}`, accept: "application/json", "content-type": "application/json" },
       body: JSON.stringify({ data }),
+      json: true,
     }).catch(() => null);
     if (res?.ok) return data.length;
     // Older Coolify: one by one (creates only).
@@ -754,13 +824,19 @@ export class CoolifyClient {
     }
   }
 
+  /** Coolify's version, read at most every 10 minutes per instance (every backup records it). */
+  async cachedVersion(): Promise<string | undefined> {
+    const hit = versions.get(this.baseUrl);
+    if (hit && Date.now() - hit.at < VERSION_TTL_MS) return hit.version;
+    const { version } = await this.ping();
+    versions.set(this.baseUrl, { version, at: Date.now() });
+    return version;
+  }
+
   /** Quick connectivity / auth check. The version endpoint returns plain text. */
   async ping(): Promise<{ ok: boolean; version?: string; error?: string }> {
     try {
-      const res = await fetch(`${this.baseUrl}/api/v1/version`, {
-        signal: AbortSignal.timeout(COOLIFY_TIMEOUT_MS),
-        headers: { authorization: `Bearer ${this.token}`, accept: "application/json" },
-      });
+      const res = await this.request("/api/v1/version");
       const body = (await res.text()).trim();
       if (!res.ok) return { ok: false, error: `${res.status} ${body.slice(0, 200)}` };
       // Coolify may return JSON like {"message":"API is disabled."} with 200.

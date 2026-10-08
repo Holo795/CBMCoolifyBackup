@@ -666,7 +666,7 @@ async function readCapturedConfig(resource: {
     environmentName: resource.environment || "production",
     serverUuid: resource.serverUuid ?? undefined,
     serverName: resource.serverName ?? undefined,
-    coolifyVersion: (await client.ping().catch(() => ({ version: undefined as string | undefined }))).version,
+    coolifyVersion: await client.cachedVersion().catch(() => undefined),
     cbmVersion: CBM_VERSION,
   };
 
