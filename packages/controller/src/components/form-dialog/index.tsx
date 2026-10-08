@@ -1,9 +1,9 @@
 "use client";
 
-import { useId, useState, useTransition, type ReactElement, type ReactNode } from "react";
+import { useId, useRef, useState, useTransition, type ReactElement, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Button, Dialog, DialogClose, DialogContent, DialogTrigger, slottable } from "@/components/ui";
+import { Button, Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui";
 import { useT } from "@/components/i18n-provider";
 import { useOpenRequest } from "@/components/open-request";
 
@@ -43,6 +43,7 @@ export function FormDialog({
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const triggerRef = useRef<HTMLSpanElement>(null);
   useOpenRequest(openKey, () => {
     setError(null);
     setOpen(true);
@@ -73,8 +74,20 @@ export function FormDialog({
         if (v) setError(null);
       }}
     >
-      <DialogTrigger asChild>{slottable(trigger)}</DialogTrigger>
+      {/* Always a wrapper, so the server and the browser render the same markup:
+          on a large page the trigger reaches this component as a lazy chunk
+          during server rendering only, which Radix can't slot onto. */}
+      <DialogTrigger asChild>
+        <span ref={triggerRef} className="contents">
+          {trigger}
+        </span>
+      </DialogTrigger>
       <DialogContent
+        // The wrapper can't take focus: give it back to the button inside.
+        onCloseAutoFocus={(e) => {
+          e.preventDefault();
+          triggerRef.current?.querySelector<HTMLElement>("button, a[href], [tabindex]")?.focus();
+        }}
         side={side}
         title={title}
         description={description}

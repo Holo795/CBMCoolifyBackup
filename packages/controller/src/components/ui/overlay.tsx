@@ -23,6 +23,7 @@ export function DialogContent({
   className,
   children,
   footer,
+  onCloseAutoFocus,
 }: {
   title: React.ReactNode;
   description?: React.ReactNode;
@@ -30,6 +31,8 @@ export function DialogContent({
   className?: string;
   children?: React.ReactNode;
   footer?: React.ReactNode;
+  /** Where focus goes back on close (default: the trigger). */
+  onCloseAutoFocus?: (e: Event) => void;
 }) {
   const t = useT();
   return (
@@ -43,6 +46,7 @@ export function DialogContent({
           const field = root.querySelector<HTMLElement>("[autofocus], input:not([type=hidden]):not([disabled]), select, textarea");
           (field ?? root).focus();
         }}
+        onCloseAutoFocus={onCloseAutoFocus}
         tabIndex={-1}
         className={cn(
           "fixed z-50 flex flex-col border bg-card text-card-foreground shadow-lg focus:outline-none",
