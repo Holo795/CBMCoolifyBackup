@@ -20,7 +20,7 @@ export const SNAPSHOT_STATUS = z.enum([
   "cancelled",
   "deleting",
 ]);
-export const JOB_TYPE = z.enum(["backup", "restore", "prune", "mirror", "verify-destination", "restore-drill"]);
+export const JOB_TYPE = z.enum(["backup", "restore", "prune", "mirror", "verify-destination", "restore-drill", "update-agent"]);
 export const JOB_STATUS = z.enum(["queued", "running", "succeeded", "failed", "skipped", "cancelled"]);
 
 const id = z.string().min(1).max(128);

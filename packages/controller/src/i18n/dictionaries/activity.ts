@@ -14,6 +14,7 @@ export const en = {
     "verify-destination": "Check",
     prune: "Prune",
     "restore-drill": "Test restore",
+    "update-agent": "Agent update",
   },
   status: {
     queued: "queued",
@@ -42,6 +43,7 @@ export const fr: typeof en = {
     "verify-destination": "Vérification",
     prune: "Purge",
     "restore-drill": "Test de restauration",
+    "update-agent": "Mise à jour d'agent",
   },
   status: {
     queued: "en file",

@@ -9,6 +9,7 @@ import {
   notifyCorruptBackups,
   notifyIntegrityFailure,
   notifyDrillFailed,
+  sendAlert,
 } from "@/lib/notify";
 import { enqueueMirror, redeployOnSnapshotVersion } from "@/lib/jobs";
 import { scrubPayload } from "@/lib/scrub";
@@ -244,6 +245,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         () => undefined,
       );
     }
+  }
+
+  if (job.type === "update-agent") {
+    // The agent's last word was the handover: close the log with the outcome.
+    if (succeeded && result.update) {
+      await prisma.jobEvent
+        .create({ data: { jobId: id, level: "info", message: `Updated: ${result.update.from} -> ${result.update.to}`, progress: 100 } })
+        .catch(() => undefined);
+    }
+    if (!succeeded) await sendAlert(`CBM agent ${agent.hostname}: update failed - ${result.error ?? "no detail"}`).catch(() => undefined);
   }
 
   if (job.type === "verify-destination" && result.verify) {

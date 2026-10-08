@@ -24,6 +24,7 @@ import { setTimezone, isValidTimezone } from "@/lib/settings";
 import { removeSnapshots } from "@/lib/snapshot-removal";
 import { resetTwoFactor, isTwoFactorPolicy } from "@/lib/two-factor";
 import { settingsFromForm } from "@/lib/agent-settings";
+import { CBM_VERSION, agentUpdateState, queueAgentUpdate } from "@/lib/agent-update";
 import { MAX_EXCLUDES, excludeError, isFloatingImage, normalizeExcludes, normalizePrivateKey, redactSecrets, type SnapshotManifest } from "@cbm/shared";
 import { snapshotImages, versionRows, type ImageChoice, type VersionRow } from "@/lib/image-pin";
 
@@ -539,6 +540,48 @@ export async function deleteAgent(agentId: string) {
   await requireRole("admin");
   await prisma.agent.delete({ where: { id: agentId } });
   revalidatePath("/agents");
+}
+
+/** Update one agent to the controller's version (it waits for its running jobs). */
+export async function updateAgent(agentId: string): Promise<{ ok?: boolean; error?: string; detail?: string }> {
+  await requireRole("admin");
+  const t = await getT();
+  const r = await queueAgentUpdate(agentId);
+  revalidatePath("/agents");
+  if (!r.ok) return { error: t(r.reason === "pending" ? "messages.agentUpdatePending" : "messages.agentUpdateUnavailable") };
+  return { ok: true, detail: t("messages.agentUpdateQueued", { version: CBM_VERSION }) };
+}
+
+/** Update every agent that is behind the controller and can update itself. */
+export async function updateAllAgents(): Promise<{ ok?: boolean; error?: string; detail?: string }> {
+  await requireRole("admin");
+  const t = await getT();
+  const agents = await prisma.agent.findMany({
+    select: { id: true, status: true, lastSeenAt: true, version: true, image: true, selfUpdate: true },
+  });
+  let queued = 0;
+  for (const a of agents) {
+    if (agentUpdateState(a).kind === "update" && (await queueAgentUpdate(a.id)).ok) queued++;
+  }
+  revalidatePath("/agents");
+  if (!queued) return { error: t("messages.agentUpdateNone") };
+  return { ok: true, detail: t("messages.agentUpdatesQueued", { count: queued }) };
+}
+
+/** Let agents update themselves to the controller's version (see lib/agent-update.ts). */
+export async function setAgentAutoUpdate(enabled: boolean): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    await requireRole("admin");
+    await prisma.setting.upsert({
+      where: { id: "global" },
+      update: { agentAutoUpdate: enabled },
+      create: { id: "global", agentAutoUpdate: enabled },
+    });
+    revalidatePath("/agents");
+    return { ok: true };
+  } catch (e) {
+    return { error: errorText(e, await getT()) };
+  }
 }
 
 /**

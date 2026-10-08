@@ -1,4 +1,4 @@
-import { imageRepo, imageTag, type ImageProvenance, type Provenance } from "@cbm/shared";
+import { imageRepo, imageTag, imageWithoutTag, type ImageProvenance, type Provenance } from "@cbm/shared";
 
 /**
  * Which image version a restore runs. "snapshot" (default) pins every image to
@@ -105,7 +105,7 @@ export async function resolveImages(
       out.push({ image, use: image.digest });
       continue;
     }
-    const versioned = image.version ? `${imageRepoAsWritten(image.ref)}:${image.version}` : undefined;
+    const versioned = image.version ? `${imageWithoutTag(image.ref)}:${image.version}` : undefined;
     if (versioned && (await exists(versioned)) !== false) {
       out.push({
         image,
@@ -121,15 +121,6 @@ export async function resolveImages(
     });
   }
   return out;
-}
-
-/** The reference without its tag or digest, as written ("reg:5000/a/b:1" -> "reg:5000/a/b"). */
-function imageRepoAsWritten(ref: string): string {
-  const at = ref.indexOf("@");
-  const core = at >= 0 ? ref.slice(0, at) : ref;
-  const slash = core.lastIndexOf("/");
-  const colon = core.lastIndexOf(":");
-  return colon > slash ? core.slice(0, colon) : core;
 }
 
 /** Pin a compose file to a snapshot's images (resolved): the `pick` for pinCompose. */

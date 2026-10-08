@@ -3,7 +3,7 @@
 import { StatusDot, statusTone } from "@/components/ui";
 import { cn, timeAgo } from "@/lib/cn";
 import { useT } from "@/components/i18n-provider";
-import { Activity, ChevronUp, Loader2, Database, RotateCcw, Copy, ShieldCheck, Scissors, FlaskConical } from "lucide-react";
+import { Activity, ChevronUp, Loader2, Database, RotateCcw, Copy, ShieldCheck, Scissors, FlaskConical, ArrowUpCircle } from "lucide-react";
 
 export type ActivityJob = {
   id: string;
@@ -26,6 +26,7 @@ const TYPE_ICON: Record<string, typeof Database> = {
   "verify-destination": ShieldCheck,
   prune: Scissors,
   "restore-drill": FlaskConical,
+  "update-agent": ArrowUpCircle,
 };
 
 /** Presentation only: the bottom activity bar + expandable job list. */

@@ -12,6 +12,7 @@ import { syncInstance } from "./discovery";
 import { getTimezone } from "./settings";
 import { cleanupJobHistory } from "./housekeeping";
 import { retryStuckDeletions } from "./snapshot-removal";
+import { autoUpdateAgents } from "./agent-update";
 
 /**
  * Record the outcome of a scheduled verify so "no agent could reach this
@@ -272,6 +273,7 @@ const TASKS: Array<{ name: string; cron: string; run: () => Promise<unknown>; de
   { name: "deletion retry", cron: "20 */6 * * *", run: () => retryStuckDeletions(new Date()), detached: true },
   { name: "mirror retention", cron: "40 3 * * *", run: () => applyAllMirrorRetention(), detached: true },
   { name: "protection check", cron: "30 4 * * 0", run: () => checkAllProtection(), detached: true },
+  { name: "agent auto-update", cron: "*/10 * * * *", run: () => autoUpdateAgents(new Date()), detached: true },
 ];
 const taskInFlight = new Set<string>();
 

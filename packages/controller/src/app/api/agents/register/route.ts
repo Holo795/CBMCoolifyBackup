@@ -47,7 +47,7 @@ export async function POST(req: Request) {
   const agent = existing
     ? await prisma.agent.update({
         where: { id: existing.id },
-        data: { tokenHash: sha256Hex(token), status: "online", lastSeenAt: new Date(), ...serverPin },
+        data: { tokenHash: sha256Hex(token), status: "online", lastSeenAt: new Date(), version: data.agentVersion, ...serverPin },
       })
     : await prisma.agent.create({
         data: {
@@ -56,6 +56,7 @@ export async function POST(req: Request) {
           instanceId,
           status: "online",
           lastSeenAt: new Date(),
+          version: data.agentVersion,
           ...serverPin,
         },
       });

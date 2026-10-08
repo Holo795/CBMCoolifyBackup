@@ -139,6 +139,7 @@ export function serializeAgent(a: {
   instanceId: string | null;
   status: string;
   dockerVersion: string | null;
+  version: string | null;
   containers: number | null;
   serverUuid: string | null;
   serverName: string | null;
@@ -149,6 +150,7 @@ export function serializeAgent(a: {
     hostname: a.hostname,
     instanceId: a.instanceId,
     status: a.status,
+    version: a.version,
     dockerVersion: a.dockerVersion,
     containers: a.containers,
     serverUuid: a.serverUuid,

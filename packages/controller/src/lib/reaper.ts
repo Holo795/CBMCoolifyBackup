@@ -22,7 +22,12 @@ const CAP_BY_TYPE: Record<string, number> = {
   "restore-drill": 6 * 3600_000,
   "verify-destination": 2 * 3600_000,
   prune: 60 * 60_000,
+  // Waits for the agent's other jobs (up to 6 h), then a few minutes.
+  "update-agent": 7 * 3600_000,
 };
+
+/** How long an agent may stay silent while it updates itself. */
+const UPDATE_DOWNTIME_MS = 10 * 60_000;
 
 export type StuckReason = "agent went offline mid-job" | "job exceeded its time limit";
 
@@ -37,6 +42,10 @@ export function stuckReason(
   offlineMs: number,
   fallbackCapMs: number,
 ): StuckReason | null {
+  // An agent being updated is down for a while by design: its updater reports
+  // the outcome (or puts the previous agent back) within a few minutes.
+  if (job.type === "update-agent" && job.agent?.lastSeenAt != null && job.agent.lastSeenAt.getTime() > now.getTime() - UPDATE_DOWNTIME_MS)
+    return null;
   const agentDead =
     !job.agent ||
     job.agent.status === "offline" ||
@@ -112,6 +121,8 @@ const QUEUE_TTL_BY_TYPE: Record<string, number> = {
   "verify-destination": 12 * 3600_000,
   "restore-drill": 12 * 3600_000,
   prune: 7 * 24 * 3600_000,
+  // An update asked for while the agent was away isn't run hours later.
+  "update-agent": 60 * 60_000,
 };
 const DEFAULT_QUEUE_TTL_MS = 12 * 3600_000;
 const MIN_QUEUE_TTL_MS = Math.min(...Object.values(QUEUE_TTL_BY_TYPE));

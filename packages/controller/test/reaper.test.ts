@@ -82,3 +82,13 @@ test("jobs an agent no longer reports are lost, after a grace period", () => {
   assert.deepEqual(lostJobIds(running, ["kept"], now), ["gone"]);
   assert.deepEqual(lostJobIds(running, ["kept", "gone"], now), []);
 });
+
+test("an agent updating itself may be silent for a few minutes", () => {
+  const offline = { status: "offline", lastSeenAt: ago(4 * 60_000) };
+  assert.equal(stuckReason({ type: "update-agent", claimedAt: ago(5 * 60_000), agent: offline }, NOW, OFFLINE_MS, FALLBACK_CAP), null);
+  const gone = { status: "offline", lastSeenAt: ago(15 * 60_000) };
+  assert.equal(
+    stuckReason({ type: "update-agent", claimedAt: ago(20 * 60_000), agent: gone }, NOW, OFFLINE_MS, FALLBACK_CAP),
+    "agent went offline mid-job",
+  );
+});

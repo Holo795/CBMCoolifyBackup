@@ -25,6 +25,7 @@ export async function GET() {
     error: true,
     createdAt: true,
     finishedAt: true,
+    agent: { select: { hostname: true } },
     events: { orderBy: { ts: "desc" as const }, take: 1, select: { progress: true, message: true } },
   };
   const [jobs, runningAll] = await Promise.all([
@@ -72,7 +73,13 @@ export async function GET() {
   const destOf = (j: (typeof jobs)[number]) =>
     j.snapshotId ? snapDest.get(j.snapshotId) : j.restoreId ? restoreDest.get(j.restoreId) : payloadDest.get(j.id);
   const labelOf = (j: (typeof jobs)[number]) =>
-    (j.snapshotId ? snapName.get(j.snapshotId) : j.restoreId ? restoreName.get(j.restoreId) : null) ?? null;
+    (j.snapshotId
+      ? snapName.get(j.snapshotId)
+      : j.restoreId
+        ? restoreName.get(j.restoreId)
+        : j.type === "update-agent"
+          ? j.agent.hostname
+          : null) ?? null;
   const waits = (j: (typeof jobs)[number]) => j.status === "running" && !!j.events[0]?.message?.startsWith(LOCK_WAIT_PREFIX);
   const lockHolders = (j: (typeof jobs)[number]) => {
     if (!waits(j)) return undefined;

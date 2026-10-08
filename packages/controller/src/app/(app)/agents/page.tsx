@@ -3,6 +3,7 @@ import { groupServersByInstance } from "@/lib/servers";
 import { AgentsView, type AgentItem } from "./agents-view";
 import { AGENT_SECRETS, INSTANCE_SECRETS } from "@/lib/public-fields";
 import { parseAgentSettings } from "@/lib/agent-settings";
+import { agentUpdateState } from "@/lib/agent-update";
 
 export const dynamic = "force-dynamic";
 
@@ -25,8 +26,32 @@ export default async function AgentsPage() {
       ? [...(serversByInstance.get(instanceId)?.entries() ?? [])].map(([uuid, name]) => ({ uuid, name }))
       : [];
 
-  const items: AgentItem[] = agents.map((agent) => ({ agent, options: serverOptionsFor(agent.instanceId) }));
+  // The latest update job of each agent: under way, or how the last one ended.
+  const updates = await prisma.agentJob.findMany({
+    where: { type: "update-agent", createdAt: { gt: new Date(Date.now() - 7 * 24 * 3600_000) } },
+    orderBy: { createdAt: "desc" },
+    select: { agentId: true, status: true, error: true },
+  });
+  const lastUpdate = new Map<string, (typeof updates)[number]>();
+  for (const u of updates) if (!lastUpdate.has(u.agentId)) lastUpdate.set(u.agentId, u);
 
-  const setting = await prisma.setting.findUnique({ where: { id: "global" }, select: { agentDefaults: true } });
-  return <AgentsView items={items} defaults={parseAgentSettings(setting?.agentDefaults)} />;
+  const now = new Date();
+  const items: AgentItem[] = agents.map((agent) => {
+    const last = lastUpdate.get(agent.id);
+    return {
+      agent,
+      options: serverOptionsFor(agent.instanceId),
+      update: agentUpdateState(agent, now),
+      updating: last?.status === "queued" || last?.status === "running",
+      updateError: last?.status === "failed" ? (last.error ?? "") : null,
+    };
+  });
+
+  const setting = await prisma.setting.findUnique({
+    where: { id: "global" },
+    select: { agentDefaults: true, agentAutoUpdate: true },
+  });
+  return (
+    <AgentsView items={items} defaults={parseAgentSettings(setting?.agentDefaults)} autoUpdate={setting?.agentAutoUpdate ?? false} />
+  );
 }

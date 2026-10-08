@@ -76,6 +76,9 @@ export async function POST(req: Request) {
       // What the agent runs with, shown on the Agents page (older agents: unchanged).
       ...(data.settingsLockedByEnv ? { settingsLocked: data.settingsLockedByEnv } : {}),
       ...(data.settingsInEffect ? { settingsInEffect: parseAgentSettings(data.settingsInEffect) } : {}),
+      ...(data.agentVersion ? { version: data.agentVersion } : {}),
+      ...(data.agentImage ? { image: data.agentImage } : {}),
+      ...(data.selfUpdate ? { selfUpdate: data.selfUpdate } : {}),
     },
   });
   // The settings set in CBM for this agent (defaults + its overrides).

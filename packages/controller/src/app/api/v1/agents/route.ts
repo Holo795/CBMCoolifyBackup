@@ -23,6 +23,7 @@ export async function GET(req: Request) {
       instanceId: true,
       status: true,
       dockerVersion: true,
+      version: true,
       containers: true,
       serverUuid: true,
       serverName: true,

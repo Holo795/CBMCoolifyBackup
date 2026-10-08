@@ -158,6 +158,11 @@ model Agent {
   instance      CoolifyInstance? @relation(fields: [instanceId], references: [id], onDelete: SetNull)
   status        String          @default("pending") // pending | online | offline
   dockerVersion String?
+  // Reported by the agent: its version, the image its container runs (as
+  // written), and whether it can update itself from CBM (ok | compose | native).
+  version       String?
+  image         String?
+  selfUpdate    String?
   containers    Int?
   // Which Coolify server this agent's Docker host backs up. Auto-detected from
   // the resources it can see locally (serverManual=false), or pinned by hand in
@@ -481,6 +486,9 @@ model Setting {
   twoFactorPolicy          String    @default("optional")
   // Agent settings for every agent, unless overridden per agent (Agent.settings).
   agentDefaults            Json?
+  // Update agents to the controller's version by themselves, when they're idle
+  // and no scheduled backup is about to run.
+  agentAutoUpdate          Boolean   @default(false)
   updatedAt DateTime @updatedAt
 }
 
