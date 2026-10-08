@@ -48,6 +48,16 @@ re-packaged under the target's own engine and encryption, so it's a **first-clas
 can restore, reconcile and integrity-check independently — your insurance if one destination is
 lost or corrupted. In the snapshot list a copy reads *mirror copy*.
 
+When both destinations use the **restic** engine, the agent runs `restic copy` from one
+repository to the other: only the blocks the target doesn't have yet are read and sent, nothing is
+written to the agent host, and the volumes stay restic snapshots in the copy (a restore from the
+mirror reads them like the original's). A mirror repository created this way gets the source's
+chunker parameters (`restic init --copy-chunker-params`), so both cut files the same way and
+store the same blocks once. Copying a snapshot that is already there is a no-op. Between a tar
+destination and a restic one (either way), or between two S3 restic repositories with different
+access keys (one restic process reads a single set), the agent restores the snapshot on its host
+and stores it again in the target, which needs the snapshot's size free in its work dir.
+
 How long copies are kept is set on the destination that **receives** them (the shield button on
 its card → **Mirror copies received here**):
 

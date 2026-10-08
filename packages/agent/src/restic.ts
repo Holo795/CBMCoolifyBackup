@@ -37,6 +37,8 @@ export interface ResticCtx {
   paths: string[];
   /** Called when a command waits for another one's lock on the repository. */
   onLockWait?: () => void;
+  /** An SFTP repository: where it is and the script that connects to it. */
+  sftp?: { user: string; host: string; port: number; path: string; connect: string };
 }
 
 /** Logged when a restic command waits for the repository (the controller shows it as a state). */
@@ -184,6 +186,7 @@ export async function resticContext(dest: ResolvedDestination, password: string,
   return {
     env,
     args: ["-o", `sftp.command=${connect}`],
+    sftp: { user: dest.username, host: dest.host, port: dest.port, path: posix.join(dest.basePath, "restic-repo"), connect },
     paths: [tmp],
     cleanup: async () => {
       await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
@@ -344,6 +347,116 @@ export async function resticStaleWarmIds(ctx: ResticCtx): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+/* ------------------------- restic copy (mirrors) ------------------------- */
+
+/** Environment variables that tell restic how to reach a repository (besides
+ * its location and password): one restic process has one value for each. */
+const BACKEND_ENV = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_DEFAULT_REGION", "AWS_SESSION_TOKEN"];
+
+/** The URL restic is given for an SFTP repository in a copy: with its port, so
+ * the ssh it runs says which server it means (see resticCopyContext). */
+const sftpUrl = (s: NonNullable<ResticCtx["sftp"]>) => `sftp://${s.user}@${s.host}:${s.port}/${s.path.startsWith("/") ? "" : "/"}${s.path}`;
+
+/**
+ * One context in which restic opens two repositories, for `restic copy` from
+ * `src` into `dst` (the RESTIC_FROM_* variables name the source). Their SFTP
+ * connections can't both go through the global `-o sftp.command`: restic then
+ * runs plain `ssh <host> -p <port> -l <user> -s sftp`, and an `ssh` placed first
+ * in PATH hands each one to its own repository's connect script. Null when one
+ * process can't reach both - two S3 repositories with different credentials
+ * (restic reads a single set of AWS_* variables).
+ */
+export async function resticCopyContext(
+  src: ResolvedDestination,
+  srcPassword: string,
+  dst: ResolvedDestination,
+  dstPassword: string,
+  tmpBase = tmpdir(),
+): Promise<ResticCtx | null> {
+  const a = await resticContext(src, srcPassword, tmpBase);
+  const b = await resticContext(dst, dstPassword, tmpBase);
+  const cleanup = async () => {
+    await a.cleanup();
+    await b.cleanup();
+  };
+  for (const k of BACKEND_ENV) {
+    if (a.env[k] !== undefined && b.env[k] !== undefined && a.env[k] !== b.env[k]) {
+      await cleanup();
+      return null;
+    }
+  }
+  const env: NodeJS.ProcessEnv = { ...b.env };
+  for (const k of BACKEND_ENV) if (a.env[k] !== undefined) env[k] = a.env[k];
+  env.RESTIC_FROM_REPOSITORY = a.sftp ? sftpUrl(a.sftp) : a.env.RESTIC_REPOSITORY;
+  env.RESTIC_FROM_PASSWORD = srcPassword;
+  if (b.sftp) env.RESTIC_REPOSITORY = sftpUrl(b.sftp);
+  const routes = [a.sftp, b.sftp].filter((x): x is NonNullable<ResticCtx["sftp"]> => !!x);
+  const paths = [...a.paths, ...b.paths];
+  let dispatchDir: string | undefined;
+  if (routes.length) {
+    dispatchDir = await mkdtemp(join(tmpBase, "cbm-ssh-"));
+    const cases = routes.map((r) => `  ${shq(`${r.user}@${r.host}:${r.port}`)}) exec ${shq(r.connect)} ;;`).join("\n");
+    // The connect scripts run the real ssh: they get the PATH without this one.
+    await writeFile(
+      join(dispatchDir, "ssh"),
+      `#!/bin/sh\n# restic runs: ssh <host> [-p <port>] -l <user> -s sftp\nPATH=${shq(env.PATH ?? "")}; export PATH\n` +
+        `h="$1"; shift; u=""; p=22\n` +
+        `while [ $# -gt 0 ]; do case "$1" in -l) u="$2"; shift 2 ;; -p) p="$2"; shift 2 ;; *) shift ;; esac; done\n` +
+        `case "$u@$h:$p" in\n${cases}\nesac\necho "cbm: no connection for $u@$h:$p" >&2\nexit 255\n`,
+      { mode: 0o700 },
+    );
+    env.PATH = `${dispatchDir}:${env.PATH ?? ""}`;
+    paths.push(dispatchDir);
+  }
+  return {
+    env,
+    args: [],
+    paths,
+    cleanup: async () => {
+      await cleanup();
+      if (dispatchDir) await rm(dispatchDir, { recursive: true, force: true }).catch(() => undefined);
+    },
+  };
+}
+
+/** Initialise the copy's target, if it doesn't exist yet, with the source's
+ * chunker parameters: both then cut files the same way and share their blocks. */
+export async function resticInitCopyTarget(ctx: ResticCtx): Promise<boolean> {
+  const { RESTIC_FROM_REPOSITORY: _r, RESTIC_FROM_PASSWORD: _p, ...dstEnv } = ctx.env;
+  const check = await runCapture(RESTIC, ["cat", "config", "--no-lock"], { env: dstEnv });
+  if (check.code === 0) return false;
+  const init = await restic(ctx, ["init", "--copy-chunker-params"]);
+  if (init.code !== 0 && !/already initialized|already exists|config already/i.test(init.stderr)) {
+    throw new Error(`restic init of the mirror target failed: ${init.stderr.slice(0, 500)}`);
+  }
+  return true;
+}
+
+/**
+ * Copy snapshots between two repositories (`restic copy`): only the blocks the
+ * target doesn't have travel - nothing is written in plaintext on the host. A
+ * snapshot copied before is skipped by restic. Returns source id -> target id,
+ * read from the target's snapshots (each records its `original`).
+ */
+export async function resticCopy(ctx: ResticCtx, ids: string[], lockWait = LOCK_WAIT): Promise<Map<string, string>> {
+  const r = await restic(ctx, ["copy", ...ids, "--retry-lock", lockWait]);
+  if (r.code !== 0) throw new Error(`restic copy failed: ${(r.stderr || r.stdout).trim().slice(-500)}`);
+  const { RESTIC_FROM_REPOSITORY: _r, RESTIC_FROM_PASSWORD: _p, ...dstEnv } = ctx.env;
+  const list = await runCapture(RESTIC, ["snapshots", "--json", "--no-lock"], { env: dstEnv });
+  if (list.code !== 0) throw new Error(`restic snapshots on the mirror target failed: ${list.stderr.slice(0, 300)}`);
+  return copiedIds(JSON.parse(list.stdout || "[]") as Array<{ id?: string; original?: string }>, ids);
+}
+
+/** Source id -> id of its copy, among a target's snapshots (matched on `original`; short ids accepted). */
+export function copiedIds(snapshots: Array<{ id?: string; original?: string }>, ids: string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const id of ids) {
+    const copy = snapshots.find((s) => s.original && s.id && (s.original === id || s.original.startsWith(id)));
+    if (copy?.id) out.set(id, copy.id);
+  }
+  return out;
 }
 
 /** List all snapshot ids currently in the repo (full + short ids). */

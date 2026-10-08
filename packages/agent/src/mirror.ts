@@ -1,16 +1,17 @@
 import type { MirrorJob, SnapshotManifest, Artifact } from "@cbm/shared";
-import { MANIFEST_FILE, RESTIC_PART_META } from "@cbm/shared";
+import { MANIFEST_FILE, RESTIC_PART_META, resticPartIds } from "@cbm/shared";
 import { mkdtemp, rm, mkdir, writeFile, copyFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { makeTransfer } from "./transfer.js";
-import { withResticCtx, resticEnsureRepo, resticBackupDir } from "./restic.js";
+import { withResticCtx, resticEnsureRepo, resticBackupDir, resticCopy, resticCopyContext, resticInitCopyTarget } from "./restic.js";
 import { encryptFile, sha256File } from "./crypto.js";
 import { stagePlaintext } from "./stage.js";
 import type { Emit } from "./backup.js";
 
 /**
  * Copy one snapshot from the source destination to the mirror destination as a
- * FIRST-CLASS snapshot under the target's own crypto. Uniform "stage then
+ * FIRST-CLASS snapshot under the target's own crypto. Between two restic
+ * repositories, `restic copy` (see copyBetweenRepos). Otherwise "stage then
  * store": pull the snapshot's artifacts back to plaintext (restic restores
  * natively; encrypted tar is decrypted with the source key), then store them in
  * the target's engine (restic encrypts natively; tar re-encrypts with the target
@@ -22,6 +23,11 @@ export async function runMirror(
   workDir: string,
   emit: Emit,
 ): Promise<{ resticSnapshotId?: string; manifest: SnapshotManifest }> {
+  // restic to restic: copy the snapshots themselves.
+  if (job.sourceStorage.engine === "restic" && job.targetStorage.engine === "restic" && job.resticSnapshotId) {
+    const copied = await copyBetweenRepos(job, workDir, emit);
+    if (copied) return copied;
+  }
   const stage = await mkdtemp(join(workDir, "mirror-"));
   try {
     emit("info", "Fetching the snapshot from the source destination", 15);
@@ -92,6 +98,50 @@ export async function runMirror(
     return { manifest };
   } finally {
     await rm(stage, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+/**
+ * A mirror from one restic repository to another: `restic copy` of the
+ * snapshot and its parts (each volume read in place). Only the blocks the
+ * target lacks are read and sent - nothing goes to the agent host in
+ * plaintext, no volume is turned into a .tar, and the copy stays a volume
+ * snapshot that a restore reads incrementally. A target created here gets the
+ * source's chunker parameters, so both repositories share their blocks.
+ * Null when one restic process can't open both (see resticCopyContext): the
+ * caller then stages the snapshot as before.
+ */
+async function copyBetweenRepos(
+  job: MirrorJob,
+  workDir: string,
+  emit: Emit,
+): Promise<{ resticSnapshotId: string; manifest: SnapshotManifest } | null> {
+  const srcPassword = job.sourceStorage.resticPassword;
+  const dstPassword = job.targetStorage.resticPassword;
+  if (!srcPassword || !dstPassword) throw new Error("a restic mirror needs both repository passwords");
+  const ctx = await resticCopyContext(job.source, srcPassword, job.target, dstPassword, workDir);
+  if (!ctx) {
+    emit("info", "The two repositories can't be opened by one restic process (two S3 accounts): copying through the agent host");
+    return null;
+  }
+  try {
+    emit("info", "Copying the snapshot between the restic repositories (restic copy)", 15);
+    ctx.onLockWait = () => emit("info", "Waiting for the repository lock: another job is using this destination");
+    if (await resticInitCopyTarget(ctx)) emit("info", "Created the mirror repository with the source's chunker parameters", 20);
+    const ids = [job.resticSnapshotId!, ...resticPartIds(job.manifest)];
+    const map = await resticCopy(ctx, ids);
+    const missing = ids.filter((id) => !map.has(id));
+    if (missing.length) throw new Error(`restic copy left out snapshot(s) ${missing.map((m) => m.slice(0, 8)).join(", ")}`);
+    const artifacts: Artifact[] = (job.manifest.artifacts ?? []).map((a) => {
+      const part = a.meta?.[RESTIC_PART_META];
+      return part ? { ...a, meta: { ...a.meta, [RESTIC_PART_META]: map.get(part)! } } : a;
+    });
+    const resticSnapshotId = map.get(job.resticSnapshotId!)!;
+    const manifest: SnapshotManifest = { ...job.manifest, artifacts, resticSnapshotId, encrypted: false };
+    emit("info", `Mirror complete (restic copy of ${ids.length} snapshot(s))`, 100);
+    return { resticSnapshotId, manifest };
+  } finally {
+    await ctx.cleanup();
   }
 }
 

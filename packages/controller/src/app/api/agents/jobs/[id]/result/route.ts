@@ -164,6 +164,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             manifest: m as unknown as object,
             sizeBytes: BigInt(totalSize),
             resticSnapshotId: result.resticSnapshotId ?? undefined,
+            // A restic copy keeps each volume as its own snapshot: deleting the
+            // copy forgets them too (see lib/snapshot-removal).
+            resticPartIds: resticPartIds(m),
             runId: src.runId,
             mirrorOfId: src.id,
             isMirror: true,

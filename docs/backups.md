@@ -211,7 +211,9 @@ configuration); CBM keeps them together: they are
 restored, checked, mirrored and deleted as one backup. A restore writes straight into the volume
 (files that weren't in the backup are removed, and the folder's owner and permissions come back),
 and a restore drill reads the volume back from the repository without copying it to the host. A
-mirror copy turns each volume into a regular `.tar` for the target. restic keeps a cache of each
+mirror copy into another restic repository keeps the volumes as restic snapshots (see
+[Mirroring](reconciliation-retention.md#mirroring--a-second-copy)); into a tar destination, each
+volume becomes a regular `.tar`. restic keeps a cache of each
 repository's index in the work dir (`restic-cache`), so it survives agent updates; it can be
 deleted at any time. How many files restic reads at once and the size of the packs it writes are
 agent settings (see [Agent settings](#agent-settings)).
