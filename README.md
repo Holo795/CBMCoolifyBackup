@@ -110,6 +110,8 @@ needs to actually come back to life isn't covered. CBM backs up the whole resour
 - **Agents managed from CBM.** Concurrency, free space kept, copy mode and log level are set
   from the UI, for all agents or per host — no reinstall. A volume too big for the host's disk
   is **sent straight to the destination** instead of failing (or refused cleanly, your choice).
+  Agents are **updated from the controller** too — one click, or automatically when they're
+  idle — and the previous agent is put back if the new one doesn't start.
 - **restic reads volumes in place.** No copy on the host, only the files changed since the last
   backup are read, and a two-pass backup keeps the freeze to about a second — even for hundreds
   of GB. Its cache survives agent updates, and read concurrency / pack size are tunable per host.

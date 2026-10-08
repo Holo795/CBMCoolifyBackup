@@ -53,6 +53,9 @@ immediately. See [MCP server](mcp.md).
   container (host PID namespace, the host's `/sys/fs/cgroup`, no network) for the time of a
   freeze; it only writes the freeze switch of the containers being copied. It adds no access the
   Docker socket doesn't already give.
+- An agent update from the controller only runs an image from the repository the agent already
+  runs from (any other is refused by the agent itself), and only admins can start one. The
+  updater container has no network.
 - The controller holds the metadata DB and the master key — protect it like any admin panel
   (TLS, restricted network, strong `BETTER_AUTH_SECRET`).
 - Backups can contain your application data and secrets; secure your destinations accordingly

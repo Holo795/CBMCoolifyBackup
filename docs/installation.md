@@ -134,8 +134,34 @@ Pull the new images and restart:
 docker compose pull && docker compose up -d        # controller (migrations run on start)
 ```
 
-For agents, re-run the install command on each host (it recreates the container with the
-latest image), or `docker pull ghcr.io/holo795/cbm-agent:latest` then recreate `cbm-agent`.
+Then update the agents from the controller: the **Agents** page shows each agent's version
+and marks those behind the controller (*2.6.0 available*). **Update all**, or **Update to …**
+in an agent's **…** menu (admin), queues the update:
+
+1. the agent finishes the jobs it is running and takes no new one (jobs queued meanwhile wait
+   for the new agent);
+2. it pulls the controller's version of its own image (`<its repository>:<controller version>`,
+   so a registry mirror stays one), and checks that its install token is still valid;
+3. a short-lived `cbm-agent-updater` container creates the new agent with the same settings as
+   the current one (environment, volumes, restart policy, DNS, networks and their aliases,
+   labels, limits), stops the current one and starts the new one - a few seconds without an
+   agent;
+4. if the new agent hasn't reached the controller within 2 minutes, the updater removes it and
+   starts the previous one again. The job then fails with the new agent's last log lines.
+
+Turn on **Update agents automatically** (Agents page, admin) to have agents do this on their
+own: an agent behind the controller updates while it runs nothing and no scheduled backup of
+its instance is due in the next 30 minutes (checked every 10 minutes). A version that failed to
+start is tried again the next day. A failed update is also sent to the alert webhook.
+
+The agent only updates from the repository it runs from. It can't update itself when it was
+installed before 2.6.0 (re-run the install command once; later updates work from the
+controller), when its container is managed by docker compose or Coolify (update it there:
+pull, then `up -d`), or when it doesn't run in a container; the Agents page says which.
+
+To update an agent by hand, re-run the install command on its host (it recreates the
+container with the image the controller names), or `docker pull ghcr.io/holo795/cbm-agent:latest`
+then recreate `cbm-agent`.
 
 ---
 

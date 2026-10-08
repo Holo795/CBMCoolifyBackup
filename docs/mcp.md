@@ -127,7 +127,7 @@ Reads (viewer+):
 - `cbm_list_destinations`
 - `cbm_list_agents` — filter by `instanceId`
 - `cbm_list_jobs` — filter by `type` (`backup`, `restore`, `prune`, `mirror`,
-  `verify-destination`, `restore-drill`), `status`, `limit` (default 25, max 100)
+  `verify-destination`, `restore-drill`, `update-agent`), `status`, `limit` (default 25, max 100)
 - `cbm_get_job` — one job + its full event log
 
 Triggers (operator+):
