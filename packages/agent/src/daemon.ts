@@ -18,11 +18,17 @@ import { sweepOrphanedStages } from "./disk.js";
 import { deliverResult, flushPendingResults, pendingResultIds } from "./outbox.js";
 import { PollHealth, withQuickRetries } from "./poll-health.js";
 import { describeHttpError } from "./http.js";
+import { markHealthy, runAgentUpdate, selfInfo, updateInProgress } from "./self-update.js";
+import type { JobResult } from "@cbm/shared";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Jobs running in this process, reported with each heartbeat. */
 const activeJobs = new Set<string>();
+/** An agent update stops new jobs (draining), and must not start while a poll
+ * may still bring one (polling). */
+let draining = false;
+let polling = false;
 // Whether the controller answers polls: warns only past a few failures in a row.
 const pollHealth = new PollHealth();
 
@@ -84,7 +90,7 @@ export async function startDaemon(): Promise<void> {
     logger.info(`Picked up job ${job.id} (${job.type})`);
     activeJobs.add(job.id);
     const p = (async () => {
-      const result = await runJobForController(job, cfg);
+      const result = job.type === "update-agent" ? await updateSelf(job, cfg) : await runJobForController(job, cfg);
       await deliverResult(cfg.workDir, result, (r) => client.sendResult(cfg, r), { log: (m) => logger.warn(m) });
       logger.info(`Job ${job.id} finished: ${result.status}`);
     })()
@@ -99,8 +105,9 @@ export async function startDaemon(): Promise<void> {
   for (;;) {
     // Fill free slots until the queue is empty or we're at capacity.
     // Read every round: the concurrency can change from CBM while running.
-    while (inFlight.size < getSettings().concurrency) {
+    while (!draining && inFlight.size < getSettings().concurrency) {
       let job = null;
+      polling = true;
       try {
         // A blip (DNS, a reset connection) gets two quick retries before it counts.
         ({ job } = await withQuickRetries(() => client.poll(cfg), [1000, 3000], sleep));
@@ -110,6 +117,8 @@ export async function startDaemon(): Promise<void> {
         const log = pollHealth.failed(describeHttpError(e));
         logger[log.level](log.message);
         break;
+      } finally {
+        polling = false;
       }
       if (!job) break;
       startJob(job);
@@ -145,19 +154,62 @@ async function discoverContainers() {
   return withImageIds(groups, ids, (id) => imageIds.get(id));
 }
 
+/** An update job: the agent replaces its own container (see self-update.ts). */
+async function updateSelf(job: Extract<Awaited<ReturnType<typeof client.poll>>["job"], { type: "update-agent" }>, cfg: AgentConfig): Promise<JobResult> {
+  const emit = async (level: "info" | "warn" | "error", message: string, progress?: number) => {
+    logger[level](`[${job.id}] ${message}`);
+    await client.sendEvent(cfg, { jobId: job.id, ts: new Date().toISOString(), level, message, progress });
+  };
+  try {
+    return await runAgentUpdate(job, {
+      workDir: cfg.workDir,
+      hostname: cfg.hostname,
+      version: client.AGENT_VERSION,
+      emit,
+      gate: {
+        others: () => activeJobs.size - 1,
+        polling: () => polling,
+        drain: () => (draining = true),
+        resume: () => (draining = false),
+      },
+      reregister: async () => {
+        if (!cfg.enrollmentToken) return;
+        try {
+          cfg.agentToken = (await client.register(cfg)).agentToken;
+        } catch (e) {
+          if (/\b401\b/.test((e as Error).message))
+            throw new Error("This host's install token was rotated since the agent was installed: re-run the install command to update it.");
+          throw e;
+        }
+      },
+    });
+  } catch (e) {
+    const message = (e as Error).message;
+    await emit("error", `Job failed: ${message}`);
+    return { jobId: job.id, status: "failed", error: message };
+  }
+}
+
 async function heartbeatLoop(cfg: AgentConfig): Promise<void> {
   for (;;) {
     try {
+      const self = await selfInfo();
+      const updating = await updateInProgress(cfg.workDir);
       const answer = await client.heartbeat(cfg, {
         dockerVersion: await dockerVersion(),
         containers: await countContainers(),
         resourceUuids: await detectCoolifyResourceUuids().catch(() => []),
         // Containers per resource (one `docker ps`), for per-container hook targets.
         resourceContainers: await discoverContainers(),
-        activeJobIds: [...activeJobs, ...(await pendingResultIds(cfg.workDir))],
+        activeJobIds: [...activeJobs, ...(await pendingResultIds(cfg.workDir)), ...(updating ? [updating] : [])],
         settingsLockedByEnv: lockedByEnv(),
         settingsInEffect: getSettings(),
+        agentVersion: client.AGENT_VERSION,
+        agentImage: self.image,
+        selfUpdate: self.status,
       });
+      // An updater waiting for this (new) agent: it reached CBM.
+      if (answer && updating) await markHealthy(cfg.workDir, client.AGENT_VERSION).catch(() => undefined);
       // Settings set in CBM apply from now on (env-fixed ones never change).
       if (answer?.settings) {
         const changed = applyCbmSettings(answer.settings);

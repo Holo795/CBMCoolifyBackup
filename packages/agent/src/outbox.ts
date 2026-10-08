@@ -44,11 +44,17 @@ export async function deliverResult(
       if (i < attempts - 1) await sleep(Math.min(base * 2 ** i, 30_000));
     }
   }
+  await keepResult(workDir, result);
+  opts.log?.(`controller unreachable: result for job ${result.jobId} kept and will be resent`);
+  return "queued";
+}
+
+/** Put a result in the outbox: the agent process running next sends it (the
+ * agent updater leaves the update's outcome there). */
+export async function keepResult(workDir: string, result: JobResult): Promise<void> {
   const dir = outboxDir(workDir);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, `${result.jobId.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`), JSON.stringify(result), { mode: 0o600 });
-  opts.log?.(`controller unreachable: result for job ${result.jobId} kept and will be resent`);
-  return "queued";
 }
 
 /** Resend results kept on disk (at startup, then periodically). */

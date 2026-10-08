@@ -43,6 +43,8 @@ export async function executeJob(
     } else if (job.type === "mirror") {
       const { resticSnapshotId, manifest } = await runMirror(job, workDir, emit);
       return { jobId: job.id, status: "succeeded", resticSnapshotId, manifest };
+    } else if (job.type === "update-agent") {
+      throw new Error("An agent update runs in the agent daemon only");
     } else if (job.type === "restore-drill") {
       // The job itself succeeds when the drill ran; the verdict is in `drill`.
       const drill = await runRestoreDrill(job, workDir, emit);

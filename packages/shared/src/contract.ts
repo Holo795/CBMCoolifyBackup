@@ -489,6 +489,33 @@ export const DrillCheck = z.object({
 });
 export type DrillCheck = z.infer<typeof DrillCheck>;
 
+/**
+ * Replace the agent's own container with one running `image` (same settings,
+ * volumes and networks). The agent first waits until it runs no other job; a
+ * short-lived updater container then swaps the two and puts the old one back
+ * if the new one doesn't come up. Only sent to agents that support it
+ * (SELF_UPDATE_SINCE).
+ */
+export const UpdateAgentJob = z.object({
+  id: z.string(),
+  type: z.literal("update-agent"),
+  /** Image to run, e.g. "ghcr.io/holo795/cbm-agent:2.6.0": the agent refuses a
+   * repository other than the one it runs from. */
+  image: z.string().min(1).max(500),
+  /** The version it should report afterwards (the controller's). */
+  version: z.string().max(50).optional(),
+});
+export type UpdateAgentJob = z.infer<typeof UpdateAgentJob>;
+
+/** First agent version that can update itself (UpdateAgentJob). */
+export const SELF_UPDATE_SINCE = "2.6.0";
+
+/** Whether an agent can replace its own container: "ok", or why not - "compose"
+ * (managed by docker compose or Coolify: update it there), "native" (not run in
+ * a container). */
+export const SelfUpdateStatus = z.enum(["ok", "compose", "native"]);
+export type SelfUpdateStatus = z.infer<typeof SelfUpdateStatus>;
+
 export const Job = z.discriminatedUnion("type", [
   BackupJob,
   RestoreJob,
@@ -496,6 +523,7 @@ export const Job = z.discriminatedUnion("type", [
   VerifyDestinationJob,
   MirrorJob,
   RestoreDrillJob,
+  UpdateAgentJob,
 ]);
 export type Job = z.infer<typeof Job>;
 
@@ -633,6 +661,12 @@ export const HeartbeatRequest = z.object({
    * them), and the values the agent actually runs with. */
   settingsLockedByEnv: z.array(AgentSettingKey).optional(),
   settingsInEffect: AgentSettings.optional(),
+  /** The agent's version and the image its container runs (as written, e.g.
+   * "ghcr.io/holo795/cbm-agent:latest"). */
+  agentVersion: z.string().max(50).optional(),
+  agentImage: z.string().max(500).optional(),
+  /** Whether it can update itself from CBM (absent: an agent before 2.6.0). */
+  selfUpdate: SelfUpdateStatus.optional(),
 });
 export type HeartbeatRequest = z.infer<typeof HeartbeatRequest>;
 
@@ -686,6 +720,8 @@ export const JobResult = z.object({
         .optional(),
     })
     .optional(),
+  /** For an update-agent job: the version before and after. */
+  update: z.object({ from: z.string().max(50), to: z.string().max(50) }).optional(),
   /** For a restore-drill job: the per-artifact outcome. */
   drill: z
     .object({

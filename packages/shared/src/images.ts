@@ -28,6 +28,27 @@ export function imageTag(ref: string): string | undefined {
   return colon > slash ? ref.slice(colon + 1) : "latest";
 }
 
+/** The reference without its tag or digest, as written ("reg:5000/a/b:1" -> "reg:5000/a/b"). */
+export function imageWithoutTag(ref: string): string {
+  const at = ref.indexOf("@");
+  const core = at >= 0 ? ref.slice(0, at) : ref;
+  const slash = core.lastIndexOf("/");
+  const colon = core.lastIndexOf(":");
+  return colon > slash ? core.slice(0, colon) : core;
+}
+
+/** Compare two "X.Y.Z" versions (a pre-release suffix is ignored): <0, 0 or >0. */
+export function compareVersions(a: string, b: string): number {
+  const parts = (v: string) => v.replace(/^v/, "").split(/[-+]/)[0].split(".").map((n) => Number.parseInt(n, 10) || 0);
+  const x = parts(a);
+  const y = parts(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] ?? 0) - (y[i] ?? 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
 /** True when the reference doesn't name one fixed image (latest, main...). */
 export function isFloatingImage(ref: string): boolean {
   const tag = imageTag(ref);
