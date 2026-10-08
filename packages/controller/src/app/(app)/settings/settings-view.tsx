@@ -9,6 +9,7 @@ import { ApiTokens, CreateApiTokenButton, type ApiTokenRow } from "@/components/
 import { DrillsToggle } from "@/components/drills-toggle";
 import { SectionNav } from "@/components/section-nav";
 import { TwoFactorPolicyForm } from "@/components/two-factor-policy";
+import { SsoSettings, type SsoRow } from "@/components/sso-settings";
 import { CheckCircle2, Circle, AlertTriangle } from "lucide-react";
 import { getT, type T } from "@/lib/i18n";
 
@@ -25,6 +26,8 @@ export async function SettingsView({
   drillsEnabled,
   apiTokens,
   twoFactor,
+  sso,
+  origin,
 }: {
   tz: string;
   alertWebhookUrl: string;
@@ -37,6 +40,9 @@ export async function SettingsView({
   drillsEnabled: boolean;
   apiTokens: ApiTokenRow[];
   twoFactor: { policy: "optional" | "admins" | "everyone"; total: number; without: number };
+  sso: SsoRow[];
+  /** The controller's public URL (BETTER_AUTH_URL). */
+  origin: string;
 }) {
   const t = await getT();
   const sections = [
@@ -46,6 +52,7 @@ export async function SettingsView({
     { id: "disaster-recovery", label: t("settings.drTitle") },
     { id: "restore-drills", label: t("settings.drillsTitle") },
     { id: "two-factor", label: t("twofactor.policyTitle") },
+    { id: "sso", label: t("settings.ssoTitle") },
     { id: "api-tokens", label: t("settings.apiTokensTitle") },
   ];
 
@@ -140,6 +147,16 @@ export async function SettingsView({
             </CardHeader>
             <CardContent>
               <TwoFactorPolicyForm {...twoFactor} />
+            </CardContent>
+          </Card>
+
+          <Card id="sso" className="scroll-mt-8">
+            <CardHeader>
+              <CardTitle>{t("settings.ssoTitle")}</CardTitle>
+              <CardDescription>{t("settings.ssoDesc")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SsoSettings rows={sso} origin={origin} />
             </CardContent>
           </Card>
 

@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
-import { authErrorText } from "@/lib/auth-errors";
+import { authErrorText, ssoErrorText } from "@/lib/auth-errors";
 import { useT } from "@/components/i18n-provider";
 import { claimInvitation } from "@/app/actions";
 import type { OAuthProvider } from "@/lib/auth";
+import type { SsoButton } from "@/lib/sso";
 import { AcceptInviteFormView } from "./accept-form.view";
 
 /**
@@ -19,12 +20,15 @@ export function AcceptInviteForm({
   email,
   role,
   providers,
+  ssoError,
 }: {
   token: string;
   email: string;
   role: string;
   /** Social providers the invitee can sign up with instead of a password. */
-  providers: OAuthProvider[];
+  providers: SsoButton[];
+  /** Code of a single sign-on that failed (?error=). */
+  ssoError?: string;
 }) {
   const t = useT();
   const router = useRouter();
@@ -32,7 +36,7 @@ export function AcceptInviteForm({
   const [confirm, setConfirm] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => ssoErrorText(ssoError, t));
   const [loading, setLoading] = useState(false);
 
   async function submit(e: React.FormEvent) {
@@ -67,7 +71,7 @@ export function AcceptInviteForm({
     setError(null);
     const claim = await claimInvitation(token);
     if (claim.error) return setError(claim.error);
-    await authClient.signIn.social({ provider, callbackURL: "/" });
+    await authClient.signIn.social({ provider, callbackURL: "/", errorCallbackURL: `/invite/${token}` });
   }
 
   return (

@@ -10,7 +10,8 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ensureControlPlaneResource } from "@/lib/control-plane";
 import { env } from "@/lib/env";
-import { auth } from "@/lib/auth";
+import { auth, invalidateRequestAuth } from "@/lib/auth";
+import { checkSsoCredentials, isSsoProvider, ssoFromEnv, type SsoProviderId } from "@/lib/sso";
 import { requireUser, requireRole } from "@/lib/session";
 import { isRole, inviteExpiry } from "@/lib/invitations";
 import { encryptSecret, decryptSecret, generateAesKeyB64, randomToken, sha256Hex } from "@/lib/crypto";
@@ -23,7 +24,7 @@ import { setTimezone, isValidTimezone } from "@/lib/settings";
 import { removeSnapshots } from "@/lib/snapshot-removal";
 import { resetTwoFactor, isTwoFactorPolicy } from "@/lib/two-factor";
 import { settingsFromForm } from "@/lib/agent-settings";
-import { MAX_EXCLUDES, excludeError, isFloatingImage, normalizeExcludes, normalizePrivateKey, type SnapshotManifest } from "@cbm/shared";
+import { MAX_EXCLUDES, excludeError, isFloatingImage, normalizeExcludes, normalizePrivateKey, redactSecrets, type SnapshotManifest } from "@cbm/shared";
 import { snapshotImages, versionRows, type ImageChoice, type VersionRow } from "@/lib/image-pin";
 
 function s(fd: FormData, key: string): string {
@@ -199,6 +200,89 @@ export async function updateSmtp(fd: FormData) {
 
 /** Verify the saved SMTP config and send a test email to the admin who asked
  * (the From address is often an unread no-reply); flips the "verified" flag. */
+/* ----------------------------- single sign-on ----------------------------- */
+
+/** An http(s) URL, without its trailing slash; "" for none; null when invalid. */
+function httpUrl(raw: string): string | null {
+  if (!raw) return "";
+  try {
+    const u = new URL(raw);
+    return u.protocol === "https:" || u.protocol === "http:" ? raw.replace(/\/+$/, "") : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The values of a provider's form, the saved / env secret standing in for an empty field. */
+async function ssoFormValues(id: SsoProviderId, fd: FormData) {
+  const saved = await prisma.ssoProvider.findUnique({ where: { id }, omit: { clientSecretEnc: false } });
+  const typed = String(fd.get("clientSecret") ?? "");
+  const savedSecret = saved?.clientSecretEnc ? decryptSecret(saved.clientSecretEnc) : "";
+  return {
+    enabled: fd.get("enabled") === "on",
+    clientId: s(fd, "clientId"),
+    clientSecret: typed || savedSecret,
+    typedSecret: typed,
+    issuer: httpUrl(s(fd, "issuer")),
+    label: s(fd, "label").slice(0, 60),
+  };
+}
+
+/**
+ * Save one single sign-on provider (admin). An empty secret keeps the saved
+ * one. A provider set by environment variables can't be changed here.
+ */
+export async function updateSsoProvider(id: string, fd: FormData): Promise<{ ok?: boolean; error?: string }> {
+  const t = await getT();
+  try {
+    await requireRole("admin");
+    if (!isSsoProvider(id)) return { error: t("messages.ssoUnknown") };
+    if (ssoFromEnv(id)) return { error: t("messages.ssoEnvLocked") };
+    const v = await ssoFormValues(id, fd);
+    if (v.issuer === null) return { error: t("messages.ssoIssuerInvalid") };
+    if (v.enabled && (!v.clientId || !v.clientSecret)) return { error: t("messages.ssoMissingClient") };
+    if (v.enabled && id === "oidc" && !v.issuer) return { error: t("messages.ssoMissingIssuer") };
+    if (v.clientId.length > 500 || v.typedSecret.length > 2000) return { error: t("messages.ssoTooLong") };
+    const data = {
+      enabled: v.enabled,
+      clientId: v.clientId,
+      issuer: v.issuer || null,
+      label: id === "oidc" ? v.label || null : null,
+      ...(v.typedSecret ? { clientSecretEnc: encryptSecret(v.typedSecret) } : {}),
+    };
+    await prisma.ssoProvider.upsert({ where: { id }, create: { id, ...data }, update: data });
+    invalidateRequestAuth();
+    revalidatePath("/settings");
+    revalidatePath("/login");
+    return { ok: true };
+  } catch (e) {
+    return { error: errorText(e, t) };
+  }
+}
+
+/**
+ * Check a provider's client id and secret (as typed, else saved) against the
+ * provider itself, without signing anyone in (see lib/sso checkSsoCredentials).
+ */
+export async function checkSsoProvider(id: string, fd: FormData): Promise<{ ok?: boolean; error?: string; detail?: string }> {
+  const t = await getT();
+  try {
+    await requireRole("admin");
+    if (!isSsoProvider(id)) return { error: t("messages.ssoUnknown") };
+    const env = ssoFromEnv(id);
+    const v = env ?? (await ssoFormValues(id, fd));
+    if (v.issuer === null) return { error: t("messages.ssoIssuerInvalid") };
+    if (!v.clientId || !v.clientSecret) return { error: t("messages.ssoMissingClient") };
+    if (id === "oidc" && !v.issuer) return { error: t("messages.ssoMissingIssuer") };
+    const r = await checkSsoCredentials({ id, clientId: v.clientId, clientSecret: v.clientSecret, issuer: v.issuer || undefined });
+    if (r.ok) return { ok: true, detail: t("messages.ssoCheckOk") };
+    const detail = redactSecrets(r.detail ?? "").slice(0, 300);
+    return { error: t(r.code === "client_rejected" ? "messages.ssoCheckRejected" : r.code === "unreachable" ? "messages.ssoCheckUnreachable" : "messages.ssoCheckUnexpected", { detail }) };
+  } catch (e) {
+    return { error: errorText(e, t) };
+  }
+}
+
 export async function testSmtp() {
   const user = await requireRole("admin");
   const t = await getT();

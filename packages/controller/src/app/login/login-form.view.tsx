@@ -3,6 +3,7 @@
 import { Button, Input, Field } from "@/components/ui";
 import { OAuthButtons } from "@/components/oauth-buttons";
 import type { OAuthProvider } from "@/lib/auth";
+import type { SsoButton } from "@/lib/sso";
 import { useT } from "@/components/i18n-provider";
 import { AuthShell, AuthMessage } from "@/components/auth-shell";
 
@@ -28,7 +29,7 @@ export function LoginFormView({
   onProvider,
 }: {
   needsSetup: boolean;
-  providers: OAuthProvider[];
+  providers: SsoButton[];
   forgot: boolean;
   email: string;
   password: string;

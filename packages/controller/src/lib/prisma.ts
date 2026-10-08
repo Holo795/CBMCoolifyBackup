@@ -11,7 +11,7 @@ const createClient = () =>
   new PrismaClient({
     adapter,
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
-    omit: { resource: { dumpPasswordEnc: true } },
+    omit: { resource: { dumpPasswordEnc: true }, ssoProvider: { clientSecretEnc: true } },
   });
 
 const globalForPrisma = globalThis as unknown as {

@@ -1,4 +1,9 @@
-import { auth } from "@/lib/auth";
-import { toNextJsHandler } from "better-auth/next-js";
+import { getRequestAuth } from "@/lib/auth";
 
-export const { GET, POST } = toNextJsHandler(auth);
+// The instance with the sign-in providers configured now (see lib/auth).
+async function handle(req: Request): Promise<Response> {
+  return (await getRequestAuth()).handler(req);
+}
+
+export const GET = handle;
+export const POST = handle;

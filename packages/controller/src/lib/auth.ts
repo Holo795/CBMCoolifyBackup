@@ -3,6 +3,9 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { isPasswordCompromised } from "better-auth/plugins/haveibeenpwned";
 import { twoFactor } from "better-auth/plugins/two-factor";
+import { genericOAuth } from "better-auth/plugins/generic-oauth";
+import type { BetterAuthOptions } from "better-auth";
+import { oidcDiscoveryUrl, ssoConfigs, type SsoConfig, type SsoProviderId } from "./sso";
 import { prisma } from "./prisma";
 import { env } from "./env";
 import { sendMail } from "./email";
@@ -10,31 +13,8 @@ import { decideInviteSignup } from "./invitations";
 import { PASSWORD_BREACHED, REGISTRATION_CLOSED } from "./auth-errors";
 import { oauthTwoFactorGate, TRUST_DEVICE_MAX_AGE, CHALLENGE_MAX_AGE } from "./two-factor";
 
-const socialProviders: Record<string, { clientId: string; clientSecret: string; issuer?: string }> = {};
-if (env.oauth.githubClientId && env.oauth.githubClientSecret) {
-  socialProviders.github = {
-    clientId: env.oauth.githubClientId,
-    clientSecret: env.oauth.githubClientSecret,
-  };
-}
-if (env.oauth.googleClientId && env.oauth.googleClientSecret) {
-  socialProviders.google = {
-    clientId: env.oauth.googleClientId,
-    clientSecret: env.oauth.googleClientSecret,
-  };
-}
-if (env.oauth.gitlabClientId && env.oauth.gitlabClientSecret) {
-  socialProviders.gitlab = {
-    clientId: env.oauth.gitlabClientId,
-    clientSecret: env.oauth.gitlabClientSecret,
-    // Self-managed GitLab; gitlab.com when unset.
-    ...(env.oauth.gitlabIssuer ? { issuer: env.oauth.gitlabIssuer } : {}),
-  };
-}
-
-export type OAuthProvider = "github" | "google" | "gitlab";
-/** The social sign-in providers configured by env, in display order. */
-export const OAUTH_PROVIDERS = (["github", "google", "gitlab"] as const).filter((p) => p in socialProviders);
+/** Kept for the sign-in pages' types: the provider ids a button can carry. */
+export type OAuthProvider = SsoProviderId;
 
 /** Endpoints that set a new password (body.password or body.newPassword). */
 const NEW_PASSWORD_PATHS = new Set(["/sign-up/email", "/change-password", "/reset-password"]);
@@ -50,9 +30,28 @@ async function passwordBreached(password: string): Promise<boolean> {
   return Promise.race([isPasswordCompromised(password).catch(() => false), timeout]);
 }
 
-export const auth = betterAuth({
+/** Better Auth's options for a set of single sign-on providers (see lib/sso). */
+function authOptions(sso: SsoConfig[]) {
+  const social = (id: "github" | "google" | "gitlab") => sso.find((c) => c.id === id);
+  const socialProviders: Record<string, { clientId: string; clientSecret: string; issuer?: string }> = {};
+  for (const id of ["github", "google", "gitlab"] as const) {
+    const c = social(id);
+    if (!c) continue;
+    socialProviders[id] = {
+      clientId: c.clientId,
+      clientSecret: c.clientSecret,
+      // Self-managed GitLab; gitlab.com when unset.
+      ...(id === "gitlab" && c.issuer ? { issuer: c.issuer.replace(/\/+$/, "") } : {}),
+    };
+  }
+  const oidc = sso.find((c) => c.id === "oidc");
+  return {
+
   // Shown as the issuer in authenticator apps.
   appName: "CBM",
+  // A failed single sign-on comes back to the sign-in page with ?error=, which
+  // it explains (lib/auth-errors), instead of Better Auth's bare error page.
+  onAPIError: { errorURL: `${env.authUrl.replace(/\/+$/, "")}/login` },
   database: prismaAdapter(prisma, { provider: "postgresql" }),
   secret: env.authSecret,
   baseURL: env.authUrl,
@@ -98,7 +97,8 @@ export const auth = betterAuth({
       enabled: true,
       // Sent to the CURRENT address to approve a change (only when the current
       // email is verified; an unverified email changes directly).
-      sendChangeEmailVerification: async ({
+      updateEmailWithoutVerification: true,
+      sendChangeEmailConfirmation: async ({
         user,
         newEmail,
         url,
@@ -131,6 +131,13 @@ export const auth = betterAuth({
     },
   },
   socialProviders,
+  account: {
+    // A provider an admin configured is trusted to vouch for the email it
+    // returns: a CBM user signs in with it on first use (GitLab never says an
+    // email is verified, and CBM's own verification is optional). Accounts only
+    // exist by invitation, so an email can't be claimed ahead of its owner.
+    accountLinking: { enabled: true, trustedProviders: sso.map((c) => c.id), requireLocalEmailVerified: false },
+  },
   plugins: [
     // Two-factor sign-in: an authenticator app (TOTP) plus single-use backup
     // codes. allowPasswordless lets an account that only signs in with GitHub /
@@ -145,6 +152,22 @@ export const auth = betterAuth({
       // or the metadata self-backup (the plugin's current default; kept explicit).
       backupCodeOptions: { storeBackupCodes: "encrypted" },
     }),
+    // Any OpenID Connect provider (Authentik, Keycloak...), found by discovery.
+    ...(oidc
+      ? [
+          genericOAuth({
+            config: [
+              {
+                providerId: "oidc",
+                clientId: oidc.clientId,
+                clientSecret: oidc.clientSecret,
+                discoveryUrl: oidcDiscoveryUrl(oidc.issuer ?? ""),
+                scopes: ["openid", "email", "profile"],
+              },
+            ],
+          }),
+        ]
+      : []),
   ],
   // localhost:3000 is the dev server; in production only the configured URL.
   trustedOrigins: env.isProd ? [env.authUrl] : [env.authUrl, "http://localhost:3000"],
@@ -222,9 +245,40 @@ export const auth = betterAuth({
       },
     },
   },
-});
+  } satisfies BetterAuthOptions;
+}
+
+/**
+ * The instance for server-side calls (session, password, profile): those never
+ * depend on the sign-in providers. The HTTP endpoints go through
+ * getRequestAuth(), rebuilt when the providers change in Settings.
+ */
+export const auth = betterAuth(authOptions([]));
 
 export type Auth = typeof auth;
+
+/** The auth instance for /api/auth/*, with the providers configured now. */
+let current: { key: string; checkedAt: number; auth: ReturnType<typeof buildRequestAuth> } | null = null;
+/** How long a configuration is trusted before it's read again (a save in Settings resets it). */
+const SSO_RECHECK_MS = 30_000;
+
+function buildRequestAuth(sso: SsoConfig[]) {
+  return betterAuth(authOptions(sso));
+}
+
+export async function getRequestAuth() {
+  if (current && Date.now() - current.checkedAt < SSO_RECHECK_MS) return current.auth;
+  const sso = await ssoConfigs();
+  const key = JSON.stringify(sso);
+  if (current?.key === key) current.checkedAt = Date.now();
+  else current = { key, checkedAt: Date.now(), auth: buildRequestAuth(sso) };
+  return current.auth;
+}
+
+/** Read the providers again on the next request (after a change in Settings). */
+export function invalidateRequestAuth(): void {
+  if (current) current.checkedAt = 0;
+}
 
 /**
  * Verify a user's password against their credential account — step-up re-auth

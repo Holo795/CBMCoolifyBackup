@@ -5,6 +5,7 @@ import { useT } from "@/components/i18n-provider";
 import { AuthShell, AuthMessage } from "@/components/auth-shell";
 import { OAuthButtons } from "@/components/oauth-buttons";
 import type { OAuthProvider } from "@/lib/auth";
+import type { SsoButton } from "@/lib/sso";
 
 /** Presentation only: the invite-acceptance card. Logic in ./accept-form.tsx. */
 export function AcceptInviteFormView({
@@ -37,7 +38,7 @@ export function AcceptInviteFormView({
   onFirstNameChange: (v: string) => void;
   onLastNameChange: (v: string) => void;
   onSubmit: (e: React.FormEvent) => void;
-  providers: OAuthProvider[];
+  providers: SsoButton[];
   onProvider: (p: OAuthProvider) => void;
 }) {
   const t = useT();

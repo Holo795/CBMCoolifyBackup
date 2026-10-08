@@ -38,6 +38,11 @@ export const env = {
     githubClientSecret: optional("GITHUB_CLIENT_SECRET"),
     googleClientId: optional("GOOGLE_CLIENT_ID"),
     googleClientSecret: optional("GOOGLE_CLIENT_SECRET"),
+    // Any OpenID Connect provider (Authentik, Keycloak...): its issuer URL.
+    oidcIssuer: optional("OIDC_ISSUER"),
+    oidcClientId: optional("OIDC_CLIENT_ID"),
+    oidcClientSecret: optional("OIDC_CLIENT_SECRET"),
+    oidcLabel: optional("OIDC_LABEL"),
   },
   // Refuse new passwords found in known breaches (HaveIBeenPwned, k-anonymity:
   // only a 5-char hash prefix leaves the server). Fails open when unreachable.

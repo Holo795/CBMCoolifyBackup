@@ -539,3 +539,21 @@ model ResourceUsage {
   @@id([resourceId, destinationId])
   @@index([destinationId])
 }
+
+// Single sign-on providers configured from Settings (an environment variable
+// for a provider wins over its row: config-as-code, shown locked in the UI).
+// id: github | google | gitlab | oidc (Authentik, Keycloak... via OpenID
+// discovery). The client secret is master-key encrypted.
+model SsoProvider {
+  id              String   @id
+  enabled         Boolean  @default(false)
+  clientId        String   @default("")
+  clientSecretEnc String?
+  // gitlab: a self-managed instance's URL (gitlab.com when empty); oidc: the
+  // issuer URL (its /.well-known/openid-configuration is read).
+  issuer          String?
+  // oidc: the button's label ("Authentik").
+  label           String?
+  updatedAt       DateTime @updatedAt
+}
+

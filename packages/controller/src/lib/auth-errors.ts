@@ -29,6 +29,32 @@ const KNOWN = new Set([
 
 export type AuthErrorLike = { code?: string; message?: string; status?: number } | null | undefined;
 
+/** Error codes a single sign-on can come back with (in `?error=`), translated. */
+const SSO_ERRORS = new Set([
+  REGISTRATION_CLOSED,
+  "access_denied",
+  "account_not_linked",
+  "unable_to_link_account",
+  "account_already_linked_to_different_user",
+  "email_not_found",
+  "email_does_not_match",
+  "invalid_code",
+  "state_not_found",
+  "state_mismatch",
+  "please_restart_the_process",
+  "unable_to_get_user_info",
+  "oauth_provider_not_found",
+  "issuer_mismatch",
+  "unable_to_create_user",
+]);
+
+/** User-facing text for the `?error=` a failed single sign-on returns with. */
+export function ssoErrorText(code: string | undefined, t: T): string | null {
+  if (!code) return null;
+  if (SSO_ERRORS.has(code)) return t(`auth.ssoErrors.${code}`);
+  return t("auth.ssoErrors.other", { code: code.slice(0, 80) });
+}
+
 /** User-facing text for a Better Auth error, falling back to `fallbackKey`. */
 export function authErrorText(err: AuthErrorLike, t: T, fallbackKey: string): string {
   if (err?.code && KNOWN.has(err.code)) return t(`auth.errors.${err.code}`);

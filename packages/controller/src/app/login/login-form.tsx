@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
-import { authErrorText } from "@/lib/auth-errors";
+import { authErrorText, ssoErrorText } from "@/lib/auth-errors";
 import { useT } from "@/components/i18n-provider";
-import type { OAuthProvider } from "@/lib/auth";
+import type { SsoButton } from "@/lib/sso";
 import { LoginFormView } from "./login-form.view";
 
 /**
@@ -18,11 +18,14 @@ export function LoginForm({
   needsSetup,
   providers,
   canReset,
+  ssoError,
 }: {
   needsSetup: boolean;
   /** Social sign-in providers configured on the server. */
-  providers: OAuthProvider[];
+  providers: SsoButton[];
   canReset: boolean;
+  /** Code of a single sign-on that failed (?error=). */
+  ssoError?: string;
 }) {
   const t = useT();
   const router = useRouter();
@@ -31,7 +34,7 @@ export function LoginForm({
   const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => ssoErrorText(ssoError, t));
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const forgot = mode === "forgot";
@@ -85,7 +88,7 @@ export function LoginForm({
         setNotice(null);
         setMode(forgot ? "auth" : "forgot");
       }}
-      onProvider={(provider) => authClient.signIn.social({ provider })}
+      onProvider={(provider) => authClient.signIn.social({ provider, callbackURL: "/", errorCallbackURL: "/login" })}
     />
   );
 }

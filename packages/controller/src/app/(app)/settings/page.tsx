@@ -7,6 +7,8 @@ import { smtpReady, smtpEnvOverrides } from "@/lib/email";
 import { formatDateTime } from "@/lib/cn";
 import { getT } from "@/lib/i18n";
 import { SettingsView } from "./settings-view";
+import { SSO_PROVIDERS, ssoCallbackUrl, ssoFromEnv } from "@/lib/sso";
+import type { SsoRow } from "@/components/sso-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -99,8 +101,27 @@ export default async function SettingsPage() {
     without: usersWithout2fa,
   };
 
+  // Single sign-on: what's saved (never a secret), or what the environment sets.
+  const ssoRows = await prisma.ssoProvider.findMany({ omit: { clientSecretEnc: false } }).catch(() => []);
+  const sso: SsoRow[] = SSO_PROVIDERS.map((id) => {
+    const fromEnv = ssoFromEnv(id);
+    const row = ssoRows.find((r) => r.id === id);
+    return {
+      id,
+      enabled: !!fromEnv || !!row?.enabled,
+      clientId: fromEnv?.clientId ?? row?.clientId ?? "",
+      hasSecret: !!fromEnv || !!row?.clientSecretEnc,
+      issuer: fromEnv?.issuer ?? row?.issuer ?? "",
+      label: fromEnv?.label ?? row?.label ?? "",
+      env: !!fromEnv,
+      callbackUrl: ssoCallbackUrl(id),
+    };
+  });
+
   return (
     <SettingsView
+      sso={sso}
+      origin={env.authUrl.replace(/\/+$/, "")}
       twoFactor={twoFactor}
       tz={tz}
       alertWebhookUrl={setting?.alertWebhookUrl ?? ""}

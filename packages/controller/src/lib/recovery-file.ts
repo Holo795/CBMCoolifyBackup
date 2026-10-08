@@ -267,6 +267,10 @@ async function reencryptAllSecrets(oldKey: Buffer): Promise<void> {
       },
     });
   }
+  // Single sign-on client secrets.
+  for (const p of await prisma.ssoProvider.findMany({ where: { clientSecretEnc: { not: null } }, select: { id: true, clientSecretEnc: true } })) {
+    await prisma.ssoProvider.update({ where: { id: p.id }, data: { clientSecretEnc: re(p.clientSecretEnc!) } });
+  }
   // Dump logins set on resources.
   for (const r of await prisma.resource.findMany({
     where: { dumpPasswordEnc: { not: null } },

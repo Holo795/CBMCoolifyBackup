@@ -4,12 +4,19 @@ import { sha256Hex } from "@/lib/crypto";
 import { getT } from "@/lib/i18n";
 import { AuthShell, AuthMessage } from "@/components/auth-shell";
 import { AcceptInviteForm } from "./accept-form";
-import { OAUTH_PROVIDERS } from "@/lib/auth";
+import { ssoButtons } from "@/lib/sso";
 
 export const dynamic = "force-dynamic";
 
-export default async function InvitePage({ params }: { params: Promise<{ token: string }> }) {
+export default async function InvitePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ token: string }>;
+  searchParams: Promise<{ error?: string }>;
+}) {
   const { token } = await params;
+  const { error } = await searchParams;
   const t = await getT();
   const invite = await prisma.invitation.findUnique({ where: { tokenHash: sha256Hex(token) } });
 
@@ -31,5 +38,5 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
     );
   }
 
-  return <AcceptInviteForm token={token} email={invite!.email} role={invite!.role} providers={[...OAUTH_PROVIDERS]} />;
+  return <AcceptInviteForm token={token} email={invite!.email} role={invite!.role} providers={await ssoButtons()} ssoError={error} />;
 }
