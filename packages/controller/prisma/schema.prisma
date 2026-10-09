@@ -227,6 +227,10 @@ model Resource {
   // Last time we alerted that this resource's scheduled backup is overdue
   // (debounce so we don't re-alert every sweep for the same missed run).
   lastOverdueAlertAt DateTime?
+  // Since when the resource is in scheduled backups as they are now: set when
+  // "Include in scheduled backups" is turned on and when its own schedule is
+  // set or removed. A scheduled time before it can't count as a missed backup.
+  scheduledSince     DateTime?
   // Agent-discovered docker facts (cached)
   containerName String?
   containerNames String[]     @default([])

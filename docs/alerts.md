@@ -14,7 +14,7 @@ without saving it.
 | --- | --- |
 | **Failed** | A backup ran and failed (the agent reported an error, or the job timed out), or a scheduled run couldn't even be queued (e.g. no agent on the resource's server). |
 | **Missing** | Reconciliation found a backup whose files were **deleted at the destination** — the snapshot is flagged *missing*. You learn about it before a restore needs it. |
-| **Overdue** | A scheduled backup **never ran** when it should have (controller was down, no agent online, …). Detected by an hourly sweep once a 2‑hour grace period has passed, debounced so you're alerted once per missed run. |
+| **Overdue** | A scheduled backup **never ran** when it should have (controller was down, no agent online, …). Detected by an hourly sweep once a 2‑hour grace period has passed, debounced so you're alerted once per missed run. A scheduled time before the resource was included in scheduled backups (or before its schedule was set or changed) never counts. |
 | **Corrupt** | A snapshot's stored data failed its deep integrity check (tar re-checksum or restic `check` on its files): it may not restore. |
 | **Integrity check failed** | A destination's repository-level integrity check (weekly when opted in per destination, or *Check integrity*) failed. |
 | **Restore drill failed** | A restore drill (manual, scheduled or API) could not restore the snapshot into its sandbox, or one of its checks failed. |

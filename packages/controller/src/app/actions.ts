@@ -1099,8 +1099,8 @@ export async function setResourceSchedule(resourceId: string, fd: FormData) {
   } else {
     await prisma.backupPolicy.create({ data: { ...data, name: `${resource.name} override`, resourceId } });
   }
-  // Setting a schedule on a resource implies it should be backed up.
-  await prisma.resource.update({ where: { id: resourceId }, data: { backupEnabled: true } });
+  // Setting a schedule on a resource implies it should be backed up, from now.
+  await prisma.resource.update({ where: { id: resourceId }, data: { backupEnabled: true, scheduledSince: new Date() } });
   revalidatePath(`/resources/${resourceId}`);
   return { ok: true };
 }
@@ -1109,6 +1109,8 @@ export async function setResourceSchedule(resourceId: string, fd: FormData) {
 export async function removeResourceOverride(resourceId: string): Promise<void> {
   await requireRole("admin");
   await prisma.backupPolicy.deleteMany({ where: { resourceId } });
+  // Its schedule is now the inherited one: due times before this aren't missed backups.
+  await prisma.resource.update({ where: { id: resourceId }, data: { scheduledSince: new Date() } });
   revalidatePath(`/resources/${resourceId}`);
 }
 
@@ -1117,11 +1119,15 @@ export async function removeResourceOverride(resourceId: string): Promise<void> 
 /** Update a resource's per-resource backup settings (auto-saved from the UI). */
 export async function updateResourceSettings(resourceId: string, fd: FormData): Promise<void> {
   await requireRole("operator");
+  const backupEnabled = fd.get("backupEnabled") === "on";
+  const before = await prisma.resource.findUniqueOrThrow({ where: { id: resourceId }, select: { backupEnabled: true } });
   await prisma.resource.update({
     where: { id: resourceId },
     data: {
-      backupEnabled: fd.get("backupEnabled") === "on",
+      backupEnabled,
       liveBackup: fd.get("liveBackup") === "on",
+      // Included from now: an earlier scheduled time isn't a missed backup.
+      ...(backupEnabled && !before.backupEnabled ? { scheduledSince: new Date() } : {}),
     },
   });
   revalidatePath("/resources");
