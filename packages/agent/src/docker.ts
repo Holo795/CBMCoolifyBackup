@@ -12,6 +12,20 @@ export function setDockerBin(bin: string) {
   DOCKER = bin;
 }
 
+/**
+ * Image of the short-lived helper containers (copies, sizes, checks): the
+ * agent's own once known, else alpine. The agent's image is always on the host
+ * - Docker never cleans up the image of a running container - while an image
+ * pulled only for these was removed by a nightly Docker cleanup (Coolify's),
+ * and the next backup had to pull it again: a registry or DNS hiccup then made
+ * it fail.
+ */
+let HELPER_IMAGE = "alpine:3.24";
+export function setHelperImage(image: string) {
+  HELPER_IMAGE = image;
+}
+export const helperImage = () => HELPER_IMAGE;
+
 export type { RunResult };
 
 /**
@@ -211,7 +225,7 @@ export async function tarVolume(volume: string, outFile: string): Promise<void> 
       "--rm",
       "-v",
       `${volume}:/data:ro`,
-      "alpine:3.24",
+      helperImage(),
       "tar",
       "-cf",
       "-",
@@ -229,7 +243,7 @@ export async function tarVolume(volume: string, outFile: string): Promise<void> 
  * back to the running free-space checks).
  */
 export async function pathSizeBytes(source: string): Promise<number | null> {
-  const r = await docker(["run", "--rm", "--network", "none", "-v", `${source}:/data:ro`, "alpine:3.24", "du", "-sk", "/data"]);
+  const r = await docker(["run", "--rm", "--network", "none", "-v", `${source}:/data:ro`, helperImage(), "du", "-sk", "/data"]);
   if (r.code !== 0) return null;
   const kib = Number(r.stdout.trim().split(/\s+/)[0]);
   return Number.isFinite(kib) ? kib * 1024 : null;
@@ -238,24 +252,43 @@ export async function pathSizeBytes(source: string): Promise<number | null> {
 /** Owner (`uid:gid`) and octal mode of a volume's or host folder's root, or
  * null when it can't be read. restic restores the content, not the root. */
 export async function rootStat(source: string): Promise<{ owner: string; mode: string } | null> {
-  const r = await docker(["run", "--rm", "--network", "none", "-v", `${source}:/data:ro`, "alpine:3.24", "stat", "-c", "%u:%g %a", "/data"]);
+  const r = await docker(["run", "--rm", "--network", "none", "-v", `${source}:/data:ro`, helperImage(), "stat", "-c", "%u:%g %a", "/data"]);
   const [owner, mode] = r.code === 0 ? r.stdout.trim().split(" ") : [];
   return owner && mode && /^\d+:\d+$/.test(owner) && /^[0-7]{3,4}$/.test(mode) ? { owner, mode } : null;
 }
 
+/** Docker's answer when a bind mount's source doesn't exist on the host. */
+const MISSING_BIND = /bind source path does not exist|invalid mount config.*no such file or directory/i;
+
 /**
  * Which of `names` exist under the host directory `dir` (`-d` folders, `-f`
- * files). `--mount` (not `-v`) so a missing `dir` isn't created on the host.
+ * files); none when `dir` itself doesn't exist. `--mount` (not `-v`) so a
+ * missing `dir` isn't created on the host. A check that couldn't run (Docker
+ * busy, an image it couldn't pull...) is retried, then throws with Docker's
+ * message: it used to read as "nothing there", and a backup then reported a
+ * folder missing that was there.
  */
-export async function hostEntries(dir: string, names: string[], kind: "-d" | "-f"): Promise<string[]> {
+export async function hostEntries(
+  dir: string,
+  names: string[],
+  kind: "-d" | "-f",
+  delaysMs: number[] = [2000, 5000],
+): Promise<string[]> {
   if (!names.length || !/^\/[A-Za-z0-9._/-]*$/.test(dir) || names.some((n) => !/^[A-Za-z0-9._-]+$/.test(n))) return [];
   const script = names.map((n) => `[ ${kind} /b/${n} ] && echo ${n}`).join("; ") + "; true";
-  const r = await docker([
-    "run", "--rm", "--network", "none",
-    "--mount", `type=bind,source=${dir},target=/b,readonly`,
-    "alpine:3.24", "sh", "-c", script,
-  ]);
-  return r.code === 0 ? r.stdout.split("\n").map((l) => l.trim()).filter(Boolean) : [];
+  for (let attempt = 0; ; attempt++) {
+    const r = await docker([
+      "run", "--rm", "--network", "none",
+      "--mount", `type=bind,source=${dir},target=/b,readonly`,
+      helperImage(), "sh", "-c", script,
+    ]);
+    if (r.code === 0) return r.stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (MISSING_BIND.test(r.stderr)) return [];
+    if (attempt >= delaysMs.length) {
+      throw new Error(`Could not look into ${dir} on the host (docker exited ${r.code}): ${redactSecrets(r.stderr.trim().slice(-300))}`);
+    }
+    await new Promise((res) => setTimeout(res, delaysMs[attempt]));
+  }
 }
 
 /** Spawn a docker command whose streams the caller wires (see capture.ts). */
@@ -268,7 +301,7 @@ export function spawnDocker(args: string[], stdio: StdioOptions): ChildProcess {
 export async function restoreVolume(volume: string, inFile: string, excludes: string[] = []): Promise<void> {
   await docker(["volume", "create", volume]);
   await dockerFromFile(
-    ["run", "--rm", "-i", "-v", `${volume}:/data`, "alpine:3.24", "sh", "-c", `${wipeScript("/data", excludes)}; tar -xf - -C /data`],
+    ["run", "--rm", "-i", "-v", `${volume}:/data`, helperImage(), "sh", "-c", `${wipeScript("/data", excludes)}; tar -xf - -C /data`],
     inFile,
   );
 }
@@ -282,7 +315,7 @@ export async function writeFileIntoVolume(volume: string, destName: string, inFi
   if (!/^[a-zA-Z0-9._-]+$/.test(destName)) throw new Error(`Unsafe volume file name: ${destName}`);
   await docker(["volume", "create", volume]);
   await dockerFromFile(
-    ["run", "--rm", "-i", "-v", `${volume}:/data`, "alpine:3.24", "sh", "-c", `cat > /data/${destName}`],
+    ["run", "--rm", "-i", "-v", `${volume}:/data`, helperImage(), "sh", "-c", `cat > /data/${destName}`],
     inFile,
   );
 }
@@ -305,14 +338,14 @@ export async function restoreRdbIntoVolume(volume: string, inFile: string): Prom
   const { stripRdbEofMark } = await import("./dump.js");
   await stripRdbEofMark(inFile);
   await docker(["volume", "create", volume]);
-  await dockerFromFile(["run", "--rm", "-i", "-v", `${volume}:/data`, "alpine:3.24", "sh", "-c", RDB_PLACE_SCRIPT], inFile);
+  await dockerFromFile(["run", "--rm", "-i", "-v", `${volume}:/data`, helperImage(), "sh", "-c", RDB_PLACE_SCRIPT], inFile);
 }
 
 /** Restore a tarball into a host directory (a bind-mount source). Excluded
  * paths (left out of the backup) are kept as they are. */
 export async function restoreToPath(hostPath: string, inFile: string, excludes: string[] = []): Promise<void> {
   await dockerFromFile(
-    ["run", "--rm", "-i", "-v", `${hostPath}:/data`, "alpine:3.24", "sh", "-c", `${wipeScript("/data", excludes)}; tar -xf - -C /data`],
+    ["run", "--rm", "-i", "-v", `${hostPath}:/data`, helperImage(), "sh", "-c", `${wipeScript("/data", excludes)}; tar -xf - -C /data`],
     inFile,
   );
 }
@@ -326,7 +359,7 @@ export async function tarEntryCount(inFile: string): Promise<number> {
   const child = spawn(
     DOCKER,
     // pipefail (supported by busybox ash) so a tar read error fails the pipeline.
-    ["run", "--rm", "-i", "--network", "none", "alpine:3.24", "sh", "-c", "set -o pipefail; tar -tf - | wc -l"],
+    ["run", "--rm", "-i", "--network", "none", helperImage(), "sh", "-c", "set -o pipefail; tar -tf - | wc -l"],
     { stdio: ["pipe", "pipe", "pipe"] },
   );
   let stdout = "";

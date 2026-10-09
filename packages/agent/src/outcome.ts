@@ -41,3 +41,32 @@ export function configOnlyFailure(outcome: "data" | "config" | "skip", configCap
   if (outcome !== "config" || !configCaptureError) return null;
   return `Configuration-only backup failed: ${configCaptureError}`;
 }
+
+/**
+ * Failures that say nothing about the resource or the destination: the Docker
+ * daemon busy or unreachable, a DNS or network hiccup, a registry or proxy
+ * answering 5xx, a repository still locked. A backup failing this way is tried
+ * once more before it is reported failed (and alerted).
+ */
+const TRANSIENT_FAILURES = [
+  /server misbehaving/i,
+  /temporary failure in name resolution/i,
+  /\bEAI_AGAIN\b/,
+  /\bENOTFOUND\b/,
+  /i\/o timeout/i,
+  /TLS handshake timeout/i,
+  /connection reset by peer/i,
+  /\bECONNRESET\b/,
+  /\bETIMEDOUT\b/,
+  /context deadline exceeded/i,
+  /Cannot connect to the Docker daemon/i,
+  /error during connect/i,
+  /is already in progress/i,
+  /\b50[234]\b.{0,40}(bad gateway|service unavailable|gateway time-?out)/i,
+  /toomanyrequests/i,
+  /repository is already locked/i,
+];
+
+export function isTransientFailure(message: string): boolean {
+  return TRANSIENT_FAILURES.some((re) => re.test(message));
+}

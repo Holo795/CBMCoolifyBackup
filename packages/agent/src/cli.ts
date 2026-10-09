@@ -6,13 +6,16 @@
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { Job } from "@cbm/shared";
-import { setDockerBin } from "./docker.js";
+import { setDockerBin, setHelperImage } from "./docker.js";
+import { selfContainer } from "./restic-helper.js";
 import { executeJob } from "./runner.js";
 import { generateKeyB64 } from "./crypto.js";
 
 async function main() {
   const [cmd, arg] = process.argv.slice(2);
   setDockerBin(process.env.DOCKER_BIN || "docker");
+  const self = await selfContainer();
+  if (self) setHelperImage(self.image);
 
   if (cmd === "keygen") {
     process.stdout.write(generateKeyB64() + "\n");

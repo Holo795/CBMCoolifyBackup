@@ -1,6 +1,7 @@
 import { loadConfig, type AgentConfig } from "./config.js";
 import {
   setDockerBin,
+  setHelperImage,
   dockerVersion,
   countContainers,
   detectCoolifyResourceUuids,
@@ -19,6 +20,7 @@ import { deliverResult, flushPendingResults, pendingResultIds } from "./outbox.j
 import { PollHealth, withQuickRetries } from "./poll-health.js";
 import { describeHttpError } from "./http.js";
 import { markHealthy, runAgentUpdate, selfInfo, updateInProgress } from "./self-update.js";
+import { selfContainer } from "./restic-helper.js";
 import type { JobResult } from "@cbm/shared";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -35,6 +37,9 @@ const pollHealth = new PollHealth();
 export async function startDaemon(): Promise<void> {
   const cfg = loadConfig();
   setDockerBin(cfg.dockerBin);
+  // Helper containers run on the agent's own image (see setHelperImage).
+  const self = await selfContainer();
+  if (self) setHelperImage(self.image);
 
   logger.info(`Agent starting (host=${cfg.hostname}, controller=${cfg.controllerUrl})`);
 

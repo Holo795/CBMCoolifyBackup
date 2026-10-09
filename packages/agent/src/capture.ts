@@ -3,7 +3,7 @@ import { PassThrough, Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { redactSecrets } from "@cbm/shared";
 import { randomBytes } from "node:crypto";
-import { docker, spawnDocker } from "./docker.js";
+import { docker, helperImage, spawnDocker } from "./docker.js";
 import { HashCounter, encryptStream } from "./crypto.js";
 import { tarExcludes } from "./excludes.js";
 
@@ -36,11 +36,11 @@ export async function captureTar(
   const tarName = `cbm-capture-${id}`;
   const checkName = `cbm-capture-check-${id}`;
   const tar = spawnDocker(
-    ["run", "--rm", "--init", "--name", tarName, "-v", `${source}:/data:ro`, "alpine:3.24", "tar", "-cf", "-", "-C", "/data", ...tarExcludes(excludes), "."],
+    ["run", "--rm", "--init", "--name", tarName, "-v", `${source}:/data:ro`, helperImage(), "tar", "-cf", "-", "-C", "/data", ...tarExcludes(excludes), "."],
     ["ignore", "pipe", "pipe"],
   );
   const check = spawnDocker(
-    ["run", "--rm", "--init", "-i", "--name", checkName, "--network", "none", "alpine:3.24", "tar", "-tf", "-"],
+    ["run", "--rm", "--init", "-i", "--name", checkName, "--network", "none", helperImage(), "tar", "-tf", "-"],
     ["pipe", "ignore", "pipe"],
   );
   let tarErr = "";

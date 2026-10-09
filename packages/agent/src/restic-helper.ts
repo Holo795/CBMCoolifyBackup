@@ -4,7 +4,7 @@ import { hostname } from "node:os";
 import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { redactSecrets } from "@cbm/shared";
-import { docker, type RunResult, type SecretEnv } from "./docker.js";
+import { docker, helperImage, type RunResult, type SecretEnv } from "./docker.js";
 import { LOCK_WAIT, RESTIC_ENV_KEYS, backupSummaryId, lockWatcher, resticForget, type ResticCtx } from "./restic.js";
 import { resticBackupExcludes, resticRestoreExcludes } from "./excludes.js";
 
@@ -276,7 +276,7 @@ export async function findSqliteFiles(source: string): Promise<Array<{ path: str
   const script =
     `find /data -xdev -maxdepth 4 -type f -size +${kib}k \\( -name '*.sqlite' -o -name '*.sqlite3' -o -name '*.db' \\) 2>/dev/null | head -20 | ` +
     `while IFS= read -r f; do [ "$(head -c 15 "$f")" = "SQLite format 3" ] && echo "$(stat -c %s "$f") \${f#/data/}"; done; true`;
-  const r = await docker(["run", "--rm", "--network", "none", "-v", `${source}:/data:ro`, "alpine:3.24", "sh", "-c", script]);
+  const r = await docker(["run", "--rm", "--network", "none", "-v", `${source}:/data:ro`, helperImage(), "sh", "-c", script]);
   if (r.code !== 0) return [];
   return r.stdout
     .split("\n")

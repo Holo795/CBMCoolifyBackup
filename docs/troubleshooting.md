@@ -27,6 +27,15 @@ removed them; the database record stays so you can see the loss.
 The backup's files are gone from the destination (or, for a local destination, the producing
 agent's host is down). Check the destination and run **Verify** from its **…** menu.
 
+### A backup failed once at night, then worked when run again
+The agent retries a backup once, 30 seconds later, when it fails for a reason that says nothing
+about the resource: Docker busy or unreachable, a DNS or network error, a registry or proxy
+answering 5xx, a repository still locked. The job log shows "Failed for a passing reason ...:
+trying again"; only a second failure is reported and alerted. The short-lived containers the agent
+starts (copies, sizes, checks) run on the agent's own image, which is always on the host: a nightly
+Docker cleanup (Coolify's "Docker cleanup", which removes unused images) no longer forces a
+download at backup time.
+
 ### "429 Too Many Attempts" from the Coolify API
 Coolify limits its API per user (`API_RATE_LIMIT`, 200 calls a minute by default), and a schedule
 reads every resource from Coolify when it starts. CBM paces its own calls (`COOLIFY_API_RATE_LIMIT`,

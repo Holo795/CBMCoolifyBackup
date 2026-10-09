@@ -9,6 +9,10 @@ import { runRestoreDrill } from "./drill.js";
 import { logger } from "./logger.js";
 import { isDiskFull } from "./disk.js";
 import { sendEvent } from "./client.js";
+import { isTransientFailure } from "./outcome.js";
+
+/** Wait before trying a backup again after a transient failure. */
+export const BACKUP_RETRY_DELAY_MS = 30_000;
 
 /**
  * Execute a job, streaming events. `onEvent` receives every event (used to
@@ -29,7 +33,7 @@ export async function executeJob(
 
   try {
     if (job.type === "backup") {
-      const result = await runBackup(job, workDir, emit);
+      const result = await backupWithRetry(() => runBackup(job, workDir, emit), emit);
       if ("skipped" in result) {
         return { jobId: job.id, status: "skipped", error: result.reason };
       }
@@ -64,4 +68,33 @@ export async function executeJob(
 /** Run a job and forward events + result to the controller. */
 export async function runJobForController(job: Job, cfg: AgentConfig): Promise<JobResult> {
   return executeJob(job, cfg.workDir, (e) => void sendEvent(cfg, e));
+}
+
+/**
+ * Run a backup, and once more after a short wait when it failed for a
+ * transient reason (see isTransientFailure): a DNS or Docker hiccup at the
+ * start of the nightly run shouldn't cost a night's backup and an alert. A
+ * failed run cleans up after itself (staging, restic parts, post hooks), so the
+ * second one starts from scratch.
+ */
+export async function backupWithRetry<T>(
+  run: () => Promise<T>,
+  emit: Emit,
+  delayMs = BACKUP_RETRY_DELAY_MS,
+): Promise<T> {
+  try {
+    return await run();
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (!isTransientFailure(message)) throw e;
+    emit("warn", `Failed for a passing reason (${message.split("\n")[0].slice(0, 300)}): trying again in ${Math.round(delayMs / 1000)} s`);
+    await new Promise((r) => setTimeout(r, delayMs));
+    try {
+      return await run();
+    } catch (e2) {
+      const again = e2 instanceof Error ? e2.message : String(e2);
+      const first = message.split("\n")[0].slice(0, 200);
+      throw new Error(again === message ? `${again} (failed again ${Math.round(delayMs / 1000)} s later)` : `${again} (second attempt; the first failed with: ${first})`);
+    }
+  }
 }

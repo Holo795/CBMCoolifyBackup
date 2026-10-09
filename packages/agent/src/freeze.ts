@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { FreezeMethod } from "@cbm/shared";
-import { docker, inspectContainer, pauseContainer, unpauseContainer } from "./docker.js";
+import { docker, helperImage, inspectContainer, pauseContainer, unpauseContainer } from "./docker.js";
 import { holdContainer, releaseContainer } from "./held.js";
 
 /*
@@ -99,7 +99,7 @@ async function cgroupFreezer(): Promise<Freezer> {
     "run", "-d", "--rm", "--name", helper, "--label", "cbm.freezer=1",
     "--privileged", "--pid=host", "--cgroupns=host", "--network", "none",
     "-v", "/sys/fs/cgroup:/sys/fs/cgroup",
-    "alpine:3.24", "sleep", "3600",
+    helperImage(), "sleep", "3600",
   ]);
   if (started.code !== 0) throw new Error(`can't start the freezer helper: ${started.stderr.trim().slice(0, 300)}`);
   const exec = (script: string) => docker(["exec", helper, "sh", "-c", script]);
