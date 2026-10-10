@@ -82,6 +82,11 @@ const SSH_OPTS = (knownHosts: string) => [
   `UserKnownHostsFile=${knownHosts}`,
   "-o",
   "ConnectTimeout=20",
+  // Without it, ssh's "Permanently added '<host>' to the list of known hosts"
+  // (printed on every connection: the known_hosts file is fresh each time)
+  // ended up in job errors and alerts. Errors are still printed.
+  "-o",
+  "LogLevel=ERROR",
 ];
 
 /** restic's S3 endpoint: keep the endpoint's scheme (an http:// MinIO/SeaweedFS
