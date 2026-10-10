@@ -5,6 +5,7 @@ import { accessDenied, restoreDatabaseAnyway } from "./dump.js";
 import {
   restoreVolume,
   restoreToPath,
+  restoreFileToPath,
   restoreRdbIntoVolume,
   stopContainer,
   startContainer,
@@ -16,7 +17,7 @@ import { REDIS_ENGINES, type Engine } from "./engines.js";
 import { decryptFile } from "./crypto.js";
 import { makeTransfer } from "./transfer.js";
 import { resticRestoreById, withResticCtx } from "./restic.js";
-import { resticRestorePath } from "./restic-helper.js";
+import { partKind, resticRestorePath } from "./restic-helper.js";
 import { resolveResource, readDbCredentials, readDbLogins, resourceContainers, uniqueLogins } from "./resolve.js";
 import type { Emit } from "./backup.js";
 import { artifactExcludes } from "./excludes.js";
@@ -88,9 +89,11 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
       // Paths the backup left out stay as they are on the target.
       const excludes = artifactExcludes(manifest.excludes, v.meta);
       if (!part) {
-        await (isHostPath
-          ? restoreToPath(target, localFiles[v.filename], excludes)
-          : restoreVolume(target, localFiles[v.filename], excludes));
+        await (isHostPath && v.meta.bindKind === "file"
+          ? restoreFileToPath(target, localFiles[v.filename])
+          : isHostPath
+            ? restoreToPath(target, localFiles[v.filename], excludes)
+            : restoreVolume(target, localFiles[v.filename], excludes));
         return;
       }
       if (!v.meta.resticPath) throw new Error(`${v.filename}: restic snapshot ${part} has no recorded path`);
@@ -99,7 +102,8 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
       await withResticCtx(
         job.source,
         job.storage.resticPassword!,
-        (ctx) => resticRestorePath(ctx, workDir, part, v.meta.resticPath!, target, root, excludes),
+        async (ctx) =>
+          resticRestorePath(ctx, workDir, part, v.meta.resticPath!, target, root, excludes, await partKind(ctx, workDir, part, v.meta)),
         workDir,
       );
     };

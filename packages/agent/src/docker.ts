@@ -341,6 +341,37 @@ export async function restoreRdbIntoVolume(volume: string, inFile: string): Prom
   await dockerFromFile(["run", "--rm", "-i", "-v", `${volume}:/data`, helperImage(), "sh", "-c", RDB_PLACE_SCRIPT], inFile);
 }
 
+/**
+ * Whether a host mount source is a folder or a single file (a bind mount of a
+ * file - an nginx.conf, a password file), or null when it can't be told: it
+ * is then handled as a folder, as before.
+ */
+export async function hostPathKind(source: string): Promise<"dir" | "file" | null> {
+  const r = await docker(["run", "--rm", "--network", "none", "-v", `${source}:/data:ro`, helperImage(), "stat", "-c", "%F", "/data"]);
+  if (r.code !== 0) return null;
+  const t = r.stdout.trim();
+  return t === "directory" ? "dir" : t.startsWith("regular") ? "file" : null;
+}
+
+/**
+ * Write a single-file archive (see captureTar) back into a host file, in
+ * place - a container mounting that file keeps seeing it - with the owner and
+ * mode it had. Its folder is created when missing.
+ */
+export async function restoreFileToPath(hostPath: string, inFile: string): Promise<void> {
+  const name = hostPath.split("/").pop() ?? "";
+  const dir = hostPath.slice(0, hostPath.length - name.length - 1) || "/";
+  if (!/^\/[A-Za-z0-9._/-]+$/.test(hostPath) || !name || name === "." || name === ".." || hostPath.split("/").includes("..")) {
+    throw new Error(`unsupported file path: ${hostPath}`);
+  }
+  const f = `/p/${name}`;
+  const script =
+    `set -e; T=$(mktemp -d); trap 'rm -rf "$T"' EXIT; tar -xpf - -C "$T"; S="$T/data"; ` +
+    `[ -f "$S" ] || { echo "the archive holds no file" >&2; exit 1; }; ` +
+    `cat "$S" > '${f}'; chown "$(stat -c %u:%g "$S")" '${f}'; chmod "$(stat -c %a "$S")" '${f}'`;
+  await dockerFromFile(["run", "--rm", "-i", "-v", `${dir}:/p`, helperImage(), "sh", "-c", script], inFile);
+}
+
 /** Restore a tarball into a host directory (a bind-mount source). Excluded
  * paths (left out of the backup) are kept as they are. */
 export async function restoreToPath(hostPath: string, inFile: string, excludes: string[] = []): Promise<void> {

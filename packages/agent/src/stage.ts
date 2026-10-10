@@ -3,7 +3,7 @@ import { mkdir, copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import { makeTransfer } from "./transfer.js";
 import { withResticCtx, resticRestoreById } from "./restic.js";
-import { resticTarPath } from "./restic-helper.js";
+import { partKind, resticTarPath } from "./restic-helper.js";
 import { decryptFile } from "./crypto.js";
 import { assertFreeSpace } from "./disk.js";
 
@@ -58,7 +58,7 @@ export async function stagePlaintext(
             if (parts === "skip") continue;
             if (!a.meta.resticPath) throw new Error(`${a.filename}: restic snapshot ${part} has no recorded path`);
             const root = a.meta.rootOwner && a.meta.rootMode ? { owner: a.meta.rootOwner, mode: a.meta.rootMode } : undefined;
-            await resticTarPath(ctx, workDir, part, a.meta.resticPath, join(out, base), root);
+            await resticTarPath(ctx, workDir, part, a.meta.resticPath, join(out, base), root, await partKind(ctx, workDir, part, a.meta));
             continue;
           }
           await copyFile(join(restored, base), join(out, base)).catch(async () => {

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
-import { dirname } from "node:path";
+import { basename, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { redactSecrets } from "@cbm/shared";
 import { docker, helperImage, type RunResult, type SecretEnv } from "./docker.js";
@@ -321,11 +321,60 @@ function checkRef(id: string, path: string) {
   if (!SNAPSHOT_PATH.test(path)) throw new Error(`unsupported restic path: ${path}`);
 }
 
+/** What a host mount was: a folder, or a single file (a bind mount of a file). */
+export type PathKind = "dir" | "file";
+
+/**
+ * Whether `path` of snapshot `id` is a folder or a file: a host bind mount of
+ * a single file is stored as that file, and `restic dump` / `restore id:path`
+ * treat it differently. Only the first entry is read (`restic ls` lists the
+ * path itself first).
+ */
+export async function resticPathKind(ctx: ResticCtx, workDir: string, id: string, path: string): Promise<PathKind> {
+  checkRef(id, path);
+  const sh = `${resticCmd(ctx)} ls --json --no-lock ${id} ${path} | head -n 2`;
+  const r = await helper(ctx, workDir, [], { sh });
+  const node = r.stdout
+    .split("\n")
+    .map((l) => {
+      try {
+        return JSON.parse(l) as { path?: string; type?: string };
+      } catch {
+        return null;
+      }
+    })
+    .find((n) => n?.path === path);
+  if (!node) throw fail(`looking up ${path}`, r);
+  return node.type === "file" ? "file" : "dir";
+}
+
+/** The kind of a part's path: as recorded at backup (`bindKind`), a volume is a
+ * folder, else (a host mount backed up before 2.6.2) asked to the repository. */
+export async function partKind(
+  ctx: ResticCtx,
+  workDir: string,
+  id: string,
+  meta: Record<string, string | undefined>,
+): Promise<PathKind> {
+  if (meta.bindKind === "file") return "file";
+  if (meta.bindKind === "dir" || !meta.bindSource) return "dir";
+  return resticPathKind(ctx, workDir, id, meta.resticPath ?? "");
+}
+
+/** Host folder and name of a file target, checked like the paths we restore to. */
+function fileTarget(target: string): { dir: string; name: string } {
+  if (!/^\/[A-Za-z0-9._/-]+$/.test(target) || target.split("/").includes("..")) throw new Error(`unsupported file path: ${target}`);
+  const name = basename(target);
+  if (!name || name === "." || name === "..") throw new Error(`unsupported file path: ${target}`);
+  return { dir: dirname(target) || "/", name };
+}
+
 /**
  * Restore `path` of snapshot `id` into a volume (by name) or a host folder,
  * replacing its content: files absent from the snapshot are deleted - except
  * the excluded paths, left as they are - and the root folder gets back its
- * owner and mode.
+ * owner and mode. A host mount of a single file (`kind` "file") is written
+ * back into that file, in place: a container mounting it keeps seeing it.
  */
 export async function resticRestorePath(
   ctx: ResticCtx,
@@ -335,8 +384,21 @@ export async function resticRestorePath(
   target: string,
   root?: RootStat,
   excludes: string[] = [],
+  kind: PathKind = "dir",
 ): Promise<void> {
   checkRef(id, path);
+  if (kind === "file") {
+    const { dir, name } = fileTarget(target);
+    const f = `/p/${name}`;
+    // Read whole first: a failed read never leaves the file half-written.
+    const tmp = `/p/.${name}.cbm-restore`;
+    const sh =
+      `set -e; trap 'rm -f ${shq(tmp)}' EXIT; ${resticCmd(ctx)} dump --retry-lock ${LOCK_WAIT} ${id} ${path} > ${shq(tmp)}; ` +
+      `cat ${shq(tmp)} > ${shq(f)}${rootFix(shq(f), root)}`;
+    const r = await helper(ctx, workDir, [`${dir}:/p`], { sh });
+    if (r.code !== 0) throw fail(`restic restore of ${path}`, r);
+    return;
+  }
   const ex = resticRestoreExcludes(excludes).map(shq).join(" ");
   const sh = `set -e; ${resticCmd(ctx)} restore ${id}:${path} --target /data --delete --quiet --retry-lock ${LOCK_WAIT}${ex ? ` ${ex}` : ""}${rootFix("/data", root)}`;
   const r = await helper(ctx, workDir, [`${target}:/data`], { sh });
@@ -344,15 +406,23 @@ export async function resticRestorePath(
 }
 
 /** Read `path` of snapshot `id` back end to end (every blob checked by restic)
- * and count its entries - a restore drill's check, with nothing kept locally. */
-export async function resticCountPath(ctx: ResticCtx, workDir: string, id: string, path: string): Promise<number> {
+ * and count its entries - a restore drill's check, with nothing kept locally.
+ * A single file (a host mount of a file) is read whole: `count` is its size in
+ * bytes then. */
+export async function resticCountPath(
+  ctx: ResticCtx,
+  workDir: string,
+  id: string,
+  path: string,
+  kind: PathKind = "dir",
+): Promise<{ kind: PathKind; count: number }> {
   checkRef(id, path);
-  const sh = `set -o pipefail; ${resticCmd(ctx)} dump --retry-lock ${LOCK_WAIT} ${id} ${path} | tar -tf - | wc -l`;
+  const sh = `set -o pipefail; ${resticCmd(ctx)} dump --retry-lock ${LOCK_WAIT} ${id} ${path} | ${kind === "file" ? "wc -c" : "tar -tf - | wc -l"}`;
   const r = await helper(ctx, workDir, [], { sh });
   if (r.code !== 0) throw fail(`reading ${path} back`, r);
   const n = Number.parseInt(r.stdout.trim(), 10);
   if (!Number.isFinite(n)) throw new Error(`could not count the entries of ${path} (got "${r.stdout.trim()}")`);
-  return n;
+  return { kind, count: n };
 }
 
 /** Turn `path` of snapshot `id` into a tar at `outFile` (inside the work dir),
@@ -364,13 +434,19 @@ export async function resticTarPath(
   path: string,
   outFile: string,
   root?: RootStat,
+  kind: PathKind = "dir",
 ): Promise<void> {
   checkRef(id, path);
   const dir = dirname(outFile);
+  // A single file: a tar holding it alone, as the tar engine copies one.
   const sh =
-    `set -e; T=$(mktemp -d -p ${shq(dir)}); trap 'rm -rf "$T"' EXIT; ` +
-    `${resticCmd(ctx)} restore ${id}:${path} --target "$T" --quiet --retry-lock ${LOCK_WAIT}${rootFix('"$T"', root)}; ` +
-    `tar -cf ${shq(outFile)} -C "$T" .`;
+    kind === "file"
+      ? `set -e; T=$(mktemp -d -p ${shq(dir)}); trap 'rm -rf "$T"' EXIT; ` +
+        `${resticCmd(ctx)} dump --retry-lock ${LOCK_WAIT} ${id} ${path} > "$T/data"${rootFix('"$T/data"', root)}; ` +
+        `tar -cf ${shq(outFile)} -C "$T" data`
+      : `set -e; T=$(mktemp -d -p ${shq(dir)}); trap 'rm -rf "$T"' EXIT; ` +
+        `${resticCmd(ctx)} restore ${id}:${path} --target "$T" --quiet --retry-lock ${LOCK_WAIT}${rootFix('"$T"', root)}; ` +
+        `tar -cf ${shq(outFile)} -C "$T" .`;
   const r = await helper(ctx, workDir, [], { sh });
   if (r.code !== 0) throw fail(`unpacking ${path}`, r);
 }

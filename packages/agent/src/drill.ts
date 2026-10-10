@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { stagePlaintext } from "./stage.js";
 import { withResticCtx } from "./restic.js";
-import { resticCountPath, resticRestorePath } from "./restic-helper.js";
+import { partKind, resticCountPath, resticRestorePath } from "./restic-helper.js";
 import { docker, restoreVolume, tarEntryCount, writeFileIntoVolume, type RunResult } from "./docker.js";
 import { restoreDatabase } from "./dump.js";
 import { detectEngine } from "./engines.js";
@@ -430,15 +430,27 @@ export async function runRestoreDrill(
           emit("info", `Reading back ${a.filename}`, progress);
           const part = a.meta?.[RESTIC_PART_META];
           // Read in place by restic: read it back from the repository, end to end.
-          const n = part
+          const read = part
             ? await withResticCtx(
                 job.source,
                 job.storage.resticPassword ?? "",
-                (ctx) => resticCountPath(ctx, workDir, part, a.meta.resticPath ?? ""),
+                async (ctx) => resticCountPath(ctx, workDir, part, a.meta.resticPath ?? "", await partKind(ctx, workDir, part, a.meta)),
                 workDir,
               )
-            : await tarEntryCount(file);
-          checks.push({ ...base, ok: true, detail: n === 0 ? "empty archive (read back fine)" : `${n} entries read back` });
+            : { kind: a.meta?.bindKind === "file" ? ("file" as const) : ("dir" as const), count: await tarEntryCount(file) };
+          const n = read.count;
+          checks.push({
+            ...base,
+            ok: true,
+            detail:
+              read.kind === "file"
+                ? part
+                  ? `file read back (${n} bytes)`
+                  : "file read back"
+                : n === 0
+                  ? "empty archive (read back fine)"
+                  : `${n} entries read back`,
+          });
           // The files of a database that has no dump in this snapshot: start it on them.
           const db = dbFolderOf(a.meta);
           const dumped = artifacts.some((d) => d.kind === "db-dump" && d.meta?.container && d.meta.container === a.meta?.dbContainer);

@@ -29,6 +29,9 @@ export async function captureTar(
   encryptKey?: string,
   /** Paths left out (see excludes.ts). */
   excludes: string[] = [],
+  /** `source` is a single host file (a bind mount of a file): the archive
+   * holds it alone, as `data`. */
+  file = false,
 ): Promise<CaptureResult> {
   // Named, so a failed copy can remove them: stopping `docker run` alone leaves
   // the container running (tar as PID 1 ignores SIGTERM, hence --init too).
@@ -36,7 +39,9 @@ export async function captureTar(
   const tarName = `cbm-capture-${id}`;
   const checkName = `cbm-capture-check-${id}`;
   const tar = spawnDocker(
-    ["run", "--rm", "--init", "--name", tarName, "-v", `${source}:/data:ro`, helperImage(), "tar", "-cf", "-", "-C", "/data", ...tarExcludes(excludes), "."],
+    file
+      ? ["run", "--rm", "--init", "--name", tarName, "-v", `${source}:/c/data:ro`, helperImage(), "tar", "-cf", "-", "-C", "/c", "data"]
+      : ["run", "--rm", "--init", "--name", tarName, "-v", `${source}:/data:ro`, helperImage(), "tar", "-cf", "-", "-C", "/data", ...tarExcludes(excludes), "."],
     ["ignore", "pipe", "pipe"],
   );
   const check = spawnDocker(

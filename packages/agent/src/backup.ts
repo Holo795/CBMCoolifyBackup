@@ -24,6 +24,7 @@ import { accessDenied, dumpDatabase, dumpDatabaseAnyway, dumpRedis, mysqlUnseenD
 import { REDIS_ENGINES, isRedisEngine, type Engine } from "./engines.js";
 import {
   hostEntries,
+  hostPathKind,
   runningRwContainersForVolume,
   isContainerRunning,
   containerExists,
@@ -203,6 +204,9 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
       /** The resource's exclusions, plus those naming a path inside this mount. */
       excludes: string[];
     };
+    // A host mount can be a single file (an nginx.conf, a password file): it is
+    // copied, read back and restored as that file, not as a folder.
+    const bindKinds = new Map(await Promise.all(resource.bindMounts.map(async (b) => [b.source, await hostPathKind(b.source)] as const)));
     const candidates: Target[] = [
       ...resource.volumes.map((vol) => ({
         source: vol,
@@ -218,8 +222,8 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
         return {
           source: b.source,
           fileName: volumeFileName("bind-" + slug),
-          label: `host folder ${b.source}`,
-          meta: { bindSource: b.source },
+          label: bindKinds.get(b.source) === "file" ? `host file ${b.source}` : `host folder ${b.source}`,
+          meta: { bindSource: b.source, ...(bindKinds.get(b.source) ? { bindKind: bindKinds.get(b.source)! } : {}) },
           resticPath: () => snapshotPath("bind", slug),
           freezeContainers: async () => ((await isContainerRunning(b.container)) ? [b.container] : []),
           excludes: job.excludes,
@@ -310,6 +314,7 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
     // which a live copy could catch half-written.
     for (const [n, t] of repo.entries()) {
       if (t.meta.dbEngine) continue; // a database server's own data folder: dumped or frozen as such
+      if (t.meta.bindKind === "file") continue; // a single file, not a folder to search
       for (const [k, f] of (await findSqliteFiles(t.source).catch(() => [])).entries()) {
         const room = await freeBytes(workDir);
         if (room !== null && room - f.bytes < minFreeBytes()) {
@@ -406,7 +411,7 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
           choice.where === "local"
             ? (body: Readable) => pipeline(body, createWriteStream(target))
             : async (body: Readable) => (await transferFor()).putStream(body, target, needBytes ?? undefined);
-        const res = await captureTar(t.source, sink, job.encryption.enabled ? job.encryption.key : undefined, t.excludes);
+        const res = await captureTar(t.source, sink, job.encryption.enabled ? job.encryption.key : undefined, t.excludes, t.meta.bindKind === "file");
         artifacts.push({
           kind: "volume",
           filename,

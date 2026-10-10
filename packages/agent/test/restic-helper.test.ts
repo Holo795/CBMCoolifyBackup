@@ -62,7 +62,7 @@ test("restic in place: incremental passes, read-back, restore and tar copy", { s
     assert.equal(await resticRawSize(ctx, "res:none"), 0);
 
     // Read back end to end: ., sub, sub/a.txt, sub/b.txt, big.bin, link (+ the root)
-    assert.ok((await resticCountPath(ctx, work, second.id, path)) >= 5);
+    assert.ok((await resticCountPath(ctx, work, second.id, path)).count >= 5);
 
     // Restore over a volume with stale content: identical, stale gone, root kept.
     await sh(dst, "echo stale > /d/stale.txt");
@@ -83,7 +83,7 @@ test("restic in place: incremental passes, read-back, restore and tar copy", { s
     // Exclusions: left out of the backup, kept on the target by a restore.
     const ex = ["/files", "*.bin"];
     const third = await resticBackupPath(ctx, work, src, path, ["snap:t1"], { excludes: ex });
-    assert.equal(await resticCountPath(ctx, work, third.id, path), 4, "sub, sub/a.txt, sub/b.txt, link");
+    assert.equal((await resticCountPath(ctx, work, third.id, path)).count, 4, "sub, sub/a.txt, sub/b.txt, link");
     await sh(dst, "mkdir -p /d/files && echo keep > /d/files/k.txt && echo keep > /d/kept.bin && echo stale > /d/stale.txt");
     await resticRestorePath(ctx, work, third.id, path, dst, { owner: "999:999", mode: "700" }, ex);
     assert.equal(await sh(dst, "cd /d && find . -type f | sort | tr '\\n' ' '"), "./big.bin ./files/k.txt ./kept.bin ./sub/a.txt ./sub/b.txt");
