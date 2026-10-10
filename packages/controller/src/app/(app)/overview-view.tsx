@@ -17,7 +17,9 @@ export type OverviewCounts = {
   agentsTotal: number;
 };
 
-export type OverviewIssues = { failed: number; missing: number; corrupt: number; agentsOffline: number };
+/** `failing`: resources whose last backup failed; `failedWeek`: failed runs of
+ * the last 7 days, retried since or not (history). */
+export type OverviewIssues = { failing: number; failedWeek: number; missing: number; corrupt: number; agentsOffline: number };
 
 export type OverviewSnapshot = {
   id: string;
@@ -45,7 +47,7 @@ export async function OverviewView({
   const t = await getT();
   const plural = (key: string, count: number) => t(`${key}${count > 1 ? "Other" : "One"}`, { count });
   const problems = [
-    { n: issues.failed, text: plural("overview.issueFailed", issues.failed), href: "/snapshots" },
+    { n: issues.failing, text: plural("overview.issueFailing", issues.failing), href: "/snapshots?status=failed" },
     { n: issues.missing, text: plural("overview.issueMissing", issues.missing), href: "/snapshots" },
     { n: issues.corrupt, text: plural("overview.issueCorrupt", issues.corrupt), href: "/snapshots" },
     { n: issues.agentsOffline, text: plural("overview.issueAgents", issues.agentsOffline), href: "/agents" },
@@ -79,6 +81,16 @@ export async function OverviewView({
             ))}
           </ul>
         </div>
+      )}
+
+      {issues.failedWeek > 0 && (
+        <p className="-mt-3 text-[13px] text-muted-foreground">
+          {plural("overview.failedWeek", issues.failedWeek)}
+          {issues.failing === 0 ? ` ${t("overview.failedWeekSince")}` : ""} ·{" "}
+          <Link href="/snapshots?status=failed" className="font-medium text-foreground hover:underline">
+            {t("overview.failedWeekLink")}
+          </Link>
+        </p>
       )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

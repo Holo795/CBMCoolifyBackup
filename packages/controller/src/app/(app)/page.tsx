@@ -23,7 +23,7 @@ export default async function OverviewPage() {
     prisma.snapshot.count({ where: { status: "succeeded" } }),
     prisma.agent.count({ where: { status: "online" } }),
     prisma.agent.count(),
-    prisma.snapshot.count({ where: { status: "failed", startedAt: { gte: weekAgo } } }),
+    prisma.snapshot.count({ where: { status: "failed", isMirror: false, startedAt: { gte: weekAgo } } }),
     prisma.snapshot.count({ where: { status: "missing" } }),
     prisma.snapshot.count({ where: { status: "corrupt" } }),
     prisma.snapshot.findMany({
@@ -45,6 +45,16 @@ export default async function OverviewPage() {
     }),
     prisma.destination.findMany({ select: { id: true, name: true, type: true, engine: true } }),
   ]);
+
+  // What needs attention: resources whose LAST backup failed - one that failed
+  // and has been backed up since is history, not a problem.
+  const [{ n: failing }] = await prisma.$queryRaw<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM (
+      SELECT DISTINCT ON (s."resourceId") s.status
+      FROM "Snapshot" s JOIN "Resource" r ON r.id = s."resourceId"
+      WHERE s."isMirror" = false AND s.status IN ('succeeded', 'failed') AND r.status <> 'deleted'
+      ORDER BY s."resourceId", s."startedAt" DESC
+    ) last WHERE status = 'failed'`;
 
   const destById = new Map(dests.map((d) => [d.id, d]));
   // restic stores identical data once: its repositories count what they really take.
@@ -68,7 +78,7 @@ export default async function OverviewPage() {
   return (
     <OverviewView
       counts={{ instances, resources, enabled, snapshots, agentsOnline, agentsTotal }}
-      issues={{ failed, missing, corrupt, agentsOffline: agentsTotal - agentsOnline }}
+      issues={{ failing, failedWeek: failed, missing, corrupt, agentsOffline: agentsTotal - agentsOnline }}
       recent={recent}
       storage={storage}
     />
