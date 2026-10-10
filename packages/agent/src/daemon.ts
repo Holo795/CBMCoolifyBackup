@@ -2,6 +2,9 @@ import { loadConfig, type AgentConfig } from "./config.js";
 import {
   setDockerBin,
   setHelperImage,
+  jobScope,
+  stopJobContainers,
+  sweepJobContainers,
   dockerVersion,
   countContainers,
   detectCoolifyResourceUuids,
@@ -95,7 +98,9 @@ export async function startDaemon(): Promise<void> {
     logger.info(`Picked up job ${job.id} (${job.type})`);
     activeJobs.add(job.id);
     const p = (async () => {
-      const result = job.type === "update-agent" ? await updateSelf(job, cfg) : await runJobForController(job, cfg);
+      // The updater outlives this process: it isn't the job's to stop or sweep.
+      const result =
+        job.type === "update-agent" ? await updateSelf(job, cfg) : await jobScope.run(job.id, () => runJobForController(job, cfg));
       await deliverResult(cfg.workDir, result, (r) => client.sendResult(cfg, r), { log: (m) => logger.warn(m) });
       logger.info(`Job ${job.id} finished: ${result.status}`);
     })()
@@ -215,6 +220,16 @@ async function heartbeatLoop(cfg: AgentConfig): Promise<void> {
       });
       // An updater waiting for this (new) agent: it reached CBM.
       if (answer && updating) await markHealthy(cfg.workDir, client.AGENT_VERSION).catch(() => undefined);
+      // Jobs the controller gave up on (time limit, agent lost): stop what they
+      // started, so they release the repository locks they hold.
+      for (const id of answer?.cancel ?? []) {
+        if (!activeJobs.has(id)) continue;
+        const n = await stopJobContainers(id).catch(() => 0);
+        logger.warn(`Job ${id} was given up by the controller: stopped ${n} of its container(s)`);
+      }
+      // Containers of jobs this process doesn't run (it restarted mid-job).
+      const swept = await sweepJobContainers(activeJobs).catch(() => [] as string[]);
+      if (swept.length) logger.info(`Removed containers left by job(s) no longer running: ${swept.join(", ")}`);
       // Settings set in CBM apply from now on (env-fixed ones never change).
       if (answer?.settings) {
         const changed = applyCbmSettings(answer.settings);

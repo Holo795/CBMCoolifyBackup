@@ -134,7 +134,13 @@ actually restorable — without touching Coolify or the original resource:
      dump exists after the load (`restored 12/12 tables`); MongoDB reports its collections.
    - **Redis RDB exports** are loaded by a throwaway `redis-server` (key count reported). KeyDB and
      Dragonfly exports get an RDB header check.
-   - **Volume and bind-mount archives** are read back end to end.
+   - **Volume and bind-mount archives** are read back end to end. A folder read in place by restic
+     and bigger than 20 GB is checked on a **sample** instead: up to 300 of its files picked at
+     random (2 GB at most) are restored whole and compared with the sizes the snapshot records -
+     minutes instead of hours for a few hundred GB. The check says so (`sample read back: 300 of
+     391586 files`); the rest of its data is read by the destination's weekly
+     [integrity check](reconciliation-retention.md#integrity-check--detecting-silent-corruption),
+     a different twentieth each week. Database dumps are always loaded in full.
    - **The files of a database that has no dump in the snapshot** (its dump failed, see
      [Backups with warnings](backups.md#backups-with-warnings)) are put back in a sandbox volume
      and the **same database image** (the exact digest recorded at backup time) is started on
@@ -146,6 +152,14 @@ actually restorable — without touching Coolify or the original resource:
      database), the volume is only read back.
 3. Everything is deleted afterwards; sandboxes left behind by a crashed agent are cleaned up by the
    next drill.
+
+A test restore runs on the destination's **Read with** agent when one is set (see
+[Destinations](destinations.md)). Like every job, it has a time limit that grows with the size of
+the snapshot (at least 6 hours, about one hour per 10 GB beyond that). When a job passes its
+limit, or its agent is lost, the controller marks it failed and tells the agent, which stops the
+containers the job started: a restic command holding a repository lock doesn't keep it, and a
+retention purge on the same destination isn't blocked. A result arriving after the limit is logged
+on the job and ignored.
 
 Run one from a snapshot's page (**Test restore** in its *Test restores* card or its "…" menu,
 operator+), via the API

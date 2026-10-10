@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile, realpath, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { docker } from "../src/docker.js";
+import { docker, jobScope, stopJobContainers, sweepJobContainers } from "../src/docker.js";
 import { resticContext, resticEnsureRepo, resticForget, resticListSnapshotIds, resticRawSize, setResticBin } from "../src/restic.js";
-import { resticBackupPath, resticCountPath, resticRestorePath, resticTarPath, snapshotPath } from "../src/restic-helper.js";
+import { resticBackupPath, resticCountPath, resticRestorePath, resticSamplePath, resticTarPath, snapshotPath } from "../src/restic-helper.js";
 
 const DOCKER = process.env.CBM_DOCKER_TESTS === "1";
 const IMAGE = (process.env.AGENT_HELPER_IMAGE ??= "ghcr.io/holo795/cbm-agent:latest");
@@ -101,4 +101,58 @@ test("restic in place: incremental passes, read-back, restore and tar copy", { s
     await docker(["run", "--rm", "-v", `${dir}:${dir}`, "alpine:3.24", "rm", "-rf", join(dir, "dest"), work]).catch(() => undefined);
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("restic in place: a large folder checked on a sample of its files", { skip: !DOCKER, timeout: 600_000 }, async () => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "cbm-rs-")));
+  const src = `cbm-rs-src-${Math.random().toString(36).slice(2, 8)}`;
+  const wrapper = join(dir, "restic");
+  await writeFile(
+    wrapper,
+    `#!/bin/sh\nexec docker run --rm -i --network host -e RESTIC_PASSWORD -e RESTIC_REPOSITORY -v ${dir}:${dir} --entrypoint restic ${IMAGE} "$@"\n`,
+  );
+  await chmod(wrapper, 0o755);
+  setResticBin(wrapper);
+  const work = join(dir, "work");
+  try {
+    // 40 files in folders, plus names a sample leaves out (a pattern, an escape).
+    await sh(src, "for d in a b 'c d'; do mkdir -p \"/d/$d\"; done; for i in $(seq 1 40); do head -c $((i * 1000)) /dev/urandom > \"/d/$([ $((i % 3)) = 0 ] && echo 'c d' || echo a)/f $i.bin\"; done; echo x > '/d/b/star*name'; printf y > '/d/b/quote\"name'");
+    const ctx = await resticContext({ type: "local", basePath: join(dir, "dest") } as never, "pw", dir);
+    await docker(["run", "--rm", "-v", `${dir}:${dir}`, "alpine:3.24", "mkdir", "-p", join(dir, "dest"), work]);
+    await resticEnsureRepo(ctx);
+    const path = snapshotPath("volume", src);
+    const snap = await resticBackupPath(ctx, work, src, path, ["snap:s1"]);
+
+    const s = await resticSamplePath(ctx, work, snap.id, path, { files: 10, bytes: 10 * 1024 * 1024 });
+    assert.equal(s.total, 42, "every file counted");
+    assert.equal(s.sampled, 10);
+    assert.ok(s.bytes > 0);
+    // A small byte budget: fewer files, at least one.
+    const small = await resticSamplePath(ctx, work, snap.id, path, { files: 10, bytes: 30_000 });
+    assert.ok(small.sampled >= 1 && small.sampled < 10, `budgeted sample (${small.sampled})`);
+    // Nothing left behind in the work dir.
+    const left = await docker(["run", "--rm", "-v", `${dir}:${dir}`, "alpine:3.24", "sh", "-c", `ls -A ${work} | wc -l`]);
+    assert.equal(left.stdout.trim(), "0");
+  } finally {
+    await docker(["volume", "rm", "-f", src]).catch(() => undefined);
+    await docker(["run", "--rm", "-v", `${dir}:${dir}`, "alpine:3.24", "rm", "-rf", join(dir, "dest"), work]).catch(() => undefined);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a job's containers are labelled with it, stopped on cancel, swept when orphaned", { skip: !DOCKER, timeout: 120_000 }, async () => {
+  const job = `test-${Math.random().toString(36).slice(2, 8)}`;
+  await jobScope.run(job, () => docker(["run", "-d", "--rm", "alpine:3.24", "sleep", "300"]));
+  const listed = await docker(["ps", "--filter", `label=cbm.job=${job}`, "--format", "{{.ID}}"]);
+  assert.equal(listed.stdout.trim().split("\n").filter(Boolean).length, 1);
+  // Still running as far as this agent knows: not swept.
+  assert.deepEqual(await sweepJobContainers(new Set([job]), 0), []);
+  assert.equal(await stopJobContainers(job), 1);
+  const after = await docker(["ps", "-a", "--filter", `label=cbm.job=${job}`, "--format", "{{.ID}}"]);
+  assert.equal(after.stdout.trim(), "");
+  // An orphan (its job not running here) older than the grace: swept.
+  const orphan = `test-${Math.random().toString(36).slice(2, 8)}`;
+  await jobScope.run(orphan, () => docker(["run", "-d", "--rm", "alpine:3.24", "sleep", "300"]));
+  assert.deepEqual(await sweepJobContainers(new Set(), 60_000), [], "too recent to sweep");
+  assert.deepEqual(await sweepJobContainers(new Set(), 0), [orphan]);
 });

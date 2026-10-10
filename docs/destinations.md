@@ -9,8 +9,13 @@ override pointing somewhere else.
 Each destination is a card showing its stored size, snapshot and schedule counts, and status
 badges (*missing*, *integrity ok / failed*, *no agent to verify*). Its **…** menu holds
 **Verify** and **Check integrity** (operators), **Test** and **Delete** (admins; type the
-destination's name to confirm). Admins set the **Mirror to** destination and the **Weekly
-integrity check** switch in the card footer. Click the name for the detail page: storage
+destination's name to confirm). Admins set the **Mirror to** destination, the **Weekly
+integrity check** switch and, for an SFTP or S3 destination, **Read with** in the card footer:
+the agent that reads it for test restores, integrity checks and mirror copies. Pick the agent of
+the host that holds the repository (an SFTP server running an agent too): it reads the data
+locally instead of over the network, and the agents of the backed-up hosts stay free. By
+default (*Any agent*), a test restore runs on the agent that made the backup. A local destination
+is always read by the agent that wrote it. Click the name for the detail page: storage
 **by resource** and, for a local destination, **by server**.
 
 ## Types

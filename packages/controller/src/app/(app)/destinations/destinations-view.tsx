@@ -14,6 +14,7 @@ import {
 import { ActionsMenu, type MenuAction } from "@/components/actions-menu";
 import { IntegrityToggle } from "@/components/integrity-toggle";
 import { MirrorPicker } from "@/components/mirror-picker";
+import { ReadAgentPicker } from "@/components/read-agent-picker";
 import { FormDialog } from "@/components/form-dialog";
 import { DestinationProtectionFields } from "@/components/destination-protection";
 import { parseProtectionDetail } from "@/lib/protection-check";
@@ -55,7 +56,16 @@ export type DestinationItem = {
 const TYPE_ICON = { local: FolderOpen, ssh: Server, s3: Cloud } as const;
 
 /** Presentation only: the Destinations list markup. Data is fetched in ./page.tsx. */
-export async function DestinationsView({ items, globalBytes }: { items: DestinationItem[]; globalBytes: bigint }) {
+export async function DestinationsView({
+  items,
+  globalBytes,
+  agents,
+}: {
+  items: DestinationItem[];
+  globalBytes: bigint;
+  /** For a remote destination's reading agent. */
+  agents: { id: string; hostname: string }[];
+}) {
   const t = await getT();
   const user = await requireUser();
   const isAdmin = can(user, "admin");
@@ -280,6 +290,7 @@ export async function DestinationsView({ items, globalBytes }: { items: Destinat
                 {isAdmin && (
                   <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-b-xl border-t bg-surface px-5 py-3">
                     <MirrorPicker id={d.id} current={d.mirrorToId} candidates={allDests.filter((c) => c.id !== d.id)} />
+                    {d.type !== "local" && <ReadAgentPicker id={d.id} current={d.readAgentId} agents={agents} />}
                     <IntegrityToggle id={d.id} enabled={d.integrityCheckEnabled} />
                   </div>
                 )}

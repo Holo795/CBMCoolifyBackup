@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { stagePlaintext } from "./stage.js";
 import { withResticCtx } from "./restic.js";
-import { partKind, resticCountPath, resticRestorePath } from "./restic-helper.js";
+import { partKind, resticCountPath, resticRestorePath, resticSamplePath } from "./restic-helper.js";
+import { freeBytes, minFreeBytes } from "./disk.js";
 import { docker, restoreVolume, tarEntryCount, writeFileIntoVolume, type RunResult } from "./docker.js";
 import { restoreDatabase } from "./dump.js";
 import { detectEngine } from "./engines.js";
@@ -53,6 +54,8 @@ export function sandboxImage(engine: string, artifactImage?: string, resourceDbI
   if (resourceDbImage && detectEngine(resourceDbImage) === engine) return resourceDbImage;
   return DEFAULT_IMAGES[engine] ?? null;
 }
+
+const mib = (b: number) => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)} GiB` : `${(b / 1024 ** 2).toFixed(1)} MiB`);
 
 /** Number of `CREATE TABLE` statements in SQL text (pg_dump / mysqldump style). */
 export function countCreateTables(sql: string): number {
@@ -430,20 +433,35 @@ export async function runRestoreDrill(
           emit("info", `Reading back ${a.filename}`, progress);
           const part = a.meta?.[RESTIC_PART_META];
           // Read in place by restic: read it back from the repository, end to end.
+          // A large folder read in place is checked on a sample of its files
+          // (the destination's integrity check reads its data in rotation).
+          const sample = part && job.sample && (a.sizeBytes ?? 0) > job.sample.aboveBytes ? job.sample : null;
           const read = part
             ? await withResticCtx(
                 job.source,
                 job.storage.resticPassword ?? "",
-                async (ctx) => resticCountPath(ctx, workDir, part, a.meta.resticPath ?? "", await partKind(ctx, workDir, part, a.meta)),
+                async (ctx) => {
+                  const kind = await partKind(ctx, workDir, part, a.meta);
+                  if (sample && kind === "dir") {
+                    // The sample is restored in the work dir: never into its kept free space.
+                    const room = (await freeBytes(workDir)) ?? sample.bytes + minFreeBytes();
+                    const budget = Math.min(sample.bytes, room - minFreeBytes());
+                    if (budget < 1024 * 1024) throw new Error("not enough room on the agent host to read a sample back");
+                    return { kind, count: 0, sampled: await resticSamplePath(ctx, workDir, part, a.meta.resticPath ?? "", { files: sample.files, bytes: budget }) };
+                  }
+                  return { ...(await resticCountPath(ctx, workDir, part, a.meta.resticPath ?? "", kind)), sampled: null };
+                },
                 workDir,
               )
-            : { kind: a.meta?.bindKind === "file" ? ("file" as const) : ("dir" as const), count: await tarEntryCount(file) };
+            : { kind: a.meta?.bindKind === "file" ? ("file" as const) : ("dir" as const), count: await tarEntryCount(file), sampled: null };
           const n = read.count;
+          const s = read.sampled;
           checks.push({
             ...base,
             ok: true,
-            detail:
-              read.kind === "file"
+            detail: s
+              ? `sample read back: ${s.sampled} of ${s.total} files (${mib(s.bytes)}), checked whole - the rest of its data is left to the destination's integrity check`
+              : read.kind === "file"
                 ? part
                   ? `file read back (${n} bytes)`
                   : "file read back"

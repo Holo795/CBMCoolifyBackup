@@ -425,6 +425,63 @@ export async function resticCountPath(
   return { kind, count: n };
 }
 
+// A random sample of the files under a path, from `restic ls` (JSON lines):
+// reservoir sampling over the files, then kept while under the byte budget.
+// Paths restic would read as a pattern (* ? [) or that JSON escapes are left
+// out of the sample. Writes "size<TAB>path" lines to $T/sample, the paths to
+// $T/include, and the number of files to $T/total.
+const SAMPLE_AWK = `
+BEGIN { srand(seed) }
+/"type":"file"/ {
+  all++
+  if (index($0, "\\\\") > 0) next
+  if (!match($0, /"path":"[^"]*"/)) next
+  p = substr($0, RSTART + 8, RLENGTH - 9)
+  if (p ~ /[*?[]/) next
+  s = 0; if (match($0, /"size":[0-9]+/)) s = substr($0, RSTART + 7, RLENGTH - 7) + 0
+  c++
+  if (k < n) { k++; P[k] = p; S[k] = s } else { r = int(rand() * c) + 1; if (r <= n) { P[r] = p; S[r] = s } }
+}
+END {
+  t = 0
+  for (i = 1; i <= k; i++) {
+    if (i > 1 && t + S[i] > cap) continue
+    t += S[i]; print S[i] "\t" P[i] > (dir "/sample"); print P[i] > (dir "/include")
+  }
+  print all + 0 > (dir "/total")
+}`;
+
+/**
+ * Check a large folder of snapshot `id` on a sample: at most `files` random
+ * files and about `bytes` bytes, restored whole into a temporary folder of the
+ * work dir (restic verifies every blob it reads) and compared with the sizes
+ * the snapshot records. The rest of the data is left to the destination's
+ * integrity check. `count` is the number of files in the folder.
+ */
+export async function resticSamplePath(
+  ctx: ResticCtx,
+  workDir: string,
+  id: string,
+  path: string,
+  opts: { files: number; bytes: number },
+): Promise<{ total: number; sampled: number; bytes: number }> {
+  checkRef(id, path);
+  const seed = Math.floor(Math.random() * 1_000_000_000);
+  const sh =
+    `set -e; T=$(mktemp -d -p ${shq(workDir)}); trap 'rm -rf "$T"' EXIT; : > "$T/sample"; : > "$T/include"; ` +
+    `${resticCmd(ctx)} ls --json --no-lock --recursive ${id} ${path} | ` +
+    `awk -v n=${Math.floor(opts.files)} -v cap=${Math.floor(opts.bytes)} -v seed=${seed} -v dir="$T" ${shq(SAMPLE_AWK)}; ` +
+    `if [ -s "$T/include" ]; then ${resticCmd(ctx)} restore ${id} --target "$T/r" --include-file "$T/include" --quiet --retry-lock ${LOCK_WAIT}; fi; ` +
+    `bad=0; n=0; b=0; while IFS="$(printf '\t')" read -r size p; do n=$((n+1)); b=$((b+size)); f="$T/r$p"; ` +
+    `if [ ! -f "$f" ] || [ "$(stat -c %s "$f")" != "$size" ]; then bad=$((bad+1)); echo "not read back whole: $p" >&2; fi; done < "$T/sample"; ` +
+    `echo "total=$(cat "$T/total") sampled=$n bytes=$b bad=$bad"; [ "$bad" = 0 ]`;
+  const r = await helper(ctx, workDir, [], { sh });
+  if (r.code !== 0) throw fail(`reading a sample of ${path} back`, r);
+  const m = /total=(\d+) sampled=(\d+) bytes=(\d+)/.exec(r.stdout);
+  if (!m) throw new Error(`could not read the sample check of ${path} (got "${r.stdout.trim().slice(-200)}")`);
+  return { total: Number(m[1]), sampled: Number(m[2]), bytes: Number(m[3]) };
+}
+
 /** Turn `path` of snapshot `id` into a tar at `outFile` (inside the work dir),
  * shaped like the tar engine's volume archives - for a mirror copy. */
 export async function resticTarPath(

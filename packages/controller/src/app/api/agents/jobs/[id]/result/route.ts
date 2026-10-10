@@ -31,7 +31,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // already settled is acknowledged without being processed again - except one
   // the reaper failed (agent offline / time limit / never picked up), which the
   // real result may still correct (e.g. a backup that did finish during an outage).
-  const reaped = job.status === "failed" && /went offline|time limit|picked this job up/.test(job.error ?? "");
+  // A job stopped at its time limit stays failed: its agent was told to stop
+  // it, and a result arriving afterwards (it finished anyway) is only logged.
+  if (job.status === "failed" && /time limit/.test(job.error ?? "")) {
+    const late = JobResult.safeParse(await req.json().catch(() => ({})));
+    await prisma.jobEvent
+      .create({
+        data: {
+          jobId: id,
+          level: "warn",
+          message: `Result received after the job was stopped at its time limit (${late.success ? late.data.status : "unreadable"}): ignored, the job stays failed`,
+        },
+      })
+      .catch(() => undefined);
+    return NextResponse.json({ ok: true, duplicate: true });
+  }
+  const reaped = job.status === "failed" && /went offline|picked this job up/.test(job.error ?? "");
   if (job.status !== "running" && !reaped) return NextResponse.json({ ok: true, duplicate: true });
 
   const parsed = JobResult.safeParse(await req.json().catch(() => ({})));

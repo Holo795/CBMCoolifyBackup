@@ -1015,6 +1015,26 @@ export async function setDestinationMirror(
   }
 }
 
+/** The agent that reads a remote destination (test restores, integrity checks,
+ * mirrors). Not for a "local" destination: only the agent that wrote its files
+ * reaches them. */
+export async function setDestinationReadAgent(destinationId: string, agentId: string | null): Promise<{ ok?: boolean; error?: string }> {
+  const t = await getT();
+  try {
+    await requireRole("admin");
+    const dest = await prisma.destination.findUniqueOrThrow({ where: { id: destinationId }, select: { type: true } });
+    if (agentId && dest.type === "local") return { error: t("messages.readAgentLocal") };
+    if (agentId && !(await prisma.agent.findUnique({ where: { id: agentId }, select: { id: true } }))) {
+      return { error: t("messages.readAgentNotFound") };
+    }
+    await prisma.destination.update({ where: { id: destinationId }, data: { readAgentId: agentId } });
+    revalidatePath("/destinations");
+    return { ok: true };
+  } catch (e) {
+    return { error: errorText(e, t) };
+  }
+}
+
 /**
  * Deletion protection of a destination: protected (CBM never deletes there),
  * and how the mirror copies it receives are kept. Turning protection on for an

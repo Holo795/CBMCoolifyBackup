@@ -180,6 +180,7 @@ model Agent {
   createdAt     DateTime        @default(now())
   jobs          AgentJob[]
   snapshots     Snapshot[]
+  readsFor      Destination[]   @relation("DestinationReader")
 }
 
 model Resource {
@@ -265,6 +266,11 @@ model Destination {
   // second independent copy (redundancy). Null = no mirror.
   mirrorToId      String?
   mirrorTo        Destination?  @relation("DestinationMirror", fields: [mirrorToId], references: [id], onDelete: SetNull)
+  // ssh / s3 only: the agent that reads this destination for test restores,
+  // integrity checks and mirror copies (e.g. the one on the host holding the
+  // repository, which reads it locally). Null: the producing agent, else any.
+  readAgentId     String?
+  readAgent       Agent?        @relation("DestinationReader", fields: [readAgentId], references: [id], onDelete: SetNull)
   mirrorFrom      Destination[] @relation("DestinationMirror")
   // Protected: CBM never deletes anything here (no retention, no manual or
   // sync deletion, no prune). Cleaning up is left to the storage itself.
@@ -423,6 +429,9 @@ model AgentJob {
   createdAt  DateTime   @default(now())
   claimedAt  DateTime?
   finishedAt DateTime?
+  // How long it may run once claimed (scaled to the data it moves); null: the
+  // job type's default.
+  timeLimitMs Int?
 
   // The agent poll (every few seconds), the activity bar and the reaper.
   @@index([agentId, status, createdAt])

@@ -29,6 +29,7 @@ import { UserError } from "./user-error";
 import { composePicker, imageExists, pinCompose, resolveImages, snapshotImages, type ImageChoice } from "./image-pin";
 import type { Destination, Prisma } from "@/generated/prisma/client";
 import { version as CBM_VERSION } from "../../package.json";
+import { jobTimeLimitMs } from "./reaper";
 
 const DUMP_ENGINES: DbEngine[] = ["postgresql", "mysql", "mariadb", "mongodb"];
 const VOLUME_DB_ENGINES = ["redis", "keydb", "dragonfly", "clickhouse"];
@@ -97,6 +98,8 @@ async function createAgentJob(data: {
   payload: unknown;
   snapshotId?: string;
   restoreId?: string;
+  /** Scaled to the data the job moves (see jobTimeLimitMs); omitted: the type's default. */
+  timeLimitMs?: number | null;
 }): Promise<void> {
   await prisma.agentJob.create({
     data: { ...data, status: "queued", payload: data.payload as Prisma.InputJsonValue },
@@ -262,7 +265,20 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
     dumpCredentials: dumpCredentialsOf(resource),
   };
 
-  await createAgentJob({ id: jobId, agentId: agent.id, type: "backup", payload: job, snapshotId: snapshot.id });
+  // Its time limit follows the size of its last backup.
+  const last = await prisma.snapshot.findFirst({
+    where: { resourceId: resource.id, status: "succeeded", isMirror: false },
+    orderBy: { startedAt: "desc" },
+    select: { sizeBytes: true },
+  });
+  await createAgentJob({
+    id: jobId,
+    agentId: agent.id,
+    type: "backup",
+    payload: job,
+    snapshotId: snapshot.id,
+    timeLimitMs: jobTimeLimitMs("backup", last?.sizeBytes),
+  });
 
   return { snapshotId: snapshot.id, agentId: agent.id, jobId };
 }
@@ -992,7 +1008,14 @@ export async function enqueueRestore(
       : {}),
   };
 
-  await createAgentJob({ id: jobId, agentId: agent.id, type: "restore", payload: job, restoreId: restore.id });
+  await createAgentJob({
+    id: jobId,
+    agentId: agent.id,
+    type: "restore",
+    payload: job,
+    restoreId: restore.id,
+    timeLimitMs: jobTimeLimitMs("restore", snapshot.sizeBytes),
+  });
 
   if (notes.length) {
     await prisma.jobEvent.createMany({
@@ -1059,6 +1082,15 @@ async function anyOnlineAgent() {
   return prisma.agent.findFirst({ where: { status: "online" }, orderBy: { lastSeenAt: "desc" } });
 }
 
+/** The agent set to read a remote destination (Destination.readAgentId), when
+ * it is online; null otherwise (and for a "local" destination, whose files only
+ * the producing agent reaches). */
+async function readerAgent(dest: Pick<Destination, "type" | "readAgentId">) {
+  if (dest.type === "local" || !dest.readAgentId) return null;
+  const a = await agentById(dest.readAgentId);
+  return a?.status === "online" ? a : null;
+}
+
 /** One group of snapshots to prune, already routed to a single agent. */
 export type PruneGroup = {
   destination: Destination;
@@ -1104,12 +1136,26 @@ export function groupSnapshotsForPrune(
   return [...groups.values()];
 }
 
+/** Weekly slices the integrity check reads a restic repository's data in. */
+export const INTEGRITY_SLICES = 20;
+
+/**
+ * Which part of a restic repository's data a deep check reads: slice k of
+ * INTEGRITY_SLICES, one more each week, so every pack is read once in 20
+ * weeks - where a random 5% each time left some never read. Same cost per run.
+ */
+export function integrityReadSubset(now: Date): string {
+  const week = Math.floor(now.getTime() / (7 * 86_400_000));
+  return `${(week % INTEGRITY_SLICES) + 1}/${INTEGRITY_SLICES}`;
+}
+
 /**
  * Reconcile a destination: ask an agent to list it and report which snapshots'
  * files are still present. A snapshot whose files are gone is later flagged
  * "missing" + alerted (see the verify branch in the job result route).
  *
- *  - ssh/s3: one job to any online agent (the destination is reachable anywhere).
+ *  - ssh/s3: one job to the destination's reading agent when set and online,
+ *    else any online agent (the destination is reachable anywhere).
  *  - local: the files live on each producing agent's host, so one job per agent,
  *    each only covering the snapshots it wrote, routed to that exact agent.
  *
@@ -1127,7 +1173,7 @@ export async function enqueueVerifyDestination(
   // restic: re-read a sample of pack data (catches on-disk corruption, not just
   // structure). tar: hand over the AES key so encrypted artifacts can be verified
   // by decrypting them (the GCM tag is the integrity proof).
-  const readDataSubset = deep && isRestic ? (opts?.readDataSubset ?? "5%") : undefined;
+  const readDataSubset = deep && isRestic ? (opts?.readDataSubset ?? integrityReadSubset(new Date())) : undefined;
   const decryptionKey =
     deep && !isRestic && dest.encryptionEnabled && dest.encryptionKeyEnc
       ? decryptSecret(dest.encryptionKeyEnc)
@@ -1170,7 +1216,7 @@ export async function enqueueVerifyDestination(
   for (const [key, groupSnaps] of groups) {
     if (groupSnaps.length === 0) continue;
     let agent;
-    if (key === ("__any__" as unknown as string)) agent = await anyOnlineAgent();
+    if (key === ("__any__" as unknown as string)) agent = (await readerAgent(dest)) ?? (await anyOnlineAgent());
     else if (key === null) {
       console.warn(`[verify] ${groupSnaps.length} local snapshot(s) on destination ${dest.name} have no known agent; skipped`);
       continue;
@@ -1242,7 +1288,7 @@ export async function enqueueMirror(sourceSnapshotId: string): Promise<{ queued:
 
   // The copy runs where the source files are reachable: the producing agent for
   // a "local" source, otherwise any online agent.
-  const agent = source.type === "local" ? await agentById(snap.agentId) : await anyOnlineAgent();
+  const agent = source.type === "local" ? await agentById(snap.agentId) : ((await readerAgent(source)) ?? (await anyOnlineAgent()));
   if (!agent || agent.status !== "online") return { queued: false, reason: "no-agent" };
 
   const srcEnc = resolveEncryption(source);
@@ -1264,9 +1310,19 @@ export async function enqueueMirror(sourceSnapshotId: string): Promise<{ queued:
     sourceSnapshotId: snap.id,
     targetDestinationId: target.id,
   };
-  await createAgentJob({ id: jobId, agentId: agent.id, type: "mirror", payload: job });
+  await createAgentJob({ id: jobId, agentId: agent.id, type: "mirror", payload: job, timeLimitMs: jobTimeLimitMs("mirror", snap.sizeBytes) });
   return { queued: true };
 }
+
+/**
+ * Test restores of large folders: one read in place by restic and bigger than
+ * 20 GB is checked on a random sample of its files (300 files, 2 GB at most,
+ * read back whole) instead of end to end - hours over the network for a few
+ * hundred GB. Database dumps are always restored in full, and the
+ * destination's weekly integrity check reads the repository's data in
+ * rotation (see integrityReadSubset).
+ */
+export const DRILL_SAMPLE = { aboveBytes: 20 * 1024 ** 3, files: 300, bytes: 2 * 1024 ** 3 };
 
 /**
  * Queue a restore drill: an agent restores the snapshot into a throwaway
@@ -1290,7 +1346,10 @@ export async function enqueueDrill(
 
   const producer = await agentById(snapshot.agentId);
   const producerOnline = producer?.status === "online" ? producer : null;
-  const agent = snapshot.destination.type === "local" ? producerOnline : (producerOnline ?? (await anyOnlineAgent()));
+  const agent =
+    snapshot.destination.type === "local"
+      ? producerOnline
+      : ((await readerAgent(snapshot.destination)) ?? producerOnline ?? (await anyOnlineAgent()));
   if (!agent) {
     throw new UserError(
       snapshot.destination.type === "local" ? "messages.drillLocalAgentOffline" : "messages.drillNoAgent",
@@ -1318,10 +1377,18 @@ export async function enqueueDrill(
     resticSnapshotId: snapshot.resticSnapshotId ?? undefined,
     decryptionKey: enc.enabled ? enc.key : undefined,
     dbImage: typeof rawImage === "string" ? rawImage : undefined,
+    sample: DRILL_SAMPLE,
     manifest,
   };
   // snapshotId links the job to its resource for labels (activity bar, API);
   // the result route dispatches on type, so it's never treated as the backup.
-  await createAgentJob({ id: jobId, agentId: agent.id, type: "restore-drill", payload: job, snapshotId: snapshot.id });
+  await createAgentJob({
+    id: jobId,
+    agentId: agent.id,
+    type: "restore-drill",
+    payload: job,
+    snapshotId: snapshot.id,
+    timeLimitMs: jobTimeLimitMs("restore-drill", snapshot.sizeBytes),
+  });
   return { drillId: drill.id, jobId };
 }

@@ -29,6 +29,25 @@ const CAP_BY_TYPE: Record<string, number> = {
 /** How long an agent may stay silent while it updates itself. */
 const UPDATE_DOWNTIME_MS = 10 * 60_000;
 
+/** Slowest throughput a data-moving job is expected to sustain (a remote
+ * repository over a modest link reads at 6-11 MB/s). */
+const MIN_BYTES_PER_SEC = 3 * 1024 * 1024;
+/** No job runs longer than this, whatever its size. */
+const MAX_CAP_MS = 48 * 3600_000;
+
+/**
+ * Time limit of a job moving `bytes` of data: its type's default, raised to
+ * what the data takes at MIN_BYTES_PER_SEC (a 220 GB snapshot read back at
+ * 6-11 MB/s takes 6-8 h, past a fixed 6 h). Null when the type's default applies.
+ */
+export function jobTimeLimitMs(type: string, bytes: number | bigint | null | undefined): number | null {
+  const base = CAP_BY_TYPE[type];
+  const n = Number(bytes ?? 0);
+  if (!base || !(n > 0)) return null;
+  const scaled = Math.ceil(n / MIN_BYTES_PER_SEC) * 1000;
+  return scaled > base ? Math.min(scaled, MAX_CAP_MS) : null;
+}
+
 export type StuckReason = "agent went offline mid-job" | "job exceeded its time limit";
 
 /**
@@ -37,7 +56,7 @@ export type StuckReason = "agent went offline mid-job" | "job exceeded its time 
  * Returns null for a healthy job (including a long one on a live agent).
  */
 export function stuckReason(
-  job: { type: string; claimedAt: Date | null; agent: { status: string; lastSeenAt: Date | null } | null },
+  job: { type: string; claimedAt: Date | null; timeLimitMs?: number | null; agent: { status: string; lastSeenAt: Date | null } | null },
   now: Date,
   offlineMs: number,
   fallbackCapMs: number,
@@ -51,7 +70,7 @@ export function stuckReason(
     job.agent.status === "offline" ||
     (job.agent.lastSeenAt != null && job.agent.lastSeenAt.getTime() < now.getTime() - offlineMs);
   if (agentDead) return "agent went offline mid-job";
-  const cap = CAP_BY_TYPE[job.type] ?? fallbackCapMs;
+  const cap = job.timeLimitMs ?? CAP_BY_TYPE[job.type] ?? fallbackCapMs;
   if (job.claimedAt != null && job.claimedAt.getTime() < now.getTime() - cap) return "job exceeded its time limit";
   return null;
 }
@@ -82,6 +101,7 @@ export async function reaper(now = new Date(), opts: ReaperOptions = {}): Promis
       snapshotId: true,
       restoreId: true,
       claimedAt: true,
+      timeLimitMs: true,
       agent: { select: { status: true, lastSeenAt: true } },
     },
   });

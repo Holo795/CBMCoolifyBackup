@@ -92,3 +92,20 @@ test("an agent updating itself may be silent for a few minutes", () => {
     "agent went offline mid-job",
   );
 });
+
+test("a job's time limit grows with the data it moves", async () => {
+  const { jobTimeLimitMs } = await import("../src/lib/reaper");
+  // Small: the type's default applies.
+  assert.equal(jobTimeLimitMs("restore-drill", 10 * 1024 ** 3), null);
+  assert.equal(jobTimeLimitMs("restore-drill", null), null);
+  // 221 GB at 3 MiB/s: about 19.5 h, over the 6 h default.
+  const big = jobTimeLimitMs("restore-drill", 221 * 1e9)!;
+  assert.ok(big > 19 * 3600_000 && big < 20 * 3600_000);
+  // Never more than 48 h; no scaling for a type without a default.
+  assert.equal(jobTimeLimitMs("backup", 5e12), 48 * 3600_000);
+  assert.equal(jobTimeLimitMs("unknown", 5e12), null);
+  // The reaper uses it.
+  const job = { type: "restore-drill", claimedAt: ago(8 * 3600_000), timeLimitMs: big, agent: onlineAgent };
+  assert.equal(stuckReason(job, NOW, OFFLINE_MS, FALLBACK_CAP), null);
+  assert.equal(stuckReason({ ...job, timeLimitMs: null }, NOW, OFFLINE_MS, FALLBACK_CAP), "job exceeded its time limit");
+});

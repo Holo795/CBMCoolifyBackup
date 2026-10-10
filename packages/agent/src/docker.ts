@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess, type StdioOptions } from "node:child_process";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createWriteStream, createReadStream } from "node:fs";
 import { once } from "node:events";
 import { pipeline } from "node:stream/promises";
@@ -37,6 +38,22 @@ export type SecretEnv = Record<string, string>;
 
 const childEnv = (secrets?: SecretEnv) => (secrets ? { ...process.env, ...secrets } : undefined);
 
+/**
+ * The job a piece of work belongs to: every container started for it carries
+ * the label `cbm.job=<id>`, so the agent can stop them when the controller
+ * gives up on the job (they may hold a repository lock), and remove those a
+ * dead job left behind.
+ */
+export const jobScope = new AsyncLocalStorage<string>();
+export const JOB_LABEL = "cbm.job";
+
+/** `docker run …` arguments with the current job's label. */
+function labelled(args: string[]): string[] {
+  const job = jobScope.getStore();
+  if (!job || (args[0] !== "run" && args[0] !== "create")) return args;
+  return [args[0], "--label", `${JOB_LABEL}=${job}`, ...args.slice(1)];
+}
+
 /** A short, redacted description of a docker command for error messages. */
 function describe(args: string[]): string {
   return redactSecrets(args.slice(0, 6).join(" ") + (args.length > 6 ? " …" : ""));
@@ -44,13 +61,13 @@ function describe(args: string[]): string {
 
 /** Run a docker command, buffering stdout/stderr as strings. */
 export function docker(args: string[], secrets?: SecretEnv, onStderr?: (chunk: string) => void): Promise<RunResult> {
-  return runCapture(DOCKER, args, { env: childEnv(secrets), onStderr });
+  return runCapture(DOCKER, labelled(args), { env: childEnv(secrets), onStderr });
 }
 
 /** Run a docker command and stream stdout into a file (for dumps). */
 export async function dockerToFile(args: string[], outFile: string, secrets?: SecretEnv): Promise<void> {
   const out = createWriteStream(outFile);
-  const child = spawn(DOCKER, args, { stdio: ["ignore", "pipe", "pipe"], env: childEnv(secrets) });
+  const child = spawn(DOCKER, labelled(args), { stdio: ["ignore", "pipe", "pipe"], env: childEnv(secrets) });
   let stderr = "";
   child.stderr.on("data", (d) => (stderr += d.toString()));
   // Capture the exit code independently, then await the write completing.
@@ -66,7 +83,7 @@ export async function dockerToFile(args: string[], outFile: string, secrets?: Se
 
 /** Run a docker command feeding a file into stdin (for restores). */
 export async function dockerFromFile(args: string[], inFile: string, secrets?: SecretEnv): Promise<void> {
-  const child = spawn(DOCKER, args, { stdio: ["pipe", "pipe", "pipe"], env: childEnv(secrets) });
+  const child = spawn(DOCKER, labelled(args), { stdio: ["pipe", "pipe", "pipe"], env: childEnv(secrets) });
   let stderr = "";
   child.stderr.on("data", (d) => (stderr += d.toString()));
   child.stdout.on("data", () => {}); // drain so a full pipe can't block the child
@@ -293,7 +310,7 @@ export async function hostEntries(
 
 /** Spawn a docker command whose streams the caller wires (see capture.ts). */
 export function spawnDocker(args: string[], stdio: StdioOptions): ChildProcess {
-  return spawn(DOCKER, args, { stdio, env: childEnv() });
+  return spawn(DOCKER, labelled(args), { stdio, env: childEnv() });
 }
 
 /** Restore a tarball into a docker volume (creates it if missing). Excluded
@@ -390,7 +407,7 @@ export async function tarEntryCount(inFile: string): Promise<number> {
   const child = spawn(
     DOCKER,
     // pipefail (supported by busybox ash) so a tar read error fails the pipeline.
-    ["run", "--rm", "-i", "--network", "none", helperImage(), "sh", "-c", "set -o pipefail; tar -tf - | wc -l"],
+    labelled(["run", "--rm", "-i", "--network", "none", helperImage(), "sh", "-c", "set -o pipefail; tar -tf - | wc -l"]),
     { stdio: ["pipe", "pipe", "pipe"] },
   );
   let stdout = "";
@@ -496,4 +513,43 @@ export async function detectCoolifyResourceUuids(limit = 200): Promise<string[]>
   }
 
   return [...tokens].slice(0, limit);
+}
+
+/** Containers started for jobs (see jobScope): id, job, whether it's a
+ * freezer (never removed blindly: it holds containers frozen), creation time. */
+async function jobContainers(): Promise<Array<{ id: string; job: string; freezer: boolean; created: number }>> {
+  const r = await docker(["ps", "-a", "--filter", `label=${JOB_LABEL}`, "--format", `{{.ID}}|{{.Label "${JOB_LABEL}"}}|{{.Label "cbm.freezer"}}`]);
+  if (r.code !== 0) return [];
+  const rows = r.stdout.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => l.split("|"));
+  if (!rows.length) return [];
+  const created = await docker(["inspect", "--format", "{{.Id}} {{.Created}}", ...rows.map((x) => x[0])]);
+  const at = new Map(
+    created.stdout.split("\n").filter(Boolean).map((l) => {
+      const [id, ts] = l.trim().split(" ");
+      return [id, Date.parse(ts)] as const;
+    }),
+  );
+  return rows.map(([id, job, freezer]) => ({
+    id,
+    job,
+    freezer: freezer === "1",
+    created: [...at.entries()].find(([full]) => full.startsWith(id))?.[1] ?? Date.now(),
+  }));
+}
+
+/** Stop the containers a job started (restic helpers, copies...): a job the
+ * controller gave up on must not keep a repository locked. Freezers are left
+ * to the job's own cleanup, which unfreezes first. */
+export async function stopJobContainers(jobId: string): Promise<number> {
+  const mine = (await jobContainers()).filter((c) => c.job === jobId && !c.freezer);
+  if (mine.length) await docker(["rm", "-f", ...mine.map((c) => c.id)]);
+  return mine.length;
+}
+
+/** Remove containers left by jobs this agent no longer runs (a crash, a
+ * restart mid-job), once older than `minAgeMs`. */
+export async function sweepJobContainers(active: Set<string>, minAgeMs = 120_000, now = Date.now()): Promise<string[]> {
+  const stale = (await jobContainers()).filter((c) => !active.has(c.job) && !c.freezer && now - c.created > minAgeMs);
+  if (stale.length) await docker(["rm", "-f", ...stale.map((c) => c.id)]);
+  return [...new Set(stale.map((c) => c.job))];
 }

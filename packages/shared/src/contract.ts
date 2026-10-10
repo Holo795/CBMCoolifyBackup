@@ -474,6 +474,17 @@ export const RestoreDrillJob = z.object({
   /** Image of the resource's own database (captured config), used when a dump
    * artifact doesn't record its image. */
   dbImage: z.string().optional(),
+  /** A volume read in place by restic and bigger than `aboveBytes` is checked
+   * on a random sample of its files (at most `files` files and `bytes` bytes,
+   * read back whole) instead of being read end to end; the destination's
+   * integrity check reads the repository's data in rotation. Absent: read all. */
+  sample: z
+    .object({
+      aboveBytes: z.number().int().positive(),
+      files: z.number().int().positive().max(10_000),
+      bytes: z.number().int().positive(),
+    })
+    .optional(),
   manifest: SnapshotManifest,
 });
 export type RestoreDrillJob = z.infer<typeof RestoreDrillJob>;
@@ -675,6 +686,10 @@ export const HeartbeatResponse = z.object({
   ok: z.boolean(),
   /** Absent from older controllers: the agent keeps its own (env / defaults). */
   settings: AgentSettings.optional(),
+  /** Jobs the agent reports as running that the controller has given up on
+   * (time limit, agent lost): the agent stops their helper containers, which
+   * releases the repository locks they hold. */
+  cancel: z.array(z.string()).max(1000).optional(),
 });
 export type HeartbeatResponse = z.infer<typeof HeartbeatResponse>;
 

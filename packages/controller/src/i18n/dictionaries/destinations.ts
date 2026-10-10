@@ -56,6 +56,11 @@ export const en = {
     aria: "Mirror destination",
     row: "Mirror to",
   },
+  readAgent: {
+    title: "The agent that reads this destination for test restores, integrity checks and mirror copies - e.g. the one on the host holding the repository, which reads it locally instead of over the network",
+    row: "Read with",
+    default: "Any agent",
+  },
   integrityToggle: {
     title: "Run a deep integrity check (re-read the data) weekly for this destination",
     label: "weekly check",
@@ -250,6 +255,11 @@ export const fr: typeof en = {
     label: "miroir vers",
     aria: "Destination miroir",
     row: "Miroir vers",
+  },
+  readAgent: {
+    title: "L'agent qui lit cette destination pour les tests de restauration, les contrôles d'intégrité et les copies miroir - par exemple celui de la machine qui héberge le dépôt, qui le lit en local au lieu de passer par le réseau",
+    row: "Lire avec",
+    default: "N'importe quel agent",
   },
   integrityToggle: {
     title: "Lancer une vérification d'intégrité approfondie (relecture des données) chaque semaine pour cette destination",

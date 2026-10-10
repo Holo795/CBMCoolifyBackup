@@ -28,8 +28,10 @@ investigate.
 Reconciliation confirms the files are *present*; the **integrity check** confirms they're not
 silently *corrupt* (bit-rot, a truncated upload). It re-reads the stored content:
 
-- **restic:** runs `restic check` (with a sampled `--read-data-subset` of 5%, so it also
-  re-hashes some of the actual pack data, not just the structure).
+- **restic:** runs `restic check` and re-hashes one twentieth of the pack data each week
+  (`--read-data-subset=k/20`, a different slice every week), so every pack is read once in 20
+  weeks, not just the structure. Test restores of large folders rely on it for the data they
+  don't read (see [Test restores](restore.md#test-restores-restore-drills)).
 - **tar:** re-downloads each artifact and either decrypts it (the AES-GCM tag proves integrity)
   or compares its sha256 to the manifest.
 

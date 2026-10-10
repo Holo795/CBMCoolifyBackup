@@ -64,6 +64,18 @@ export async function POST(req: Request) {
 
   // Jobs we think it runs but it doesn't report (agent restarted mid-job).
   if (data.activeJobIds) await releaseLostJobs(agent.id, data.activeJobIds).catch(() => undefined);
+  // Jobs it still runs that we gave up on (time limit, agent lost): it stops
+  // their containers, which may hold a repository lock.
+  const cancel = data.activeJobIds?.length
+    ? (
+        await prisma.agentJob
+          .findMany({
+            where: { id: { in: data.activeJobIds }, agentId: agent.id, status: { in: ["failed", "cancelled"] } },
+            select: { id: true },
+          })
+          .catch(() => [])
+      ).map((j) => j.id)
+    : [];
 
   await prisma.agent.update({
     where: { id: agent.id },
@@ -83,5 +95,9 @@ export async function POST(req: Request) {
   });
   // The settings set in CBM for this agent (defaults + its overrides).
   const setting = await prisma.setting.findUnique({ where: { id: "global" }, select: { agentDefaults: true } }).catch(() => null);
-  return NextResponse.json({ ok: true, settings: settingsForAgent(setting?.agentDefaults, agent.settings) });
+  return NextResponse.json({
+    ok: true,
+    settings: settingsForAgent(setting?.agentDefaults, agent.settings),
+    ...(cancel.length ? { cancel } : {}),
+  });
 }
