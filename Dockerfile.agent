@@ -20,7 +20,10 @@ FROM node:24-alpine AS runtime
 # docker-cli: the agent shells out to `docker` for exec/tar/inspect.
 # openssh-client + sshpass: restic's SFTP backend (key or password auth, jump host).
 # Runs as root: it needs the host's Docker socket, whose group differs per host.
-RUN apk add --no-cache docker-cli openssh-client sshpass
+# tini: PID 1 that reaps orphaned processes. restic's SFTP connections run
+# sshpass -> ssh; when restic hangs up, the ssh is re-parented to PID 1, and
+# node (PID 1 before) never waited for it: every connection left a zombie.
+RUN apk add --no-cache docker-cli openssh-client sshpass tini
 COPY --from=restic /usr/bin/restic /usr/bin/restic
 WORKDIR /app
 ENV NODE_ENV=production
@@ -31,4 +34,8 @@ COPY --from=build /app/packages/agent/dist ./packages/agent/dist
 COPY --from=build /app/packages/agent/package.json ./packages/agent/
 ENV AGENT_WORK_DIR=/var/lib/cbm-agent
 VOLUME ["/var/run/docker.sock"]
+# Also the entrypoint of the helper containers started from this image: tini
+# runs their command (tar, sh, sleep...) the same way; -s (subreaper) keeps
+# it quiet and reaping when docker run --init puts its own init first.
+ENTRYPOINT ["/sbin/tini", "-s", "--"]
 CMD ["node", "packages/agent/dist/index.js"]
