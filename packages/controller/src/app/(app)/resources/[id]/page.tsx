@@ -51,6 +51,8 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
   // Whether a dump password is saved: the (encrypted) value itself never leaves here.
   const hasDumpPassword =
     isAdmin && !!(await prisma.resource.findUnique({ where: { id }, select: { dumpPasswordEnc: true } }))?.dumpPasswordEnc;
+  // Offered as "Restore onto" targets when several Coolify instances are connected.
+  const instances = await prisma.coolifyInstance.findMany({ orderBy: { createdAt: "asc" }, select: { id: true, name: true } });
 
   return (
     <ResourceDetailView
@@ -66,6 +68,7 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
       tz={tz}
       isAdmin={isAdmin}
       usage={usage}
+      instances={instances}
     />
   );
 }

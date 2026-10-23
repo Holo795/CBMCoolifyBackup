@@ -72,6 +72,7 @@ export async function ResourceDetailView({
   usage,
   hasDumpPassword,
   showDumpLogin,
+  instances,
 }: {
   resource: ResourceRow;
   destinations: PublicDestination[];
@@ -89,6 +90,8 @@ export async function ResourceDetailView({
   hasDumpPassword: boolean;
   /** The resource has a database to dump (see lib/dump-login). */
   showDumpLogin: boolean;
+  /** Connected instances, offered as "Restore onto" targets when cloning. */
+  instances: { id: string; name: string }[];
 }) {
   const t = await getT();
   // Coolify's own control plane can only be restored in place, never "→ new".
@@ -270,6 +273,8 @@ export async function ResourceDetailView({
                                   hasAgent={!agentDown}
                                   allowNew={!controlPlane}
                                   allowInPlace={s.captureMode !== CONFIG_ONLY_CAPTURE}
+                                  instances={instances}
+                                  currentInstanceId={resource.instanceId}
                                 />
                               )}
                               <ActionsMenu
@@ -306,6 +311,8 @@ export async function ResourceDetailView({
                           hasAgent={!agentDown}
                           allowNew={!controlPlane}
                           allowInPlace={s.captureMode !== CONFIG_ONLY_CAPTURE}
+                          instances={instances}
+                          currentInstanceId={resource.instanceId}
                         />
                       )}
                     </Gate>
