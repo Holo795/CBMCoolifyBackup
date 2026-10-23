@@ -58,7 +58,7 @@ import { getSettings } from "./settings.js";
 import { chooseStaging, needsMeasure } from "./staging.js";
 import { captureTar } from "./capture.js";
 import { openFreezer, healthCheckOf, healthStatus } from "./freeze.js";
-import { backupOutcome, unbackedLayerWarning, captureErrorWarning, configOnlyFailure } from "./outcome.js";
+import { backupOutcome, skippedMountWarnings, unbackedLayerWarning, captureErrorWarning, configOnlyFailure } from "./outcome.js";
 
 const mib = (n: number) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GiB` : `${(n / 1024 ** 2).toFixed(1)} MiB`);
 
@@ -156,6 +156,12 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
   if (job.excludes.length) emit("info", `Left out of volume copies: ${job.excludes.join(", ")}`);
   const captureWarning = captureErrorWarning(job.configCaptureError);
   if (captureWarning) emit("warn", captureWarning);
+  // Read-only host mounts outside the resource's folder are not copied: say so
+  // on the snapshot, unless they were excluded on purpose.
+  for (const m of skippedMountWarnings(resource.skippedMounts ?? [], job.excludes)) {
+    emit("warn", m);
+    warnings.push(m);
+  }
 
   // Provenance (best-effort) from the primary container.
   let provenance: Provenance = {};
@@ -225,7 +231,8 @@ async function backupInStage(job: BackupJob, workDir: string, emit: Emit): Promi
           label: bindKinds.get(b.source) === "file" ? `host file ${b.source}` : `host folder ${b.source}`,
           meta: { bindSource: b.source, ...(bindKinds.get(b.source) ? { bindKind: bindKinds.get(b.source)! } : {}) },
           resticPath: () => snapshotPath("bind", slug),
-          freezeContainers: async () => ((await isContainerRunning(b.container)) ? [b.container] : []),
+          // Read-only for every container: nothing writes it, nothing to freeze.
+          freezeContainers: async () => (!b.readOnly && (await isContainerRunning(b.container)) ? [b.container] : []),
           excludes: job.excludes,
         };
       }),

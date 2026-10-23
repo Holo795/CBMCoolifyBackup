@@ -112,23 +112,43 @@ export async function resolveResource(resource: ResourceDescriptor): Promise<Res
 
   // Host-path (bind) mounts holding data - captured too, so nothing is silently
   // left out. System/infra binds (docker socket, /etc/*, /proc…) are skipped.
+  // A read-only one is captured when it's in the resource's own folder (a
+  // config or password file Coolify keeps next to it, `./php/x.ini:...:ro`);
+  // elsewhere it may be anything of the host's, and is reported instead.
   if (r.bindMounts.length === 0) {
-    const binds = new Map<string, string>(); // source -> container
+    const binds = new Map<string, { container: string; readOnly: boolean }>();
+    const skipped = new Set<string>();
     for (const c of r.containerNames) {
       const info = await inspectContainer(c);
       for (const m of (info?.Mounts ?? []) as Array<{ Type?: string; Source?: string; RW?: boolean }>) {
-        if (m?.Type !== "bind" || m.RW === false || !m.Source) continue;
+        if (m?.Type !== "bind" || !m.Source) continue;
         if (isSystemBind(m.Source)) continue;
-        if (!binds.has(m.Source)) binds.set(m.Source, c);
+        const readOnly = m.RW === false;
+        if (readOnly && !inResourceFolder(m.Source, resource.coolifyUuid)) {
+          skipped.add(m.Source);
+          continue;
+        }
+        const prev = binds.get(m.Source);
+        // Written by any container: not read-only, and that container is frozen.
+        if (!prev || (prev.readOnly && !readOnly)) binds.set(m.Source, { container: c, readOnly });
       }
     }
-    r.bindMounts = [...binds.entries()].map(([source, container]) => ({ source, container }));
+    for (const s of binds.keys()) skipped.delete(s);
+    r.bindMounts = [...binds.entries()].map(([source, b]) => ({ source, container: b.container, ...(b.readOnly ? { readOnly: true } : {}) }));
+    if (skipped.size) r.skippedMounts = [...skipped];
   }
 
   logger.debug(
     `Resolved ${resource.coolifyUuid}: containers=${r.containerNames.join(",")} volumes=${r.volumes.join(",")} binds=${r.bindMounts.map((b) => b.source).join(",")}`,
   );
   return r;
+}
+
+/** Whether a host path is in the resource's own folder: one of its path
+ * segments is the resource's uuid (Coolify keeps `/data/coolify/services/<uuid>/`,
+ * `/data/coolify/applications/<uuid>/`...). */
+export function inResourceFolder(source: string, uuid: string): boolean {
+  return !!uuid && source.split("/").includes(uuid);
 }
 
 /** Bind sources we never back up: the docker socket, system files, kernel fs. */

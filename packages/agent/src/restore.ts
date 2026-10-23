@@ -156,7 +156,22 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
       // volumes. Never touch the original resource's containers/volumes.
       for (const v of volumes) {
         if (v.meta.bindSource) {
-          emit("warn", `Host folder "${v.meta.bindSource}" not restored to the clone - restore it manually if needed`);
+          // A mount in the original's own folder goes to the same place in the
+          // clone's (uuid swapped); anything else isn't the resource's to copy.
+          const dest = job.bindMap?.[v.meta.bindSource];
+          const what = v.meta.bindKind === "file" ? "Host file" : "Host folder";
+          if (!dest) {
+            emit("warn", `${what} "${v.meta.bindSource}" not restored to the clone - restore it manually if needed`);
+            continue;
+          }
+          const unsafe = unsafeRestorePath(dest);
+          if (unsafe) {
+            emit("error", `${what} ${dest} NOT restored: it ${unsafe}`);
+            refusedFolders.push(dest);
+            continue;
+          }
+          emit("info", `Restoring ${what.toLowerCase()} ${v.meta.bindSource} → ${dest} (created if missing)`, 70);
+          await putVolume(v, dest, true);
           continue;
         }
         const src = v.meta.volume;

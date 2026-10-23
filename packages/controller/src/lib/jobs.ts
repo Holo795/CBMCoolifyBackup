@@ -538,6 +538,23 @@ function buildVolumeMap(
   return Object.keys(map).length ? map : undefined;
 }
 
+/**
+ * Host mounts of a snapshot that live in the original resource's folder (a
+ * path segment is its uuid: `/data/coolify/services/<uuid>/html`) -> the same
+ * path for the clone. Others stay unmapped: they aren't the resource's own.
+ */
+export function buildBindMap(manifest: SnapshotManifest, oldUuid: string, newUuid: string): Record<string, string> | undefined {
+  const map: Record<string, string> = {};
+  for (const a of manifest.artifacts ?? []) {
+    const src = a.kind === "volume" ? a.meta?.bindSource : undefined;
+    if (!src) continue;
+    const parts = src.split("/");
+    if (!parts.includes(oldUuid)) continue;
+    map[src] = parts.map((p) => (p === oldUuid ? newUuid : p)).join("/");
+  }
+  return Object.keys(map).length ? map : undefined;
+}
+
 /** Authoritative dump/restore DB credentials from the Coolify API (the
  * container env isn't always reliable). undefined for non-DB / coolify-self. */
 /** The login set in CBM for a resource's database dumps, decrypted for the agent. */
@@ -952,6 +969,7 @@ export async function enqueueRestore(
   // volume map tells the agent which (uuid-swapped) volumes to fill.
   let targetResource: ResourceDescriptor | undefined;
   let volumeMap: Record<string, string> | undefined;
+  let bindMap: Record<string, string> | undefined;
   let remapped: RemapChange[] = [];
   let notes: string[] = [];
   const cloneInstanceId = targetInstanceId ?? snapshot.resource.instanceId;
@@ -964,6 +982,7 @@ export async function enqueueRestore(
     notes = cloned.notes;
     remapped = cloned.changes;
     volumeMap = buildVolumeMap(manifest, snapshot.resource.coolifyUuid, targetResource.coolifyUuid);
+    bindMap = buildBindMap(manifest, snapshot.resource.coolifyUuid, targetResource.coolifyUuid);
     if (cloned.volumeRenames && Object.keys(cloned.volumeRenames).length > 0) {
       volumeMap = { ...volumeMap, ...cloned.volumeRenames };
     }
@@ -997,6 +1016,7 @@ export async function enqueueRestore(
     target,
     targetResource,
     volumeMap,
+    bindMap,
     // Same DB keeps its name/creds in the clone, so the original's creds work.
     // Prefer the snapshot's captured creds (survive the source Coolify).
     db: dbCredsFromCaptured(manifest.capturedConfig, snapshot.resource.type) ?? (await dbCredsFor(snapshot.resource)),

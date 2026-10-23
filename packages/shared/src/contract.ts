@@ -107,7 +107,19 @@ export const ResourceDescriptor = z.object({
   /** Docker volumes belonging to this resource. */
   volumes: z.array(z.string()).default([]),
   /** Host-path (bind) mounts holding data, with the container that mounts them. */
-  bindMounts: z.array(z.object({ source: z.string(), container: z.string() })).default([]),
+  bindMounts: z
+    .array(
+      z.object({
+        source: z.string(),
+        container: z.string(),
+        /** Mounted read-only by every container using it: nothing writes it, no freeze. */
+        readOnly: z.boolean().optional(),
+      }),
+    )
+    .default([]),
+  /** Read-only host mounts left out (outside the resource's own folder): the
+   * backup reports them, unless excluded on purpose. Set by the agent. */
+  skippedMounts: z.array(z.string()).optional(),
   /** Credentials for logical dumps (hot mode). */
   db: DbCredentials.optional(),
 });
@@ -373,6 +385,12 @@ export const RestoreJob = z.object({
    * deploy. Volumes with no mapping are skipped (the original is never touched).
    */
   volumeMap: z.record(z.string(), z.string()).optional(),
+  /**
+   * For target=new_resource: maps each host mount of the snapshot whose path
+   * names the original resource (`.../<uuid>/...`) to the clone's path (uuid
+   * swapped). Mounts with no mapping are left out, with a warning.
+   */
+  bindMap: z.record(z.string(), z.string()).optional(),
   /**
    * In place: false leaves the containers stopped after a successful restore,
    * because the controller then redeploys them on the snapshot's image version

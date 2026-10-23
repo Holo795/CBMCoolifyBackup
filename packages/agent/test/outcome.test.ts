@@ -31,3 +31,14 @@ test("a failed Coolify read is logged and fails a configuration-only backup", ()
   assert.equal(configOnlyFailure("skip", "Coolify API: boom"), null);
   assert.equal(configOnlyFailure("config", "Coolify API: boom"), "Configuration-only backup failed: Coolify API: boom");
 });
+
+test("read-only host mounts outside the resource's folder are reported, unless excluded", async () => {
+  const { skippedMountWarnings } = await import("../src/outcome.js");
+  const { inResourceFolder } = await import("../src/resolve.js");
+  assert.equal(inResourceFolder("/data/coolify/services/abc123/php/zz.ini", "abc123"), true);
+  assert.equal(inResourceFolder("/data/coolify/services/abc1234/php/zz.ini", "abc123"), false);
+  assert.equal(inResourceFolder("/etc/ssl/certs/ca.pem", "abc123"), false);
+  const w = skippedMountWarnings(["/srv/shared/ca.pem", "/var/log/app/", "/opt/keep"], ["host:/var/log/app", "/opt/keep/"]);
+  assert.equal(w.length, 1);
+  assert.match(w[0], /^Read-only host mount \/srv\/shared\/ca\.pem not backed up/);
+});

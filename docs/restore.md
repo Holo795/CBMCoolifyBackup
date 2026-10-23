@@ -43,6 +43,10 @@ Works for all types:
 - **Docker-compose services** — every volume is pre-filled under the clone's names, mounted on
   first deploy, and each service's image is pinned to the version it ran (see
   [Image versions](#image-versions)).
+- **Host folders and files** in the resource's own folder (`/data/coolify/services/<uuid>/html`,
+  `…/<uuid>/auth/htpasswd`) are restored to the same path under the clone's uuid, with their owner
+  and mode, before its first deploy. A host mount elsewhere isn't the resource's own: it is left
+  out, with a warning.
 
 For apps and services, the clone is created **but not deployed** by default (no domain, by
 design) — you review it in Coolify, then deploy. Its data is already in place: an application's

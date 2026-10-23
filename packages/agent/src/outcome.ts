@@ -70,3 +70,20 @@ const TRANSIENT_FAILURES = [
 export function isTransientFailure(message: string): boolean {
   return TRANSIENT_FAILURES.some((re) => re.test(message));
 }
+
+/**
+ * One line per read-only host mount left out of the backup (outside the
+ * resource's own folder), except those the resource excludes on purpose
+ * (`/path` or `host:/path`).
+ */
+export function skippedMountWarnings(skipped: string[], excludes: string[]): string[] {
+  const norm = (p: string) => p.replace(/\/+$/, "");
+  const excluded = new Set(excludes.map((e) => norm(e.replace(/^host:/, ""))));
+  return skipped
+    .filter((s) => !excluded.has(norm(s)))
+    .map(
+      (s) =>
+        `Read-only host mount ${s} not backed up: it is outside this resource's folder. ` +
+        `Copy it elsewhere if it matters, or add it to the exclusions to hide this warning.`,
+    );
+}
