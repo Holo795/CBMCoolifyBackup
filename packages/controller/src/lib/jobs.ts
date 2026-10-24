@@ -1093,9 +1093,36 @@ export async function enqueuePrune(opts: {
     // Extra payload field (the agent ignores it): who uses which destination.
     destinationId: opts.destination.id,
   } as PruneJob & { snapshotIds?: string[]; destinationId: string };
+
+  // One queued prune per destination and agent: those asked for together
+  // (retention after the night's backups, one per resource) run as one, so
+  // the repository is locked once instead of once per resource. The claim
+  // reads the payload after taking the job, so nothing added here is missed.
+  const pending = await prisma.agentJob.findFirst({
+    where: { agentId: agent.id, type: "prune", status: "queued", payload: { path: ["destinationId"], equals: opts.destination.id } },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, payload: true },
+  });
+  if (pending) {
+    const prev = pending.payload as { dirs?: string[]; resticSnapshotIds?: string[]; snapshotIds?: string[] };
+    const merged = {
+      ...job,
+      id: pending.id,
+      dirs: union(prev.dirs, dirs),
+      resticSnapshotIds: union(prev.resticSnapshotIds, resticSnapshotIds),
+      snapshotIds: union(prev.snapshotIds, opts.snapshotIds),
+    };
+    const updated = await prisma.agentJob.updateMany({
+      where: { id: pending.id, status: "queued" },
+      data: { payload: merged as unknown as Prisma.InputJsonValue },
+    });
+    if (updated.count === 1) return { jobId: pending.id, agentId: agent.id };
+  }
   await createAgentJob({ id: jobId, agentId: agent.id, type: "prune", payload: job });
   return { jobId, agentId: agent.id };
 }
+
+const union = (a: string[] | undefined, b: string[] | undefined): string[] => [...new Set([...(a ?? []), ...(b ?? [])])];
 
 /** Any online agent (for jobs against a globally-reachable ssh/s3 destination). */
 async function anyOnlineAgent() {

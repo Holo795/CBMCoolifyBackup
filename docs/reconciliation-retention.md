@@ -85,6 +85,11 @@ each scheduled fire and after each successful backup on a schedule (cheap, idemp
   directories are cleaned up too.
 - **restic engine:** deletion is delegated to `restic forget --prune`, which removes the
   snapshots (the backup's main one and those of its volumes) and frees the deduplicated data.
+- **One deletion per destination at a time.** Deletions waiting for the same agent and
+  destination are merged into one job (after the night's backups, one per resource otherwise),
+  so the repository is pruned once. An agent runs its other jobs first (restores, then backups,
+  then test restores and mirror copies) and never two prunes of the same destination at once:
+  a deletion can wait, a backup only its schedule's slot.
 
 `sync` mode keeps **one** copy instead of versioned snapshots, so retention doesn't apply to it.
 Each sync run writes a new copy, and the previous one is deleted only once the new one is stored
