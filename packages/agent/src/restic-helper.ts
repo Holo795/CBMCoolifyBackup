@@ -5,7 +5,15 @@ import { basename, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { redactSecrets } from "@cbm/shared";
 import { docker, helperImage, type RunResult, type SecretEnv } from "./docker.js";
-import { LOCK_WAIT, RESTIC_ENV_KEYS, backupSummaryId, lockWatcher, resticForget, type ResticCtx } from "./restic.js";
+import {
+  LOCK_WAIT,
+  RESTIC_ENV_KEYS,
+  backupSummaryId,
+  lockWatcher,
+  refusedByStaleLock,
+  resticForget,
+  type ResticCtx,
+} from "./restic.js";
 import { resticBackupExcludes, resticRestoreExcludes } from "./excludes.js";
 
 /*
@@ -17,7 +25,7 @@ import { resticBackupExcludes, resticRestoreExcludes } from "./excludes.js";
  * repository exactly as the agent does.
  */
 
-type Self = { id: string; image: string } | null;
+type Self = { id: string; image: string; network: string } | null;
 let selfP: Promise<Self> | null = null;
 
 /** The agent's own container (the normal install), or null when run natively. */
@@ -33,9 +41,9 @@ export function selfContainer(): Promise<Self> {
     // Docker's default hostname is the short container id.
     if (existsSync("/.dockerenv")) candidates.push(hostname());
     for (const c of candidates) {
-      const r = await docker(["inspect", "--format", "{{.Id}} {{.Image}}", c]);
-      const [id, image] = r.code === 0 ? r.stdout.trim().split(" ") : [];
-      if (id && image) return { id, image };
+      const r = await docker(["inspect", "--format", "{{.Id}} {{.Image}} {{.HostConfig.NetworkMode}}", c]);
+      const [id, image, network] = r.code === 0 ? r.stdout.trim().split(" ") : [];
+      if (id && image) return { id, image, network: network || "default" };
     }
     return null;
   })();
@@ -82,16 +90,25 @@ async function helper(
   workDir: string,
   mounts: string[],
   command: { restic: string[] } | { sh: string },
+  /** A hostname of its own (see resticUnlock), on the agent's network instead of in its namespace. */
+  ownHostname = false,
 ): Promise<RunResult> {
   const self = await selfContainer();
   const image = self?.image ?? process.env.AGENT_HELPER_IMAGE;
   if (!image) throw new Error("restic on a volume needs the agent to run in Docker (or AGENT_HELPER_IMAGE)");
   const name = `cbm-restic-${randomBytes(6).toString("hex")}`;
   const args = ["run", "--rm", "--init", "--name", name, "--label", "cbm.restic=1"];
+  if (ownHostname) {
+    const network = self ? self.network : "host";
+    // Sharing another container's network means sharing its hostname too.
+    if (network.startsWith("container:")) throw new Error(`the agent's network (${network}) leaves a helper no hostname of its own`);
+    args.push("--hostname", name, "--network", network === "default" ? "bridge" : network);
+  }
   if (self) {
-    args.push("--volumes-from", self.id, "--network", `container:${self.id}`);
+    args.push("--volumes-from", self.id);
+    if (!ownHostname) args.push("--network", `container:${self.id}`);
   } else {
-    args.push("--network", "host");
+    if (!ownHostname) args.push("--network", "host");
     const cache = ctx.env.RESTIC_CACHE_DIR;
     for (const p of new Set([...ctx.paths, workDir, ...(cache ? [cache] : [])])) args.push("-v", `${p}:${p}`);
   }
@@ -107,12 +124,38 @@ async function helper(
   for (const m of mounts) args.push("-v", m);
   if ("restic" in command) args.push("--entrypoint", "restic", image, ...ctx.args, ...command.restic);
   else args.push("--entrypoint", "sh", image, "-c", command.sh);
-  try {
-    return await docker(args, secrets, lockWatcher(ctx));
-  } finally {
-    // A helper that outlived its command (agent stopped mid-way) is removed.
-    await docker(["rm", "-f", name]).catch(() => undefined);
-  }
+  const run = async () => {
+    try {
+      return await docker(args, secrets, lockWatcher(ctx));
+    } finally {
+      // A helper that outlived its command (agent stopped mid-way) is removed.
+      await docker(["rm", "-f", name]).catch(() => undefined);
+    }
+  };
+  const r = await run();
+  // Refused by a lock left behind by a process that is gone: removed, run once more.
+  if (ownHostname || r.code === 0 || !refusedByStaleLock(r.stderr)) return r;
+  await resticUnlock(ctx, workDir);
+  return run();
+}
+
+/**
+ * Remove the repository's stale locks (`restic unlock`, which leaves live ones
+ * alone) and say how many there were. A restic killed before it could remove
+ * its own lock otherwise refuses every exclusive command - prune, forget -
+ * until someone removes it by hand.
+ *
+ * Run in a container with a hostname no other restic has. restic also counts a
+ * lock as stale when it comes from its own hostname and no process with its
+ * PID exists: the helpers share the agent's hostname but not its process ids,
+ * so seen from the agent, a running helper's lock would look dead. With a
+ * hostname of its own, only age decides - a running restic refreshes its lock
+ * every 5 minutes, and one older than 30 is left by a process that is gone.
+ */
+export async function resticUnlock(ctx: ResticCtx, workDir: string): Promise<number> {
+  const r = await helper(ctx, workDir, [], { restic: ["unlock"] }, true);
+  if (r.code !== 0) throw fail("restic unlock", r);
+  return Number(/removed (\d+) lock/.exec(r.stdout)?.[1] ?? 0);
 }
 
 /** `restic …` with the context's global args, for a helper's shell script. */
@@ -391,9 +434,11 @@ export async function resticRestorePath(
     const { dir, name } = fileTarget(target);
     const f = `/p/${name}`;
     // Read whole first: a failed read never leaves the file half-written.
+    // --quiet on every dump: restic writes "repo already locked, waiting…" to
+    // stdout, which would land in the data.
     const tmp = `/p/.${name}.cbm-restore`;
     const sh =
-      `set -e; trap 'rm -f ${shq(tmp)}' EXIT; ${resticCmd(ctx)} dump --retry-lock ${LOCK_WAIT} ${id} ${path} > ${shq(tmp)}; ` +
+      `set -e; trap 'rm -f ${shq(tmp)}' EXIT; ${resticCmd(ctx)} dump --quiet --retry-lock ${LOCK_WAIT} ${id} ${path} > ${shq(tmp)}; ` +
       `cat ${shq(tmp)} > ${shq(f)}${rootFix(shq(f), root)}`;
     const r = await helper(ctx, workDir, [`${dir}:/p`], { sh });
     if (r.code !== 0) throw fail(`restic restore of ${path}`, r);
@@ -417,7 +462,10 @@ export async function resticCountPath(
   kind: PathKind = "dir",
 ): Promise<{ kind: PathKind; count: number }> {
   checkRef(id, path);
-  const sh = `set -o pipefail; ${resticCmd(ctx)} dump --retry-lock ${LOCK_WAIT} ${id} ${path} | ${kind === "file" ? "wc -c" : "tar -tf - | wc -l"}`;
+  // What tar leaves unread is drained: restic writing into a closed pipe is
+  // killed on the spot, and leaves its lock on the repository behind.
+  const count = kind === "file" ? "wc -c" : "tar -tf - | wc -l";
+  const sh = `set -o pipefail; ${resticCmd(ctx)} dump --quiet --retry-lock ${LOCK_WAIT} ${id} ${path} | { ${count}; s=$?; cat >/dev/null; exit $s; }`;
   const r = await helper(ctx, workDir, [], { sh });
   if (r.code !== 0) throw fail(`reading ${path} back`, r);
   const n = Number.parseInt(r.stdout.trim(), 10);
@@ -499,7 +547,7 @@ export async function resticTarPath(
   const sh =
     kind === "file"
       ? `set -e; T=$(mktemp -d -p ${shq(dir)}); trap 'rm -rf "$T"' EXIT; ` +
-        `${resticCmd(ctx)} dump --retry-lock ${LOCK_WAIT} ${id} ${path} > "$T/data"${rootFix('"$T/data"', root)}; ` +
+        `${resticCmd(ctx)} dump --quiet --retry-lock ${LOCK_WAIT} ${id} ${path} > "$T/data"${rootFix('"$T/data"', root)}; ` +
         `tar -cf ${shq(outFile)} -C "$T" data`
       : `set -e; T=$(mktemp -d -p ${shq(dir)}); trap 'rm -rf "$T"' EXIT; ` +
         `${resticCmd(ctx)} restore ${id}:${path} --target "$T" --quiet --retry-lock ${LOCK_WAIT}${rootFix('"$T"', root)}; ` +

@@ -64,7 +64,10 @@ restic. Restore works both in place and to a new resource. Volumes are read in p
 files changed since the previous backup, no copy on the host) — see
 [Backups → restic: volumes read in place](backups.md#restic-volumes-read-in-place). A command that
 finds the repository locked by another one (a prune, a mirror reading it) waits for it rather
-than failing.
+than failing. A lock left behind by a restic that was stopped before it could remove it (a job
+past its time limit, an agent restarted mid-way) is removed by the agent once it is more than 30
+minutes old - a running restic refreshes its lock every 5 minutes - before a prune, and whenever
+such a lock refuses a command, which is then run again.
 
 Over **SSH/SFTP**, restic uses an SSH connection built by the agent (key or password, and a
 jump host if configured). Password auth uses `sshpass`; the base path must already exist on the

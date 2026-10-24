@@ -1,11 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile, realpath, chmod } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile, realpath, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { docker, jobScope, stopJobContainers, sweepJobContainers } from "../src/docker.js";
 import { resticContext, resticEnsureRepo, resticForget, resticListSnapshotIds, resticRawSize, setResticBin } from "../src/restic.js";
-import { resticBackupPath, resticCountPath, resticRestorePath, resticSamplePath, resticTarPath, snapshotPath } from "../src/restic-helper.js";
+import {
+  resticBackupPath,
+  resticCountPath,
+  resticRestorePath,
+  resticSamplePath,
+  resticTarPath,
+  resticUnlock,
+  snapshotPath,
+} from "../src/restic-helper.js";
 
 const DOCKER = process.env.CBM_DOCKER_TESTS === "1";
 const IMAGE = (process.env.AGENT_HELPER_IMAGE ??= "ghcr.io/holo795/cbm-agent:latest");
@@ -136,6 +144,84 @@ test("restic in place: a large folder checked on a sample of its files", { skip:
   } finally {
     await docker(["volume", "rm", "-f", src]).catch(() => undefined);
     await docker(["run", "--rm", "-v", `${dir}:${dir}`, "alpine:3.24", "rm", "-rf", join(dir, "dest"), work]).catch(() => undefined);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("restic in place: lock waits, locks left behind, a reader that stops early", { skip: !DOCKER, timeout: 600_000 }, async () => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "cbm-rl-")));
+  const src = `cbm-rl-src-${Math.random().toString(36).slice(2, 8)}`;
+  const holder = `cbm-rl-holder-${Math.random().toString(36).slice(2, 8)}`;
+  const repo = join(dir, "dest", "restic-repo");
+  const restic = `docker run --rm -i --network host -e RESTIC_PASSWORD -e RESTIC_REPOSITORY -v ${dir}:${dir} --entrypoint restic ${IMAGE}`;
+  const wrapper = join(dir, "restic");
+  await writeFile(wrapper, `#!/bin/sh\nexec ${restic} "$@"\n`);
+  await chmod(wrapper, 0o755);
+  setResticBin(wrapper);
+  const work = join(dir, "work");
+  const locks = async () => (await readdir(join(repo, "locks")).catch(() => [])).length;
+  // A prune caught while it holds the repository to itself (it is quick: tried again until caught).
+  const catchPrune = async (then: "pause" | "kill") => {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await sh(src, "head -c 8000000 /dev/urandom > /d/churn.bin");
+      await resticBackupPath(ctx, work, src, path, ["snap:l1"]);
+      await docker(["rm", "-f", holder]).catch(() => undefined);
+      await docker([
+        "run", "-d", "--name", holder, "--network", "host", "-e", "RESTIC_PASSWORD=pw", "-e", `RESTIC_REPOSITORY=${repo}`,
+        "-v", `${dir}:${dir}`, "--entrypoint", "restic", IMAGE, "forget", "--tag", "snap:l1", "--keep-last", "1", "--prune",
+      ]);
+      const until = Date.now() + 20_000;
+      while (Date.now() < until && (await locks()) === 0) await new Promise((r) => setTimeout(r, 2));
+      await docker([then, holder]).catch(() => undefined);
+      if ((await locks()) > 0 && (then === "kill" || (await docker(["inspect", "-f", "{{.State.Paused}}", holder])).stdout.trim() === "true")) return;
+      await docker(["rm", "-f", holder]).catch(() => undefined);
+    }
+    throw new Error("never caught the prune holding its lock");
+  };
+  const ctx = await resticContext({ type: "local", basePath: join(dir, "dest") } as never, "pw", dir);
+  const path = snapshotPath("volume", src);
+  try {
+    await sh(src, "mkdir -p /d/sub && echo hi > /d/sub/a.txt && echo there > /d/b.txt");
+    await docker(["run", "--rm", "-v", `${dir}:${dir}`, "alpine:3.24", "mkdir", "-p", join(dir, "dest"), work]);
+    await resticEnsureRepo(ctx);
+
+    // A read that waits for the lock: restic's "waiting" notice (stdout) stays out of the data.
+    await catchPrune("pause");
+    const snap = await resticBackupPath(ctx, work, src, path, ["snap:l2"], { lockWait: "0s" }).catch((e: Error) => e);
+    assert.ok(snap instanceof Error && /locked/.test(snap.message), "the prune holds the repository");
+    await docker(["unpause", holder]);
+    await docker(["wait", holder]);
+    const kept = await resticBackupPath(ctx, work, src, path, ["snap:l2"]);
+    await catchPrune("pause");
+    const reading = resticCountPath(ctx, work, kept.id, path);
+    await new Promise((r) => setTimeout(r, 4000));
+    await docker(["unpause", holder]);
+    assert.ok((await reading).count >= 4, "sub, sub/a.txt, b.txt, churn.bin - read after the wait");
+    await docker(["wait", holder]);
+    assert.equal(await locks(), 0, "no lock left behind");
+
+    // A lock left by a restic that was killed, minutes old: it may be a running
+    // restic on another host, so unlock leaves it (only age makes a lock stale).
+    await catchPrune("kill");
+    assert.equal(await resticUnlock(ctx, work), 0);
+    assert.equal(await locks(), 1, "a recent lock is kept");
+    await docker(["run", "--rm", "--network", "host", "-e", "RESTIC_PASSWORD=pw", "-e", `RESTIC_REPOSITORY=${repo}`, "-v", `${dir}:${dir}`, "--entrypoint", "restic", IMAGE, "unlock", "--remove-all"]);
+
+    // A reader that stops early (tar refusing what isn't a tar): restic is let
+    // finish instead of being killed mid-write, and removes its lock.
+    const file = join(dir, "big.bin");
+    await docker(["run", "--rm", "-v", `${dir}:${dir}`, "alpine:3.24", "sh", "-c", `head -c 5000000 /dev/urandom > ${file}`]);
+    const fpath = snapshotPath("bind", "big.bin");
+    const fsnap = await resticBackupPath(ctx, work, file, fpath, ["snap:l3"]);
+    await assert.rejects(resticCountPath(ctx, work, fsnap.id, fpath, "dir"), /tar/);
+    assert.equal(await locks(), 0, "the dump's lock is gone");
+    assert.equal((await resticCountPath(ctx, work, fsnap.id, fpath, "file")).count, 5_000_000);
+  } finally {
+    setResticBin("restic");
+    await ctx.cleanup();
+    await docker(["rm", "-f", holder]).catch(() => undefined);
+    await docker(["volume", "rm", "-f", src]).catch(() => undefined);
+    await docker(["run", "--rm", "-v", `${dir}:${dir}`, "alpine:3.24", "rm", "-rf", join(dir, "dest"), work, join(dir, "big.bin")]).catch(() => undefined);
     await rm(dir, { recursive: true, force: true });
   }
 });

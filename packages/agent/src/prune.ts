@@ -1,7 +1,8 @@
 import { posix } from "node:path";
 import type { PruneJob } from "@cbm/shared";
 import { makeTransfer, type Transfer } from "./transfer.js";
-import { LOCK_WAIT_MESSAGE, resticForget, resticStaleWarmIds, withResticCtx } from "./restic.js";
+import { LOCK_WAIT_MESSAGE, agentWorkDir, resticForget, resticStaleWarmIds, withResticCtx } from "./restic.js";
+import { resticUnlock } from "./restic-helper.js";
 import type { Emit } from "./backup.js";
 
 /**
@@ -28,6 +29,10 @@ export async function runPrune(job: PruneJob, emit: Emit): Promise<void> {
     if (!job.storage.resticPassword) throw new Error("restic prune requires the repository password");
     await withResticCtx(job.destination, job.storage.resticPassword, async (ctx) => {
       ctx.onLockWait = () => emit("info", LOCK_WAIT_MESSAGE);
+      // A prune needs the repository to itself: a lock left behind by a
+      // process that is gone would refuse it for good.
+      const stale = await resticUnlock(ctx, agentWorkDir()).catch(() => 0);
+      if (stale) emit("warn", `Removed ${stale} stale lock(s) left on the repository by a process that is gone`);
       // Backups' first passes, left as their final pass's parent: this prune
       // takes the exclusive lock anyway, so they go with it.
       const warm = (await resticStaleWarmIds(ctx)).filter((id) => !ids.includes(id));

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { copiedIds, resticCopyContext, resticS3Endpoint } from "../src/restic.js";
+import { copiedIds, refusedByStaleLock, refusingLockAgeMs, resticCopyContext, resticS3Endpoint } from "../src/restic.js";
 
 test("restic S3 endpoint keeps the configured scheme", () => {
   assert.equal(resticS3Endpoint("http://minio:9000"), "http://minio:9000");
@@ -53,4 +53,20 @@ test("restic copy context: two SFTP repositories each get their own connection",
   assert.ok(!script.includes(`PATH='${dir}`));
   await ctx.cleanup();
   await assert.rejects(stat(dir));
+});
+
+test("restic lock refusals: the refusing lock's age, stale from 30 min", () => {
+  const err = (age: string) =>
+    `unable to create lock in backend: repository is already locked by PID 8 on a1b2c3d4e5f6 by root (UID 0, GID 0)\nlock was created at 2026-01-01 03:00:00 (${age} ago)\nstorage ID 0f1e2d3c\nthe \`unlock\` command can be used to remove stale locks`;
+  assert.equal(refusingLockAgeMs(err("734.101861ms")), 734.101861);
+  assert.equal(refusingLockAgeMs(err("58.5s")), 58_500);
+  assert.equal(refusingLockAgeMs(err("1h0m5s")), 3_605_000);
+  assert.equal(refusingLockAgeMs(err("10h2m18.25s")), 36_138_250);
+  assert.equal(refusingLockAgeMs("Fatal: wrong password"), null);
+  assert.equal(refusedByStaleLock(err("29m59.9s")), false);
+  assert.equal(refusedByStaleLock(err("30m0.5s")), true);
+  assert.equal(refusedByStaleLock(err("10h2m18.25s")), true);
+  // --json: the same message, escaped.
+  const json = JSON.stringify({ message_type: "exit_error", code: 11, message: err("2h0m10.5s") });
+  assert.equal(refusedByStaleLock(json), true);
 });

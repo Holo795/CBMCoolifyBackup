@@ -11,7 +11,12 @@ import { getSettings } from "./settings.js";
  * restic doesn't download the index again on every run (costly over SFTP).
  */
 export function resticCacheDir(): string {
-  return process.env.RESTIC_CACHE_DIR || join(process.env.AGENT_WORK_DIR || "/tmp/cbm-agent", "restic-cache");
+  return process.env.RESTIC_CACHE_DIR || join(agentWorkDir(), "restic-cache");
+}
+
+/** The agent's work dir (a persistent volume in the normal install). */
+export function agentWorkDir(): string {
+  return process.env.AGENT_WORK_DIR || "/tmp/cbm-agent";
 }
 
 let RESTIC = "restic";
@@ -44,7 +49,8 @@ export interface ResticCtx {
 /** Logged when a restic command waits for the repository (the controller shows it as a state). */
 export const LOCK_WAIT_MESSAGE = "Waiting for the repository lock: another job is using this destination";
 
-/** restic's line when --retry-lock starts waiting ("repo already locked, waiting up to 30m0s for the lock"). */
+/** restic's line when --retry-lock starts waiting ("repo already locked, waiting up to 30m0s for the lock",
+ * written to stdout - unless --quiet), or its error once the wait is over (stderr). */
 const LOCK_WAIT_LINE = /repo already locked, waiting|repository is already locked/;
 
 /** A stderr listener that reports the first lock wait of one command. */
@@ -225,9 +231,52 @@ export async function withResticCtx<T>(
  */
 export const LOCK_WAIT = "30m";
 
-/** Run a restic command, buffering stdout/stderr. Global ctx args come first. */
-export function restic(ctx: ResticCtx, args: string[]): Promise<ResticRun> {
-  return runCapture(RESTIC, [...ctx.args, ...args], { env: ctx.env, onStderr: lockWatcher(ctx) });
+/**
+ * restic's own limit: a lock older than this belongs to a process that is gone
+ * (a running command refreshes its lock every 5 minutes, and stops if it can't).
+ */
+const STALE_LOCK_MS = 30 * 60_000;
+
+const DURATION_PART = /([\d.]+)(ns|us|µs|ms|h|m|s)/g;
+const DURATION_UNIT_MS: Record<string, number> = { ns: 1e-6, us: 1e-3, "µs": 1e-3, ms: 1, s: 1000, m: 60_000, h: 3_600_000 };
+
+/**
+ * How old the lock that refused a command is, from restic's error ("lock was
+ * created at 2026-01-01 03:00:00 (10h2m18.5s ago)"), or null if it wasn't one.
+ */
+export function refusingLockAgeMs(stderr: string): number | null {
+  const m = /lock was created at [^(]*\(([^)]*) ago\)/.exec(stderr);
+  if (!m) return null;
+  let ms = 0;
+  let parsed = false;
+  for (const [, n, unit] of m[1]!.matchAll(DURATION_PART)) {
+    ms += Number(n) * DURATION_UNIT_MS[unit!]!;
+    parsed = true;
+  }
+  return parsed ? ms : null;
+}
+
+/** Was a command refused by a lock left behind by a process that is gone? */
+export function refusedByStaleLock(stderr: string): boolean {
+  const age = refusingLockAgeMs(stderr);
+  return age !== null && age >= STALE_LOCK_MS;
+}
+
+/**
+ * Run a restic command, buffering stdout/stderr. Global ctx args come first.
+ * Refused by a stale lock (after waiting for it), the stale locks are removed
+ * and the command run once more.
+ */
+export async function restic(ctx: ResticCtx, args: string[]): Promise<ResticRun> {
+  const run = () => {
+    const watch = lockWatcher(ctx);
+    return runCapture(RESTIC, [...ctx.args, ...args], { env: ctx.env, onStderr: watch, onStdout: watch });
+  };
+  const r = await run();
+  if (r.code === 0 || !refusedByStaleLock(r.stderr)) return r;
+  const { resticUnlock } = await import("./restic-helper.js");
+  await resticUnlock(ctx, agentWorkDir());
+  return run();
 }
 
 // Serialise repo initialisation per repository so concurrent jobs (the agent
