@@ -357,7 +357,10 @@ export async function resticForget(ctx: ResticCtx, snapshotIds: string[], prune 
  * Returns { ok, detail } rather than throwing, so the caller can report it.
  */
 export async function resticCheck(ctx: ResticCtx, readDataSubset?: string): Promise<{ ok: boolean; detail: string }> {
-  const args = ["check", "--no-lock"];
+  // With a (shared) lock: a prune running under a lock-free check deletes the
+  // packs it repacked while the check still goes by the index it loaded, and
+  // the check reports them missing - a damaged repository that isn't.
+  const args = ["check", "--retry-lock", LOCK_WAIT];
   if (readDataSubset) args.push(`--read-data-subset=${readDataSubset}`);
   const r = await restic(ctx, args);
   const out = `${r.stdout}\n${r.stderr}`.trim();

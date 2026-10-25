@@ -516,8 +516,8 @@ export async function resticSamplePath(
   checkRef(id, path);
   const seed = Math.floor(Math.random() * 1_000_000_000);
   const sh =
-    `set -e; T=$(mktemp -d -p ${shq(workDir)}); trap 'rm -rf "$T"' EXIT; : > "$T/sample"; : > "$T/include"; ` +
-    `${resticCmd(ctx)} ls --json --no-lock --recursive ${id} ${path} | ` +
+    `set -e -o pipefail; T=$(mktemp -d -p ${shq(workDir)}); trap 'rm -rf "$T"' EXIT; : > "$T/sample"; : > "$T/include"; ` +
+    `${resticCmd(ctx)} ls --json --quiet --retry-lock ${LOCK_WAIT} --recursive ${id} ${path} | ` +
     `awk -v n=${Math.floor(opts.files)} -v cap=${Math.floor(opts.bytes)} -v seed=${seed} -v dir="$T" ${shq(SAMPLE_AWK)}; ` +
     `if [ -s "$T/include" ]; then ${resticCmd(ctx)} restore ${id} --target "$T/r" --include-file "$T/include" --quiet --retry-lock ${LOCK_WAIT}; fi; ` +
     `bad=0; n=0; b=0; while IFS="$(printf '\t')" read -r size p; do n=$((n+1)); b=$((b+size)); f="$T/r$p"; ` +

@@ -31,7 +31,10 @@ silently *corrupt* (bit-rot, a truncated upload). It re-reads the stored content
 - **restic:** runs `restic check` and re-hashes one twentieth of the pack data each week
   (`--read-data-subset=k/20`, a different slice every week), so every pack is read once in 20
   weeks, not just the structure. Test restores of large folders rely on it for the data they
-  don't read (see [Test restores](restore.md#test-restores-restore-drills)).
+  don't read (see [Test restores](restore.md#test-restores-restore-drills)). The check holds a
+  shared lock on the repository: backups and test restores run alongside, a prune of the
+  destination waits until it is done (a prune changing the repository under a check would make it
+  report data missing that isn't).
 - **tar:** re-downloads each artifact and either decrypts it (the AES-GCM tag proves integrity)
   or compares its sha256 to the manifest.
 
@@ -88,7 +91,8 @@ each scheduled fire and after each successful backup on a schedule (cheap, idemp
 - **One deletion per destination at a time.** Deletions waiting for the same agent and
   destination are merged into one job (after the night's backups, one per resource otherwise),
   so the repository is pruned once. An agent runs its other jobs first (restores, then backups,
-  then test restores and mirror copies) and never two prunes of the same destination at once:
+  then test restores and mirror copies) and never two prunes of the same destination at once, nor a
+  prune during its integrity check:
   a deletion can wait, a backup only its schedule's slot.
 
 `sync` mode keeps **one** copy instead of versioned snapshots, so retention doesn't apply to it.

@@ -4,7 +4,7 @@ import { mkdtemp, readdir, rm, writeFile, realpath, chmod } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { docker, jobScope, stopJobContainers, sweepJobContainers } from "../src/docker.js";
-import { resticContext, resticEnsureRepo, resticForget, resticListSnapshotIds, resticRawSize, setResticBin } from "../src/restic.js";
+import { resticCheck, resticContext, resticEnsureRepo, resticForget, resticListSnapshotIds, resticRawSize, setResticBin } from "../src/restic.js";
 import {
   resticBackupPath,
   resticCountPath,
@@ -199,6 +199,17 @@ test("restic in place: lock waits, locks left behind, a reader that stops early"
     assert.ok((await reading).count >= 4, "sub, sub/a.txt, b.txt, churn.bin - read after the wait");
     await docker(["wait", holder]);
     assert.equal(await locks(), 0, "no lock left behind");
+
+    // An integrity check waits for a prune instead of reading under it (a
+    // lock-free check reported the packs the prune repacked as missing).
+    await catchPrune("pause");
+    let checked = false;
+    const checking = resticCheck(ctx).then((r) => ((checked = true), r));
+    await new Promise((r) => setTimeout(r, 4000));
+    assert.equal(checked, false, "the check waits for the prune");
+    await docker(["unpause", holder]);
+    assert.equal((await checking).ok, true);
+    await docker(["wait", holder]);
 
     // A lock left by a restic that was killed, minutes old: it may be a running
     // restic on another host, so unlock leaves it (only age makes a lock stale).
