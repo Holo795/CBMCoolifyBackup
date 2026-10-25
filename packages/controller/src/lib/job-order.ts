@@ -3,9 +3,9 @@
  *  - a restore before anything (someone is waiting on it), then backups and
  *    agent updates, then drills, mirrors and checks, prunes last: a prune can
  *    wait days, a backup only its schedule's slot;
- *  - a prune only while no other prune runs on its destination (on any agent):
- *    it needs the repository to itself, so a second one would only wait for
- *    the lock - holding a slot a backup could use.
+ *  - a prune only while no other prune and no integrity check runs on its
+ *    destination (on any agent): it needs the repository to itself, so it
+ *    would only wait for the lock - holding a slot a backup could use.
  */
 const RANK: Record<string, number> = {
   restore: 0,
@@ -25,7 +25,7 @@ export interface QueuedJob {
   destinationId: string | null;
 }
 
-/** `queued` oldest first; `pruning`: destinations a prune is running on. */
+/** `queued` oldest first; `pruning`: destinations a prune or an integrity check is running on. */
 export function nextJob<T extends QueuedJob>(queued: T[], pruning: Set<string>): T | null {
   let best: T | null = null;
   let bestRank = Infinity;

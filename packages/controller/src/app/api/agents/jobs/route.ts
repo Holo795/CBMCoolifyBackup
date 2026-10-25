@@ -24,8 +24,15 @@ export async function GET(req: Request) {
         orderBy: { createdAt: "asc" },
         select: { id: true, type: true, payload: true },
       }),
-      // Prunes running anywhere (on any agent): their destination is taken.
-      prisma.agentJob.findMany({ where: { type: "prune", status: "running" }, select: { payload: true } }),
+      // Prunes and integrity checks running anywhere (on any agent): a prune
+      // of their destination would only wait for the lock.
+      prisma.agentJob.findMany({
+        where: {
+          status: "running",
+          OR: [{ type: "prune" }, { type: "verify-destination", payload: { path: ["deep"], equals: true } }],
+        },
+        select: { payload: true },
+      }),
     ]);
     const busy = new Set(pruning.map((j) => destinationOf(j.payload)).filter((d): d is string => !!d));
     const job = nextJob(
