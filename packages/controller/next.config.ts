@@ -35,6 +35,8 @@ const nextConfig: NextConfig = {
   output: "standalone",
   serverExternalPackages: ["pg", "ssh2", "ssh2-sftp-client", "@aws-sdk/client-s3", "nodemailer"],
   poweredByHeader: false,
+  // No next/image in the app: the optimizer endpoint (/_next/image) answers 404.
+  images: { unoptimized: true },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
