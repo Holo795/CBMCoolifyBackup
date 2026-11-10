@@ -33,6 +33,11 @@ jobs:
       - name: Install
         run: npm ci --no-audit --no-fund
 
+      # A known high or critical vulnerability in what runs in production
+      # (dev tooling aside) fails the checks - and with them the image release.
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Lint (all packages)
         run: npm run lint
 

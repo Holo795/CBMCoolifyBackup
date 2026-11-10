@@ -46,6 +46,7 @@ locally first just gives you faster feedback:
 npm run lint        # ESLint across all packages
 npm run typecheck   # type-check every package (builds @cbm/shared first)
 npm test            # unit tests (shared + agent + controller + mcp)
+npm audit --omit=dev --audit-level=high   # no known high/critical vulnerability in runtime deps
 ```
 
 Each of these is a generic, repo-wide command — there's nothing extra to run per package.
