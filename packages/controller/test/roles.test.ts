@@ -24,6 +24,15 @@ test("isRole narrows only known roles", () => {
   assert.equal(isRole(""), false);
 });
 
+test("what every object inherits is no role (and ranks as viewer)", () => {
+  for (const r of ["toString", "constructor", "__proto__", "hasOwnProperty", "valueOf"]) {
+    assert.equal(isRole(r), false, r);
+    assert.equal(roleRank(r), ROLE_RANK.viewer, r);
+    assert.equal(can({ role: r }, "operator"), false, r);
+    assert.equal(can({ role: r }, "admin"), false, r);
+  }
+});
+
 test("can() enforces the hierarchy for every (role, min) pair", () => {
   const expected: Record<string, { operator: boolean; admin: boolean }> = {
     viewer: { operator: false, admin: false },

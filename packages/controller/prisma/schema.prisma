@@ -22,7 +22,7 @@ model User {
   email         String    @unique
   emailVerified Boolean   @default(false)
   image         String?
-  role          String    @default("admin")
+  role          String    @default("viewer")
   // Set by Better Auth's two-factor plugin once a TOTP app is verified.
   twoFactorEnabled Boolean @default(false)
   createdAt     DateTime  @default(now())

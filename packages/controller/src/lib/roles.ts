@@ -11,14 +11,15 @@ export type Role = keyof typeof ROLE_RANK;
 
 export const ROLES = Object.keys(ROLE_RANK) as Role[];
 
-/** Narrow an arbitrary string to a known Role. */
+/** Narrow an arbitrary string to a known Role. Own keys only: `in` would also
+ * accept what every object inherits ("toString", "constructor"...). */
 export function isRole(value: string): value is Role {
-  return value in ROLE_RANK;
+  return Object.hasOwn(ROLE_RANK, value);
 }
 
 /** Rank of a (possibly unknown/legacy) role string; unknown → viewer (safest). */
 export function roleRank(role?: string | null): number {
-  return ROLE_RANK[(role ?? "") as Role] ?? ROLE_RANK.viewer;
+  return role != null && isRole(role) ? ROLE_RANK[role] : ROLE_RANK.viewer;
 }
 
 /** Does this user meet the minimum role? For conditional rendering. */

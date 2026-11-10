@@ -90,8 +90,9 @@ function authOptions(sso: SsoConfig[]) {
       lastName: { type: "string", required: false },
       // Server-owned: set by the registration gate (first user → admin, invited
       // users → their invite's role). input:false stops a signup body from
-      // self-assigning a role.
-      role: { type: "string", required: false, input: false, defaultValue: "admin" },
+      // self-assigning a role. The gate always sets it; a path that wouldn't
+      // gets the least.
+      role: { type: "string", required: false, input: false, defaultValue: "viewer" },
     },
     changeEmail: {
       enabled: true,
