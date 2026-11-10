@@ -1,6 +1,6 @@
 {
   "name": "@cbm/controller",
-  "version": "2.7.4",
+  "version": "2.7.5",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,17 +17,17 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",
     "@cbm/shared": "^2.0.0",
-    "@prisma/adapter-pg": "^7.10.0",
-    "@prisma/client": "^7.10.0",
-    "better-auth": "^1.7.7",
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1",
+    "better-auth": "^1.7.19",
     "clsx": "^2.1.1",
     "dotenv": "^18.0.5",
     "lucide-react": "^1.52.0",
-    "next": "^16.3.8",
+    "next": "^16.4.6",
     "next-themes": "^0.4.6",
-    "nodemailer": "^10.0.15",
+    "nodemailer": "^10.5.0",
     "pg": "^8.23.1",
-    "prisma": "^7.10.0",
+    "prisma": "^7.10.1",
     "qrcode.react": "^4.2.0",
     "radix-ui": "^1.7.0",
     "react": "^19.3.0",
@@ -36,7 +36,7 @@
     "ssh2": "^1.17.0",
     "ssh2-sftp-client": "^12.1.1",
     "tailwind-merge": "^3.7.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

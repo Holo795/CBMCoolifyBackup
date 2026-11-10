@@ -1,6 +1,6 @@
 {
   "name": "@cbm/mcp",
-  "version": "2.7.4",
+  "version": "2.7.5",
   "private": true,
   "type": "module",
   "bin": {
@@ -13,8 +13,8 @@
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.1",
-    "zod": "^4.6.5"
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
