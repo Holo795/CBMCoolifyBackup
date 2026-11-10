@@ -45,7 +45,9 @@ export function cachingLookup(resolve: Resolve, now: () => number = Date.now) {
 
 const systemResolve: Resolve = (hostname, cb) => dnsLookup(hostname, { all: true }, cb);
 
-const dispatcher = new Agent({ connect: { lookup: cachingLookup(systemResolve) } });
+// HTTP/1.1 as before undici 8, which negotiates HTTP/2 by default: the long
+// polls and uploads to the controller keep the behaviour they were built on.
+const dispatcher = new Agent({ allowH2: false, connect: { lookup: cachingLookup(systemResolve) } });
 
 /** fetch() with the cached name resolution. */
 export function controllerFetch(url: string, init: RequestInit): Promise<Response> {
