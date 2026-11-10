@@ -1,6 +1,6 @@
 {
   "name": "@cbm/agent",
-  "version": "2.7.5",
+  "version": "2.7.6",
   "private": true,
   "type": "module",
   "bin": {

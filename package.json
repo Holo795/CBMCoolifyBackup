@@ -1,6 +1,6 @@
 {
   "name": "coolify-backup-manager",
-  "version": "2.7.5",
+  "version": "2.7.6",
   "private": true,
   "description": "Self-hostable backup & restore manager for Coolify (controller + agents).",
   "workspaces": [
