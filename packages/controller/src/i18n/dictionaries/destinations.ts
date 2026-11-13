@@ -42,7 +42,8 @@ export const en = {
   keys: {
     menu: "Recovery keys",
     title: "Recovery keys of “{name}”",
-    intro: "The key that opens this destination's backups without CBM (docs: Manual restore). Anyone holding it with access to the destination reads the backups: keep it with the master key, offline.",
+    intro: "The key that opens this destination's backups without CBM (docs: Restoring without CBM). Anyone holding it with access to the destination reads the backups: keep it offline, apart from the backups.",
+    confirmPassword: "Confirm your password",
     reveal: "Show the keys",
     restic: "restic repository password",
     aes: "AES-256-GCM key of the encrypted files (base64)",
@@ -277,7 +278,8 @@ export const fr: typeof en = {
   keys: {
     menu: "Clés de secours",
     title: "Clés de secours de « {name} »",
-    intro: "La clé qui ouvre les sauvegardes de cette destination sans CBM (doc : Restauration manuelle). Quiconque la détient et accède à la destination lit les sauvegardes : gardez-la avec la clé maîtresse, hors ligne.",
+    intro: "La clé qui ouvre les sauvegardes de cette destination sans CBM (doc : Restoring without CBM). Quiconque la détient et accède à la destination lit les sauvegardes : gardez-la hors ligne, à l'écart des sauvegardes.",
+    confirmPassword: "Confirmez votre mot de passe",
     reveal: "Afficher les clés",
     restic: "Mot de passe du dépôt restic",
     aes: "Clé AES-256-GCM des fichiers chiffrés (base64)",

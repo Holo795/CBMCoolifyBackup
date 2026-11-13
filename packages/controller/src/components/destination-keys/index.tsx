@@ -57,7 +57,7 @@ export function DestinationKeys({ id, twoFactor }: { id: string; twoFactor: bool
       }}
     >
       <p className="text-[13px] text-muted-foreground">{t("destinations.keys.intro")}</p>
-      <Field label={t("settings.recoveryFileConfirmPassword")} htmlFor={`keys-pw-${id}`}>
+      <Field label={t("destinations.keys.confirmPassword")} htmlFor={`keys-pw-${id}`}>
         <Input id={`keys-pw-${id}`} name="password" type="password" autoComplete="current-password" required />
       </Field>
       {twoFactor && (
