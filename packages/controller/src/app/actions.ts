@@ -1201,6 +1201,34 @@ export async function resumeAfterRecovery(): Promise<{ ok?: boolean; error?: str
   return { ok: true };
 }
 
+/**
+ * The keys that open a destination's backups without CBM (docs/manual-restore):
+ * its restic repository password, or the AES key of its encrypted tar files.
+ * Admins only, after their password (and authenticator code), logged.
+ */
+export async function revealDestinationKeys(
+  destinationId: string,
+  fd: FormData,
+): Promise<{ ok?: boolean; error?: string; keys?: { resticPassword?: string; encryptionKey?: string } }> {
+  const user = await requireRole("admin");
+  const t = await getT();
+  const { verifyUserPassword } = await import("@/lib/auth");
+  if (!(await verifyUserPassword(user.id, s(fd, "password")))) return { error: t("messages.recoveryWrongPassword") };
+  if (user.twoFactorEnabled) {
+    const { verifyTotpCode } = await import("@/lib/two-factor");
+    if (!(await verifyTotpCode(await headers(), s(fd, "code")))) return { error: t("messages.recoveryWrongCode") };
+  }
+  const dest = await prisma.destination.findUniqueOrThrow({ where: { id: destinationId } });
+  console.warn(`[security] ${user.email} revealed the recovery keys of destination "${dest.name}"`);
+  return {
+    ok: true,
+    keys: {
+      ...(dest.resticPasswordEnc ? { resticPassword: decryptSecret(dest.resticPasswordEnc) } : {}),
+      ...(dest.encryptionEnabled && dest.encryptionKeyEnc ? { encryptionKey: decryptSecret(dest.encryptionKeyEnc) } : {}),
+    },
+  };
+}
+
 /** Forget an SSH destination's known host keys: the next connection learns new ones. */
 export async function forgetHostKeys(destinationId: string): Promise<{ ok?: boolean; error?: string }> {
   await requireRole("admin");

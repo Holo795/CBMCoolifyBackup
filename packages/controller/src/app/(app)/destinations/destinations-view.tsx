@@ -20,6 +20,7 @@ import { ReadAgentPicker } from "@/components/read-agent-picker";
 import { FormDialog } from "@/components/form-dialog";
 import { DestinationProtectionFields } from "@/components/destination-protection";
 import { DestinationEditFields, type EditableDestination } from "@/components/destination-edit";
+import { DestinationKeys } from "@/components/destination-keys";
 import { parseProtectionDetail } from "@/lib/protection-check";
 import { protectionDetailText } from "@/lib/protection-text";
 import { getT } from "@/lib/i18n";
@@ -33,6 +34,7 @@ import {
   Lock,
   PlugZap,
   KeyRound,
+  KeySquare,
   Pencil,
   ShieldCheck,
   ShieldAlert,
@@ -78,6 +80,8 @@ export async function DestinationsView({
   const t = await getT();
   const user = await requireUser();
   const isAdmin = can(user, "admin");
+  // Showing a destination's keys also asks an account with two-factor for its code.
+  const twoFactor = !!user.twoFactorEnabled;
   const isOperator = can(user, "operator");
   const allDests = items.map((i) => ({ id: i.dest.id, name: i.dest.name }));
   const nameById = new Map(allDests.map((d) => [d.id, d.name]));
@@ -132,6 +136,13 @@ export async function DestinationsView({
                     ...(d.type === "s3"
                       ? [{ label: t("destinations.protection.check"), icon: <ShieldCheck />, action: checkDestinationProtection.bind(null, d.id) }]
                       : []),
+                    {
+                      kind: "dialog",
+                      label: t("destinations.keys.menu"),
+                      icon: <KeySquare />,
+                      title: t("destinations.keys.title", { name: d.name }),
+                      content: <DestinationKeys id={d.id} twoFactor={twoFactor} />,
+                    } satisfies MenuAction,
                     ...(d.type === "ssh" && hostKeys.length > 0
                       ? [
                           {
