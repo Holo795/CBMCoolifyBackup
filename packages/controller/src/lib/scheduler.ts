@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
 import { prisma } from "./prisma";
-import { cronMatches } from "./cron";
+import { cronDue } from "./cron";
 import { enqueueBackup, enqueueVerifyDestination, enqueueDrill } from "./jobs";
 import { applyRetention, applyAllMirrorRetention } from "./retention";
 import { checkAllProtection } from "./protection-check";
@@ -178,7 +178,7 @@ export async function tick(now = new Date()): Promise<number> {
   for (const p of policies) {
     let due = false;
     try {
-      due = cronMatches(p.cron, now, tz);
+      due = cronDue(p.cron, now, tz);
     } catch {
       continue;
     }
@@ -357,7 +357,7 @@ export function startScheduler(): void {
         if (onHold && !RUNS_ON_HOLD.has(t.name)) continue;
         let due = false;
         try {
-          due = cronMatches(t.cron, at, tz);
+          due = cronDue(t.cron, at, tz);
         } catch {
           due = false;
         }

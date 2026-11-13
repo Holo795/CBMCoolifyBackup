@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { compareVersions, imageWithoutTag, SELF_UPDATE_SINCE, type UpdateAgentJob } from "@cbm/shared";
 import { prisma } from "./prisma";
 import { env } from "./env";
-import { cronMatches } from "./cron";
+import { cronDue } from "./cron";
 import { getTimezone } from "./settings";
 import { AGENT_ONLINE_MS } from "./agent-status";
 import { version as CBM_VERSION } from "../../package.json";
@@ -79,7 +79,7 @@ export function scheduleSoon(crons: string[], now: Date, timeZone: string, minut
     const at = new Date(Math.floor(now.getTime() / 60_000) * 60_000 + m * 60_000);
     for (const c of crons) {
       try {
-        if (cronMatches(c, at, timeZone)) return true;
+        if (cronDue(c, at, timeZone)) return true;
       } catch {
         /* an invalid cron never fires */
       }

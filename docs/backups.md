@@ -131,6 +131,8 @@ Example: `php artisan down` (pre) / `php artisan up` (post), or flushing a cache
 ## Scheduling & retention
 
 Schedules are cron expressions evaluated in your configured timezone (**Settings → Timezone**).
+Clock changes are handled like classic cron: a time the clock skips in spring (02:00-02:59 when it
+jumps to 03:00) runs right after the jump, and a time it repeats in autumn runs once.
 Admins edit them in a side panel: **Set** / **Edit** on the instance card (**Coolify
 instances**), with a **Frequency** control (*Hourly*, *Daily* 02:00, *Weekly* Monday 02:00,
 *Monthly* the 1st at 02:00, or *Custom* cron), a **Mode** card, a **Destination** and the

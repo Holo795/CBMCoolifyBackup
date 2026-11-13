@@ -42,6 +42,7 @@ function zoneFormatter(timeZone: string): Intl.DateTimeFormat {
       hour: "2-digit",
       day: "2-digit",
       month: "2-digit",
+      year: "numeric",
       weekday: "short",
     });
     fmtCache.set(timeZone, fmt);
@@ -55,6 +56,7 @@ function partsInZone(date: Date, timeZone: string): {
   hour: number;
   day: number;
   month: number;
+  year: number;
   dow: number;
 } {
   const fmt = zoneFormatter(timeZone);
@@ -68,8 +70,40 @@ function partsInZone(date: Date, timeZone: string): {
     hour,
     day: parseInt(p.day, 10),
     month: parseInt(p.month, 10),
+    year: parseInt(p.year, 10),
     dow: dows[p.weekday] ?? 0,
   };
+}
+
+/** The wall-clock minute `date` shows in `timeZone`, as minutes since the epoch
+ * of that wall clock (comparable, and +1 per minute while no clock change). */
+function wallMinute(date: Date, timeZone: string): number {
+  const p = partsInZone(date, timeZone);
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) / 60_000;
+}
+
+/**
+ * Should `expr` fire at the instant `at` (a whole minute), in `timeZone`,
+ * clock changes included (as Vixie cron does):
+ *  - a wall time the clock skipped (02:00-02:59 when it jumps to 03:00) fires
+ *    at the first instant after it - before, a daily 02:00 backup didn't run
+ *    that day, and no overdue alert saw it;
+ *  - a wall time the clock repeats (02:00-02:59 twice when it goes back)
+ *    fires once, at its first occurrence - before, it ran twice.
+ */
+export function cronDue(expr: string, at: Date, timeZone = "UTC"): boolean {
+  const here = wallMinute(at, timeZone);
+  // The second time this wall minute shows (the clock went back 30 min, 1 h or 2 h).
+  for (const back of [30, 60, 120]) {
+    if (wallMinute(new Date(at.getTime() - back * 60_000), timeZone) === here) return false;
+  }
+  if (cronMatches(expr, at, timeZone)) return true;
+  const before = wallMinute(new Date(at.getTime() - 60_000), timeZone);
+  // Wall minutes skipped just before this one.
+  for (let m = before + 1; m < here && m - before <= 180; m++) {
+    if (cronMatches(expr, new Date(m * 60_000), "UTC")) return true;
+  }
+  return false;
 }
 
 /**
@@ -115,10 +149,8 @@ export function isValidCron(expr: string): boolean {
  * `timeZone`), scanning back minute-by-minute up to `maxDays`. Returns null if
  * the schedule hasn't fired within that window. Used to detect missed backups.
  *
- * Note: on a spring-forward DST day a wall-clock minute that the cron targets
- * (e.g. 02:30 when the clock jumps 02:00→03:00) doesn't exist, so the scan finds
- * the previous valid fire instead - the missed-backup alert may be a day late
- * for that one schedule on that one day. Acceptable for an alerting heuristic.
+ * Clock changes count as the scheduler counts them (cronDue): a skipped wall
+ * time fired just after it, a repeated one once.
  */
 export function previousFireWithin(expr: string, now: Date, timeZone = "UTC", maxDays = 40): Date | null {
   if (!isValidCron(expr)) return null;
@@ -127,7 +159,7 @@ export function previousFireWithin(expr: string, now: Date, timeZone = "UTC", ma
   const steps = maxDays * 24 * 60;
   for (let i = 0; i < steps; i++) {
     const t = new Date(start.getTime() - i * 60_000);
-    if (cronMatches(expr, t, timeZone)) return t;
+    if (cronDue(expr, t, timeZone)) return t;
   }
   return null;
 }
