@@ -14,7 +14,7 @@ Detailed docs for **CBM — Coolify Backup Manager**. New here? Start with the
 - **[MCP server](mcp.md)** — drive CBM from any AI agent over a token-authenticated API
 - **[Multi-server](multi-server.md)** — one agent per server, routing, per-server schedules
 - **[Alerts](alerts.md)** — failed / missing / overdue webhooks
-- **[Reconciliation & retention](reconciliation-retention.md)** — detect lost backups, GFS retention
+- **[Reconciliation & retention](reconciliation-retention.md)** — detect lost backups, retention rules and pinning
 - **[Security](security.md)** — encryption at rest, tokens, the trust model
 - **[Troubleshooting / FAQ](troubleshooting.md)**
 

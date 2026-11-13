@@ -1,12 +1,15 @@
 import { prisma } from "./prisma";
 import { computeKeepSet } from "./gfs";
 import { removeSnapshots } from "./snapshot-removal";
+import { getTimezone } from "./settings";
 
 export { computeKeepSet } from "./gfs";
 
 /**
- * Grandfather-father-son retention. Keeps the most recent N daily, plus a
- * number of distinct weekly and monthly snapshots; deletes the rest.
+ * Retention: the snapshots each rule of the schedule keeps (lib/gfs: the N
+ * newest, and the newest of each of the last N hours, days, weeks, months,
+ * years, in the configured timezone) stay; the rest are deleted. Pinned
+ * snapshots are never touched.
  *
  * Files are deleted on the destination by an agent "prune" job (the files live
  * on the agent host for `local`, and ssh/s3 are reachable from it); the DB
@@ -25,18 +28,26 @@ export async function applyRetention(policyId: string): Promise<{ deleted: numbe
         : { backupEnabled: true, status: { not: "deleted" } };
   const resources = await prisma.resource.findMany({ where, select: { id: true, instanceId: true } });
 
+  const tz = await getTimezone().catch(() => "UTC");
   let deleted = 0;
   for (const r of resources) {
+    // A pinned snapshot is kept and takes no slot (lib/gfs).
     const snaps = await prisma.snapshot.findMany({
-      where: { resourceId: r.id, policyId: policy.id, status: "succeeded" },
+      where: { resourceId: r.id, policyId: policy.id, status: "succeeded", pinned: false },
       orderBy: { startedAt: "desc" },
       include: { destination: true },
     });
     const keep = computeKeepSet(
       snaps.map((s) => ({ id: s.id, at: s.startedAt })),
-      policy.retentionDaily,
-      policy.retentionWeekly,
-      policy.retentionMonthly,
+      {
+        last: policy.retentionLast,
+        hourly: policy.retentionHourly,
+        daily: policy.retentionDaily,
+        weekly: policy.retentionWeekly,
+        monthly: policy.retentionMonthly,
+        yearly: policy.retentionYearly,
+      },
+      tz,
     );
     const toDelete = snaps.filter((s) => !keep.has(s.id));
     if (toDelete.length === 0) continue;
@@ -61,8 +72,9 @@ export async function applyRetention(policyId: string): Promise<{ deleted: numbe
 export async function applyMirrorRetention(destinationId: string): Promise<{ deleted: number }> {
   const dest = await prisma.destination.findUnique({ where: { id: destinationId } });
   if (!dest || dest.protected || dest.mirrorRetention !== "own") return { deleted: 0 };
+  const tz = await getTimezone().catch(() => "UTC");
   const copies = await prisma.snapshot.findMany({
-    where: { destinationId, isMirror: true, status: "succeeded" },
+    where: { destinationId, isMirror: true, status: "succeeded", pinned: false },
     orderBy: { startedAt: "desc" },
     select: { id: true, resourceId: true, startedAt: true },
   });
@@ -70,7 +82,7 @@ export async function applyMirrorRetention(destinationId: string): Promise<{ del
   for (const c of copies) byResource.set(c.resourceId, [...(byResource.get(c.resourceId) ?? []), { id: c.id, at: c.startedAt }]);
   const toDelete: string[] = [];
   for (const list of byResource.values()) {
-    const keep = computeKeepSet(list, dest.mirrorKeepDaily, dest.mirrorKeepWeekly, dest.mirrorKeepMonthly);
+    const keep = computeKeepSet(list, { daily: dest.mirrorKeepDaily, weekly: dest.mirrorKeepWeekly, monthly: dest.mirrorKeepMonthly }, tz);
     toDelete.push(...list.filter((c) => !keep.has(c.id)).map((c) => c.id));
   }
   if (toDelete.length === 0) return { deleted: 0 };

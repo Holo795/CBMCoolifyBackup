@@ -33,9 +33,9 @@ export async function removeSnapshots(
       : mirrors === "follow"
         ? [{ mirrorOfId: { in: ids }, destination: { mirrorRetention: "source" } }]
         : [];
-  // A backup still running is never touched.
+  // A backup still running is never touched, nor a pinned one (unpinned first).
   const found = await prisma.snapshot.findMany({
-    where: { OR: [{ id: { in: ids } }, ...copies], status: { not: "running" } },
+    where: { OR: [{ id: { in: ids } }, ...copies], status: { not: "running" }, pinned: false },
     include: { destination: true, resource: { select: { instanceId: true } } },
   });
   // Protected destination: kept (and back to normal if a deletion was pending

@@ -120,7 +120,7 @@ needs to actually come back to life isn't covered. CBM backs up the whole resour
 - **Deletion-proof second copy.** Mirror copies can keep their own retention, a destination can
   be **protected** (CBM never deletes there), and CBM checks that an S3 bucket really refuses a
   permanent deletion by its key (versioning + no `DeleteObjectVersion`), alerting if that changes.
-- **Scheduling** with grandfather‑father‑son retention, in a **configurable timezone**.
+- **Scheduling** with retention rules like `restic forget` (latest, hourly, daily, weekly, monthly, yearly) and pinned backups, in a **configurable timezone**.
 - **Team access with roles.** Invite people as **admin / operator / viewer** via one‑time
   invitation links (copy‑paste or emailed). Operators run backups/restores; only admins
   configure instances, destinations, schedules, and settings — enforced server‑side, with the

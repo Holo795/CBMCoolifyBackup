@@ -379,6 +379,9 @@ export async function ResourceDetailView({
                             retentionDaily: override.retentionDaily,
                             retentionWeekly: override.retentionWeekly,
                             retentionMonthly: override.retentionMonthly,
+                            retentionLast: override.retentionLast,
+                            retentionHourly: override.retentionHourly,
+                            retentionYearly: override.retentionYearly,
                           }
                         : undefined
                     }

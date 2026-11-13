@@ -119,7 +119,9 @@ export const en = {
   unknownMode: "Unknown backup mode",
   invalidRetention: "Retention ({period}) must be a whole number between 0 and 1000",
   retentionEmpty: "Keep at least one daily, weekly or monthly backup: with 0 / 0 / 0, every backup would be deleted as soon as it finished",
-  retentionPeriod: { daily: "daily", weekly: "weekly", monthly: "monthly" },
+  retentionPeriod: { daily: "daily", weekly: "weekly", monthly: "monthly", last: "last", hourly: "hourly", yearly: "yearly" },
+  snapshotPinned: "This snapshot is pinned: unpin it first.",
+  pinNeedsSuccess: "Only a successful snapshot can be pinned.",
 
   // Hooks
   hookTooLong: "A hook command is too long (max 4000 characters)",
@@ -314,7 +316,9 @@ export const fr: typeof en = {
   unknownMode: "Mode de sauvegarde inconnu",
   invalidRetention: "La conservation ({period}) doit être un nombre entier entre 0 et 1000",
   retentionEmpty: "Conservez au moins une sauvegarde quotidienne, hebdomadaire ou mensuelle : avec 0 / 0 / 0, chaque sauvegarde serait supprimée dès sa fin",
-  retentionPeriod: { daily: "quotidienne", weekly: "hebdomadaire", monthly: "mensuelle" },
+  retentionPeriod: { daily: "quotidienne", weekly: "hebdomadaire", monthly: "mensuelle", last: "dernières", hourly: "horaire", yearly: "annuelle" },
+  snapshotPinned: "Ce snapshot est épinglé : désépinglez-le d'abord.",
+  pinNeedsSuccess: "Seul un snapshot réussi peut être épinglé.",
 
   hookTooLong: "Une commande de hook est trop longue (4000 caractères max.)",
   hookTimeoutInvalid: "La limite de temps d'un hook doit être un nombre entier de secondes entre 1 et 3600",

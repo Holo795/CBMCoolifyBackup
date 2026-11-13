@@ -55,6 +55,10 @@ export const en = {
 
   // Detail page.
   repin: "Re-pin code",
+  pin: "Pin (keep it)",
+  unpin: "Unpin",
+  pinned: "Pinned: kept until unpinned, whatever the retention says",
+  pinnedBadge: "pinned",
   repinConfirm: "Re-pin the deployment to this snapshot's commit and redeploy?",
   detailsTitle: "Details",
   artifactsTitle: "Artifacts",
@@ -204,6 +208,10 @@ export const fr: typeof en = {
   },
 
   repin: "Ré-épingler le code",
+  pin: "Épingler (la garder)",
+  unpin: "Désépingler",
+  pinned: "Épinglée : gardée jusqu'au désépinglage, quoi que dise la rétention",
+  pinnedBadge: "épinglée",
   repinConfirm: "Ré-épingler le déploiement sur le commit de ce snapshot et redéployer ?",
   detailsTitle: "Détails",
   artifactsTitle: "Artefacts",

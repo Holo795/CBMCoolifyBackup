@@ -174,6 +174,9 @@ export async function InstancesView({
                       retentionDaily: policy.retentionDaily,
                       retentionWeekly: policy.retentionWeekly,
                       retentionMonthly: policy.retentionMonthly,
+                      retentionLast: policy.retentionLast,
+                      retentionHourly: policy.retentionHourly,
+                      retentionYearly: policy.retentionYearly,
                     }
                   : undefined
               }

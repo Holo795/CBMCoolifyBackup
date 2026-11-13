@@ -319,6 +319,11 @@ model BackupPolicy {
   retentionDaily   Int      @default(7)
   retentionWeekly  Int      @default(4)
   retentionMonthly Int      @default(6)
+  // Also kept (lib/gfs): the N newest, the newest of each of the last N hours
+  // and years. Every rule applies on its own, like restic forget.
+  retentionLast    Int      @default(0)
+  retentionHourly  Int      @default(0)
+  retentionYearly  Int      @default(0)
   enabled       Boolean     @default(true)
   destinationId String
   destination   Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
@@ -345,6 +350,10 @@ model Snapshot {
   // distinct content (lib/env-blobs) instead of in every manifest.
   envBlobId     String?
   envBlob       EnvBlob?     @relation(fields: [envBlobId], references: [id], onDelete: SetNull)
+  // Pinned: kept whatever the retention or a sync says, until unpinned
+  // ("before the migration"...), with why.
+  pinned        Boolean      @default(false)
+  pinNote       String?
   policyId      String?
   policy        BackupPolicy? @relation(fields: [policyId], references: [id], onDelete: SetNull)
   destinationId String

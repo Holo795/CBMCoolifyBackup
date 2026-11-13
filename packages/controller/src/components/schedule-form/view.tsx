@@ -1,7 +1,7 @@
 "use client";
 
 import { History, RefreshCw } from "lucide-react";
-import { Button, Field, Input, OptionCards, Segmented, Select } from "@/components/ui";
+import { Button, Disclosure, Field, Input, OptionCards, Segmented, Select } from "@/components/ui";
 import { useT } from "@/components/i18n-provider";
 
 export type Dest = { id: string; name: string };
@@ -13,6 +13,9 @@ export type Defaults = {
   retentionDaily?: number;
   retentionWeekly?: number;
   retentionMonthly?: number;
+  retentionLast?: number;
+  retentionHourly?: number;
+  retentionYearly?: number;
 };
 
 /** Presentation only: the schedule form. Logic in ./index.tsx. */
@@ -97,10 +100,27 @@ export function ScheduleFormView({
 
       {mode === "backup" && (
         <Field label={k("retention")} hint={k("retentionHint")}>
-          <div className="grid max-w-md grid-cols-3 gap-2">
-            <Ret name="retentionDaily" unit={k("days")} label={k("keepDaily")} def={defaults?.retentionDaily ?? 7} />
-            <Ret name="retentionWeekly" unit={k("weeks")} label={k("keepWeekly")} def={defaults?.retentionWeekly ?? 4} />
-            <Ret name="retentionMonthly" unit={k("months")} label={k("keepMonthly")} def={defaults?.retentionMonthly ?? 6} />
+          <div className="flex max-w-md flex-col gap-2">
+            <div className="grid grid-cols-3 gap-2">
+              <Ret name="retentionDaily" unit={k("days")} label={k("keepDaily")} def={defaults?.retentionDaily ?? 7} />
+              <Ret name="retentionWeekly" unit={k("weeks")} label={k("keepWeekly")} def={defaults?.retentionWeekly ?? 4} />
+              <Ret name="retentionMonthly" unit={k("months")} label={k("keepMonthly")} def={defaults?.retentionMonthly ?? 6} />
+            </div>
+            <Disclosure
+              summary={k("retentionMore")}
+              defaultOpen={!!(defaults?.retentionLast || defaults?.retentionHourly || defaults?.retentionYearly || frequency === "hourly")}
+            >
+              <div className="grid grid-cols-3 gap-2">
+                <Ret name="retentionLast" unit={k("latest")} label={k("keepLast")} def={defaults?.retentionLast ?? 0} />
+                <Ret
+                  name="retentionHourly"
+                  unit={k("hours")}
+                  label={k("keepHourly")}
+                  def={defaults?.retentionHourly ?? (frequency === "hourly" ? 24 : 0)}
+                />
+                <Ret name="retentionYearly" unit={k("years")} label={k("keepYearly")} def={defaults?.retentionYearly ?? 0} />
+              </div>
+            </Disclosure>
           </div>
         </Field>
       )}

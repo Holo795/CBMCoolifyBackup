@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { keepsSomething } from "@/lib/gfs";
 import { headers, cookies } from "next/headers";
 import { LOCALE_COOKIE, isLocale } from "@/lib/i18n-shared";
 import { getT } from "@/lib/i18n";
@@ -898,10 +899,11 @@ export async function deleteSnapshot(snapshotId: string, withMirrors = false): P
   const t = await getT();
   const snap = await prisma.snapshot.findUnique({
     where: { id: snapshotId },
-    select: { resourceId: true, status: true, destination: { select: { protected: true } } },
+    select: { resourceId: true, status: true, pinned: true, destination: { select: { protected: true } } },
   });
   if (!snap) return { ok: true };
   if (snap.status === "running") return { error: t("messages.snapshotStillRunning") };
+  if (snap.pinned) return { error: t("messages.snapshotPinned") };
   if (snap.destination.protected) return { error: t("messages.snapshotOnProtected") };
   const res = await removeSnapshots([snapshotId], withMirrors ? "all" : "none");
   revalidatePath("/snapshots");
@@ -910,6 +912,21 @@ export async function deleteSnapshot(snapshotId: string, withMirrors = false): P
   return { ok: true, detail: res.kept
       ? t(res.kept === 1 ? "messages.mirrorCopiesKeptProtectedOne" : "messages.mirrorCopiesKeptProtectedMany", { count: res.kept })
       : undefined };
+}
+
+/** Pin a snapshot (kept whatever the retention, a sync or a deletion says) or unpin it. */
+export async function setSnapshotPinned(snapshotId: string, pinned: boolean, fd?: FormData): Promise<{ ok?: boolean; error?: string }> {
+  await requireRole("operator");
+  const t = await getT();
+  const snap = await prisma.snapshot.findUnique({ where: { id: snapshotId }, select: { status: true, resourceId: true } });
+  if (!snap) return { error: t("messages.snapshotNotFound") };
+  if (pinned && snap.status !== "succeeded") return { error: t("messages.pinNeedsSuccess") };
+  const note = fd ? s(fd, "pinNote").slice(0, 200) : "";
+  await prisma.snapshot.update({ where: { id: snapshotId }, data: { pinned, pinNote: pinned ? note || null : null } });
+  revalidatePath(`/snapshots/${snapshotId}`);
+  revalidatePath(`/resources/${snap.resourceId}`);
+  revalidatePath("/snapshots");
+  return { ok: true };
 }
 
 /** Re-pin a Git app to the commit captured in a snapshot, then redeploy. */
@@ -958,6 +975,9 @@ function scheduleData(fd: FormData) {
     retentionDaily: Number(s(fd, "retentionDaily") || "7"),
     retentionWeekly: Number(s(fd, "retentionWeekly") || "4"),
     retentionMonthly: Number(s(fd, "retentionMonthly") || "6"),
+    retentionLast: Number(s(fd, "retentionLast") || "0"),
+    retentionHourly: Number(s(fd, "retentionHourly") || "0"),
+    retentionYearly: Number(s(fd, "retentionYearly") || "0"),
   };
 }
 
@@ -972,13 +992,26 @@ async function scheduleError(data: ReturnType<typeof scheduleData>): Promise<str
     ["daily", data.retentionDaily],
     ["weekly", data.retentionWeekly],
     ["monthly", data.retentionMonthly],
+    ["last", data.retentionLast],
+    ["hourly", data.retentionHourly],
+    ["yearly", data.retentionYearly],
   ] as const) {
     if (!Number.isInteger(v) || v < 0 || v > 1000) {
       return t("messages.invalidRetention", { period: t(`messages.retentionPeriod.${k}`) });
     }
   }
   // 0/0/0 would delete every backup as soon as it succeeded.
-  if (data.mode === "backup" && data.retentionDaily + data.retentionWeekly + data.retentionMonthly === 0) {
+  if (
+    data.mode === "backup" &&
+    !keepsSomething({
+      last: data.retentionLast,
+      hourly: data.retentionHourly,
+      daily: data.retentionDaily,
+      weekly: data.retentionWeekly,
+      monthly: data.retentionMonthly,
+      yearly: data.retentionYearly,
+    })
+  ) {
     return t("messages.retentionEmpty");
   }
   return null;

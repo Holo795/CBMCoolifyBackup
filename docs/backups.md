@@ -144,7 +144,7 @@ wins:
 2. a **per-server** schedule (multi-server instances), else
 3. the **instance** schedule.
 
-Each schedule has a destination, a mode, and **grandfather-father-son retention**
+Each schedule has a destination, a mode, and **retention rules**
 (keep N daily / weekly / monthly; 7 / 4 / 6 by default). Retention runs after each scheduled
 fire and after each successful backup on a schedule; for restic it is delegated to
 `restic forget --prune`. See [Reconciliation & retention](reconciliation-retention.md).

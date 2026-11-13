@@ -77,13 +77,31 @@ its card → **Mirror copies received here**):
 Deleting a backup by hand never deletes its mirror copies unless you choose **Delete with its
 mirror copies** in its **…** menu.
 
-## Retention — grandfather-father-son (GFS)
+## Retention
 
-Each schedule keeps a configurable number of **daily / weekly / monthly** snapshots (7 / 4 / 6
-by default) and deletes the rest of that schedule's successful snapshots. Retention runs after
-each scheduled fire and after each successful backup on a schedule (cheap, idempotent).
-At least one of the three counts must be above 0, and each resource's newest successful backup
-is always kept, whatever the counts.
+Each schedule keeps, by rules that each apply **on their own** (like `restic forget`), the newest
+backup of each of its last N periods, the current one included:
+
+| Rule | Keeps | Default |
+| --- | --- | --- |
+| **Daily** / **Weekly** / **Monthly** | the newest backup of each of the last N days / ISO weeks / months | 7 / 4 / 6 |
+| **Latest** | the N newest backups | 0 |
+| **Hourly** | the newest of each of the last N hours (offered at 24 for an hourly schedule) | 0 |
+| **Yearly** | the newest of each of the last N years | 0 |
+
+A backup kept by any rule stays; the rest of the schedule's successful backups are deleted.
+Periods are counted in the configured timezone. Whatever the rules, each resource's newest
+successful backup is always kept, and a schedule must keep something besides it. Retention runs
+after each scheduled fire and after each successful backup on a schedule (cheap, idempotent).
+
+Since 2.8.0 the rules are independent: before, they were chained (a backup kept for the days
+wasn't looked at for the weeks, the second backup of a day took a weekly slot), which reached one
+period further for a daily schedule and too short for an hourly one. The upgrade raises existing
+weekly and monthly counts by one, so no backup kept before goes.
+
+**Pinning.** A backup pinned from its page (**…** → **Pin**, operators) is kept whatever the
+retention, a sync or a deletion says, and takes no slot, until it is unpinned: "the state before
+the migration", "the last good one before the incident".
 
 - **Files first, records second.** A snapshot being deleted shows as **deleting**: an agent
   deletes its files (and those of the mirror copies that follow it), and the database record is removed **only

@@ -2,7 +2,7 @@ import { shownStatus } from "@/lib/snapshot-status";
 import type { Prisma, RestoreJob, RestoreDrill } from "@/generated/prisma/client";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, Badge, Meta, Code, statusTone } from "@/components/ui";
-import { repinDeployment, drillSnapshotNow } from "@/app/actions";
+import { repinDeployment, drillSnapshotNow, setSnapshotPinned } from "@/app/actions";
 import { snapshotDeleteItems } from "@/components/snapshot-delete";
 import { ActionButton } from "@/components/action-button";
 import { ActionsMenu, type MenuAction } from "@/components/actions-menu";
@@ -13,7 +13,7 @@ import { getT } from "@/lib/i18n";
 import { can, requireUser } from "@/lib/session";
 import { modeLabel, captureLabel } from "@/lib/schedule";
 import { formatBytes, formatDateTime } from "@/lib/cn";
-import { GitCommitHorizontal, Info, ShieldCheck, Check, X, AlertCircle, Boxes, FileArchive, Lock, Database, AlertTriangle } from "lucide-react";
+import { GitCommitHorizontal, Info, ShieldCheck, Check, X, AlertCircle, Boxes, FileArchive, Lock, Database, AlertTriangle, Pin, PinOff } from "lucide-react";
 import { drillTone } from "@/lib/status";
 import { type DESTINATION_SECRETS, type RESOURCE_SECRETS } from "@/lib/public-fields";
 import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
@@ -61,6 +61,13 @@ export async function SnapshotDetailView({
     ...(isOperator && ok && !configOnly
       ? [{ label: t("snapshots.drillNow"), icon: <ShieldCheck />, action: drillSnapshotNow.bind(null, snapshot.id) }]
       : []),
+    ...(isOperator && (ok || snapshot.pinned)
+      ? [
+          snapshot.pinned
+            ? { label: t("snapshots.unpin"), icon: <PinOff />, action: setSnapshotPinned.bind(null, snapshot.id, false) }
+            : { label: t("snapshots.pin"), icon: <Pin />, action: setSnapshotPinned.bind(null, snapshot.id, true), successMsg: t("snapshots.pinned") },
+        ]
+      : []),
     ...(isOperator && canRepin
       ? [
           {
@@ -99,9 +106,16 @@ export async function SnapshotDetailView({
         back={{ href: "/snapshots", label: t("snapshots.title") }}
         title={snapshot.resource.name}
         badges={
-          <Badge tone={statusTone(shownStatus(snapshot))} dot>
-            {t(`snapshots.status.${shownStatus(snapshot)}`)}
-          </Badge>
+          <>
+            <Badge tone={statusTone(shownStatus(snapshot))} dot>
+              {t(`snapshots.status.${shownStatus(snapshot)}`)}
+            </Badge>
+            {snapshot.pinned && (
+              <Badge tone="accent">
+                <Pin /> {t("snapshots.pinnedBadge")}
+              </Badge>
+            )}
+          </>
         }
         description={`${modeLabel(snapshot.mode, t)} · ${captureLabel(snapshot.captureMode, t)} · ${snapshot.destination.name} · ${formatDateTime(snapshot.startedAt, tz)}`}
         action={
