@@ -63,7 +63,8 @@ for a service (`SERVICE_USER_*` / `SERVICE_PASSWORD_*`), since its restored data
 with them; domains are not copied.
 
 The Coolify **control plane** ("Back up Coolify") can only be restored in place — its snapshots
-have no **Clone** button.
+have no **Clone** button. Onto a new host, see
+[Restoring Coolify itself on a new host](disaster-recovery.md#5-restoring-coolify-itself-on-a-new-host).
 
 Because each snapshot also captures the **full resource definition** (git/build pack, image,
 compose, domains, database credentials), `→ new` works even when the **source Coolify is gone**,

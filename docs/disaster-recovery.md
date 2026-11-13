@@ -102,6 +102,47 @@ the captured config above):
   are connected, the **Clone** dialog on a snapshot's page offers a **Restore
   onto** select, so you can clone a backup from one Coolify onto another.
 
+## 5. Restoring Coolify itself on a new host
+
+The Coolify control plane ("Back up Coolify") is restored **in place only**: onto the same
+install, it puts back Coolify's database and its `source/`, `ssh/` and `proxy/` folders. Don't use
+that on a **new** host: `source/.env` also holds the new install's `DB_PASSWORD`, which must keep
+matching its database container, and the restored file would replace it. On a new host, follow
+Coolify's own [restore guide](https://coolify.io/docs/core/backup-and-recovery/instance-restore)
+with the files of CBM's newest *Coolify* backup (see [Restoring without CBM](manual-restore.md)
+for getting them out of the destination):
+
+1. **Get the files**: the database dump (`dump-postgresql-<container>.sql`, a plain SQL script)
+   and the host folders `source`, `ssh` and `proxy` (`volume-bind-…` archives, or `/bind/…` in
+   restic). From `source/.env`, note the `APP_KEY` line.
+2. **Install Coolify** on the new host, the same version as the one backed up (Coolify's guide:
+   `curl -fsSL https://cdn.coollabs.io/coolify/install.sh | sudo bash -s <version>`), and check
+   that its dashboard opens.
+3. **Stop the control plane**, keeping its database: `docker stop coolify coolify-redis` (older
+   releases also have `coolify-realtime`).
+4. **APP_KEY only**: in the new `/data/coolify/source/.env`, replace the value of `APP_KEY=` with
+   the old one. Keep everything else of the new file.
+5. **Load the database**. CBM's dump drops and recreates Coolify's objects itself (`--clean
+   --if-exists`), so it's loaded with `psql` rather than `pg_restore`:
+   ```bash
+   docker exec -i coolify-db psql -U coolify -d coolify -v ON_ERROR_STOP=1 < dump-postgresql-coolify-db.sql
+   ```
+6. **SSH keys**: empty `/data/coolify/ssh/keys/` and put the backed-up `ssh/keys/` files there;
+   add their public keys to `~/.ssh/authorized_keys` on the new host (for its *localhost* server).
+   The `proxy/` folder (Traefik's configuration and certificates) can go back to
+   `/data/coolify/proxy/`, or be left for Coolify to regenerate (certificates are then requested
+   again).
+7. **Re-run the installer** with the same version: it starts Coolify and applies any migration.
+8. **Check**: the dashboard opens without an encryption error, *localhost* and the other servers
+   validate (a server whose address changed is edited in Coolify's **Servers**).
+9. **In CBM**: re-point the instance at the new host with an API token of the restored Coolify,
+   install the agent there. The resources that ran on the lost host are back in Coolify's
+   database, not their data: deploy each one, then restore it in place from its snapshot.
+
+> This path follows Coolify's documented procedure and CBM's file formats, but it is the least
+> exercised one: CBM doesn't run it for you, and it hasn't been run end to end on every Coolify
+> version. Try it on a spare machine before you need it.
+
 ---
 
 ## End-to-end recovery runbook

@@ -42,28 +42,32 @@ resource), and alerts when something fails, goes missing, or never ran.
 
 ## Why CBM? (vs Coolify's built‑in backups)
 
-Coolify ships **scheduled database backups** — and that's it. Everything else your stack
-needs to actually come back to life isn't covered. CBM backs up the whole resource.
+Coolify backs up **databases** on a schedule (and restores most of them from its dashboard), and
+can archive an **application's** volumes and folders - but it doesn't restore those archives, nor
+cover Redis, compose services' volumes or host files. CBM backs up and **restores** the whole
+resource, and checks that the backups actually work.
 
 | | Coolify built‑in backups | **CBM** |
 | --- | :---: | :---: |
-| Scheduled **database** dumps (Postgres/MySQL/MariaDB/Mongo) | ✅ | ✅ |
+| Scheduled **database** dumps (Postgres/MySQL/MariaDB/Mongo) | ✅ (also ClickHouse, SQLite) | ✅ |
 | **Redis / KeyDB / Dragonfly** | ❌ | ✅ (live RDB) |
-| **Application** data (named volumes) | ❌ | ✅ |
+| **Application** volumes and folders | archive only, restored by hand | ✅ backup **and** restore |
 | **Docker‑compose services** (every volume + each internal DB) | ❌ | ✅ |
-| **Host bind mounts** (data in host folders) | ❌ | ✅ |
+| **Host file mounts** | ❌ | ✅ |
 | Capture **env vars** so a snapshot restores standalone | ❌ | ✅ |
-| **No restart** of the running resource during backup | n/a | ✅ |
+| **Consistent copy** of a running resource (brief freeze, no restart) | n/a | ✅ |
 | **Incremental + deduplicated + encrypted** storage (restic) | ❌ | ✅ |
 | Restore **to a new resource** (clone, re‑pin commit/image) | ❌ | ✅ |
 | Restore onto a **fresh / different Coolify** (source can be gone) | ❌ | ✅ |
-| **Multiple destinations** (local / SSH‑SFTP / S3, jump host) | partial | ✅ |
-| **Multi‑server** Coolify instances | n/a | ✅ |
-| Alerts on **failed / missing / overdue** backups | ❌ | ✅ |
-| **Reconciliation** (detect backups deleted at the destination) | ❌ | ✅ |
-| **Integrity check** (detect silently corrupted backups) | ❌ | ✅ |
-| **Mirror** a backup to a second destination (redundancy) | ❌ | ✅ |
-| **Disaster recovery** — back up CBM itself, restore it elsewhere | ❌ | ✅ |
+| **Destinations** | local, S3 | local, SSH/SFTP (jump host), S3 |
+| **Multi‑server** Coolify instances | ✅ | ✅ |
+| Alerts on **failed** / **not run** backups | ✅ | ✅ |
+| Alerts on backups **deleted at the destination**, **corrupt**, or **not succeeding** for a while | ❌ | ✅ |
+| **Test restores** in a sandbox, weekly | ❌ | ✅ |
+| **Mirror** a backup to a second destination | several S3 | ✅ any destination |
+| **Disaster recovery** — back up CBM and Coolify itself, restore elsewhere | ❌ | ✅ |
+
+*Compared with Coolify's documentation in November 2026 (Coolify 4.x).*
 
 ---
 

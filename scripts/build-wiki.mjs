@@ -22,6 +22,7 @@ const PAGES = {
   "backups.md": "Backups",
   "restore.md": "Restore",
   "disaster-recovery.md": "Disaster-recovery",
+  "manual-restore.md": "Restoring-without-CBM",
   "reconciliation-retention.md": "Reconciliation-and-retention",
   "multi-server.md": "Multi-server",
   "alerts.md": "Alerts",
@@ -33,7 +34,7 @@ const PAGES = {
 /** Sidebar sections: [title, [docs file, label][]]. */
 const SIDEBAR = [
   ["Getting started", [["installation.md", "Installation"], ["configuration.md", "Configuration"], ["accounts.md", "Accounts & roles"], ["email.md", "Email (SMTP)"]]],
-  ["Backups", [["destinations.md", "Destinations"], ["backups.md", "Backups"], ["restore.md", "Restore"], ["disaster-recovery.md", "Disaster recovery"], ["reconciliation-retention.md", "Reconciliation & retention"]]],
+  ["Backups", [["destinations.md", "Destinations"], ["backups.md", "Backups"], ["restore.md", "Restore"], ["disaster-recovery.md", "Disaster recovery"], ["manual-restore.md", "Restoring without CBM"], ["reconciliation-retention.md", "Reconciliation & retention"]]],
   ["Running CBM", [["multi-server.md", "Multi-server"], ["alerts.md", "Alerts"], ["mcp.md", "MCP server"], ["security.md", "Security"], ["troubleshooting.md", "Troubleshooting / FAQ"]]],
 ];
 

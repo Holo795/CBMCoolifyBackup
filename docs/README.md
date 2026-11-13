@@ -11,6 +11,7 @@ Detailed docs for **CBM — Coolify Backup Manager**. New here? Start with the
 - **[Backups](backups.md)** — how each resource type is captured, hooks, live mode, scheduling
 - **[Restore](restore.md)** — in place vs → new (clone)
 - **[Disaster recovery](disaster-recovery.md)** — self-backup, recovery file, restore onto a fresh Coolify
+- **[Restoring without CBM](manual-restore.md)** — the keys to keep, where backups are, decrypting and loading them by hand
 - **[MCP server](mcp.md)** — drive CBM from any AI agent over a token-authenticated API
 - **[Multi-server](multi-server.md)** — one agent per server, routing, per-server schedules
 - **[Alerts](alerts.md)** — failed / missing / overdue webhooks

@@ -110,9 +110,11 @@ Encrypted secrets and (with restic) encrypted backups are unrecoverable. You'll 
 reconnect instances and re-enter destination credentials. **Always back up `MASTER_KEY`.**
 
 ### Does CBM replace Coolify's built-in backups?
-It supersedes them: Coolify only backs up databases; CBM backs up apps, services, volumes, bind
-mounts and databases, with restore-to-new, multiple destinations, restic, alerts and more. You
-can disable Coolify's native DB backups once CBM covers them.
+For what CBM covers, yes. Coolify backs up databases (and restores most of them) and archives an
+application's volumes and folders without restoring them; CBM backs up and restores applications,
+compose services, volumes, host folders, Redis and databases, onto the same or a new resource or
+another Coolify, and tests its backups. Once CBM covers a resource, its Coolify backup can be
+turned off - or kept as a second, independent copy of a database.
 
 ### Where are local backups on disk?
 On the agent's host, under `/backups` (bind-mounted by the install command). For the restic
