@@ -184,6 +184,9 @@ test("restic in place: lock waits, locks left behind, a reader that stops early"
     await sh(src, "mkdir -p /d/sub && echo hi > /d/sub/a.txt && echo there > /d/b.txt");
     await docker(["run", "--rm", "-v", `${dir}:${dir}`, "alpine:3.24", "mkdir", "-p", join(dir, "dest"), work]);
     await resticEnsureRepo(ctx);
+    // restic (root in its container) makes the repository 0700: on a Linux host
+    // the test, run as a user, couldn't list the locks and never saw one.
+    await docker(["run", "--rm", "-v", `${dir}:${dir}`, "alpine:3.24", "chmod", "a+rx", repo, join(repo, "locks")]);
 
     // A read that waits for the lock: restic's "waiting" notice (stdout) stays out of the data.
     await catchPrune("pause");
