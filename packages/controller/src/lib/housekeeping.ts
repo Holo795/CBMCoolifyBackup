@@ -26,3 +26,18 @@ export async function cleanupJobHistory(now: Date, batch = 2000): Promise<number
   if (total > 0) console.log(`[housekeeping] removed ${total} finished job(s) older than ${JOB_HISTORY_DAYS} days`);
   return total;
 }
+
+/** How long the event lines of a job that succeeded are kept (the job itself:
+ * JOB_HISTORY_DAYS). A failed job keeps its lines as long as it's kept. */
+export const SUCCEEDED_EVENTS_DAYS = 30;
+
+/** Daily: drop the log lines of succeeded jobs past SUCCEEDED_EVENTS_DAYS, and
+ * the environment blobs no snapshot points at anymore. */
+export async function trimHistory(now: Date): Promise<{ events: number; envBlobs: number }> {
+  const cutoff = new Date(now.getTime() - SUCCEEDED_EVENTS_DAYS * 86_400_000);
+  const { count: events } = await prisma.jobEvent.deleteMany({ where: { ts: { lt: cutoff }, job: { status: "succeeded" } } });
+  const { removeUnusedEnvBlobs } = await import("./env-blobs");
+  const envBlobs = await removeUnusedEnvBlobs();
+  if (events || envBlobs) console.log(`[housekeeping] removed ${events} log line(s) of succeeded jobs and ${envBlobs} unused env blob(s)`);
+  return { events, envBlobs };
+}

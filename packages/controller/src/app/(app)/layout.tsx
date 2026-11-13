@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/session";
 import { getT } from "@/lib/i18n";
 import { secretWeaknesses } from "@/lib/startup-check";
+import { recoveryHoldSince } from "@/lib/recovery-hold";
 import { AppLayoutView } from "./layout-view";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -23,8 +24,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       };
     }
   }
+  // Restored from a recovery file and not resumed yet (lib/recovery-hold).
+  let recoveryHold: { title: string; body: string } | undefined;
+  if (await recoveryHoldSince()) {
+    const t = await getT();
+    recoveryHold = { title: t("common.recoveryHold.title"), body: t("common.recoveryHold.body") };
+  }
   return (
-    <AppLayoutView name={user.name || user.email} email={user.email} role={role} weakSecrets={weakSecrets}>
+    <AppLayoutView name={user.name || user.email} email={user.email} role={role} weakSecrets={weakSecrets} recoveryHold={recoveryHold}>
       {children}
     </AppLayoutView>
   );

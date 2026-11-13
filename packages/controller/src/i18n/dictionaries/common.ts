@@ -28,6 +28,13 @@ export const en = {
       "MASTER_KEY isn't set: the secrets CBM stores are encrypted with a key derived from BETTER_AUTH_SECRET, so a copy of the database plus that secret reads them all.",
     fix: "How to fix it without losing the stored secrets",
   },
+  recoveryHold: {
+    title: "Restored from a recovery file: on hold",
+    body: "Scheduled backups, retention, the self-backup and alerts are paused, so a test import can't act on production. Resume only on the install that now replaces production: it takes over the self-backup's destination.",
+    resume: "This install is production now: resume",
+    confirm: "Resume schedules, the self-backup and alerts on this install? Only do this on the install that replaces production.",
+    resumed: "Resumed",
+  },
 };
 
 export const fr: typeof en = {
@@ -58,5 +65,12 @@ export const fr: typeof en = {
     masterKey:
       "MASTER_KEY n'est pas défini : les secrets que CBM stocke sont chiffrés avec une clé dérivée de BETTER_AUTH_SECRET, donc une copie de la base et ce secret suffisent à tous les lire.",
     fix: "Comment corriger sans perdre les secrets stockés",
+  },
+  recoveryHold: {
+    title: "Restaurée depuis un fichier de reprise : en attente",
+    body: "Les sauvegardes planifiées, la rétention, l'auto-sauvegarde et les alertes sont suspendues, pour qu'un import de test ne touche pas à la production. Ne reprenez que sur l'installation qui remplace désormais la production : elle reprend la destination de l'auto-sauvegarde.",
+    resume: "Cette installation est la production : reprendre",
+    confirm: "Reprendre les planifications, l'auto-sauvegarde et les alertes sur cette installation ? À faire uniquement sur l'installation qui remplace la production.",
+    resumed: "Reprise",
   },
 };

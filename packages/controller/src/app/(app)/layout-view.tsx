@@ -5,7 +5,8 @@ import { ActivityBar } from "@/components/activity-bar";
 import { RoleProvider } from "@/components/role-gate";
 import { TooltipProvider } from "@/components/ui";
 import { Toaster } from "@/components/toaster";
-import { ShieldAlert } from "lucide-react";
+import { PauseCircle, ShieldAlert } from "lucide-react";
+import { ResumeAfterRecoveryButton } from "@/components/recovery-hold";
 
 const WEAK_SECRETS_DOC = "https://github.com/Holo795/CBMCoolifyBackup/wiki/Configuration#weak-secrets";
 
@@ -15,6 +16,7 @@ export function AppLayoutView({
   email,
   role,
   weakSecrets,
+  recoveryHold,
   children,
 }: {
   name: string;
@@ -22,6 +24,8 @@ export function AppLayoutView({
   role: string;
   /** Admins only: what makes the install's secrets guessable. */
   weakSecrets?: { title: string; items: string[]; fix: string };
+  /** Restored from a recovery file, not resumed yet. */
+  recoveryHold?: { title: string; body: string };
   children: React.ReactNode;
 }) {
   return (
@@ -43,6 +47,16 @@ export function AppLayoutView({
                     <a className="underline underline-offset-2" href={WEAK_SECRETS_DOC} target="_blank" rel="noreferrer">
                       {weakSecrets.fix}
                     </a>
+                  </div>
+                </div>
+              )}
+              {recoveryHold && (
+                <div role="alert" className="mb-6 flex items-start gap-3 rounded-xl border border-warning/30 bg-warning-soft px-4 py-3 text-[13px]">
+                  <PauseCircle className="mt-0.5 size-4 shrink-0 text-warning" />
+                  <div className="flex flex-1 flex-col gap-2">
+                    <p className="font-medium">{recoveryHold.title}</p>
+                    <p>{recoveryHold.body}</p>
+                    {role === "admin" && <ResumeAfterRecoveryButton />}
                   </div>
                 </div>
               )}

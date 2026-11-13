@@ -55,24 +55,39 @@ export default async function SettingsPage() {
   const currentFp = masterKeyFingerprint();
   const hasFile = !!setting?.recoveryFileGeneration;
   const selfDest = setting?.selfBackupDestinationId
-    ? await prisma.destination.findUnique({ where: { id: setting.selfBackupDestinationId }, select: { updatedAt: true } })
+    ? await prisma.destination.findUnique({ where: { id: setting.selfBackupDestinationId } })
     : null;
   const destChanged = hasFile && (setting?.recoveryFileDestId ?? null) !== (setting?.selfBackupDestinationId ?? null);
+  // Its credentials as the file holds them (a hash): any other change to the
+  // destination (a check, a learned host key) leaves the file current.
+  const { destinationCredentialsHash } = await import("@/lib/recovery-file");
+  const { resolveDestination } = await import("@/lib/jobs");
   const credsChanged =
-    hasFile && !destChanged && !!selfDest && !!setting?.recoveryFileAt && selfDest.updatedAt > setting.recoveryFileAt;
+    hasFile &&
+    !destChanged &&
+    !!selfDest &&
+    selfDest.type !== "local" &&
+    !!setting?.recoveryFileDestHash &&
+    destinationCredentialsHash(resolveDestination(selfDest)) !== setting.recoveryFileDestHash;
   const keyChanged = hasFile && setting?.recoveryFileKeyFp !== currentFp;
+  // A file from before 2.8.0 holds the master key in clear: replace it.
+  const oldFormat = hasFile && !setting?.recoveryFileFormat;
   const recoveryFile = {
     generation: setting?.recoveryFileGeneration ?? 0,
     at: setting?.recoveryFileAt ? formatDateTime(setting.recoveryFileAt, tz) : null,
-    stale: destChanged || credsChanged || keyChanged,
+    stale: destChanged || credsChanged || keyChanged || oldFormat,
     staleReason: destChanged
       ? t("settings.staleDestChanged")
       : credsChanged
         ? t("settings.staleCredsChanged")
         : keyChanged
           ? t("settings.staleKeyChanged")
-          : null,
+          : oldFormat
+            ? t("settings.staleOldFormat")
+            : null,
     hasSelfBackup: !!(setting?.selfBackupEnabled && setting.selfBackupDestinationId),
+    // Asks for an authenticator code with the password.
+    twoFactor: !!me.twoFactorEnabled,
   };
 
   // Machine API tokens for the MCP server / external AI agents.

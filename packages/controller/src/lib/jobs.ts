@@ -26,6 +26,7 @@ import { CoolifyClient, GENERATED_SECRET, type AppVolume, type DbEngine, type Cl
 import { syncInstance } from "./discovery";
 import { scrubPayload } from "./scrub";
 import { storedHostKeys, withHostKeys } from "./ssh-hostkeys";
+import { manifestWithEnv } from "./env-blobs";
 import { remapEnv, type RemapChange } from "./remap";
 import { UserError } from "./user-error";
 import { composePicker, imageExists, pinCompose, resolveImages, snapshotImages, type ImageChoice } from "./image-pin";
@@ -990,7 +991,8 @@ export async function enqueueRestore(
     throw new UserError("messages.localCrossInstance");
   }
 
-  const manifest = snapshot.manifest as unknown as SnapshotManifest;
+  // With its env back (stored apart, lib/env-blobs): a clone sets it.
+  const manifest = await manifestWithEnv(snapshot.manifest as unknown as SnapshotManifest, snapshot.envBlobId);
   // The restore runs on the host whose Docker gets the data: the resource's
   // server in place, the server the clone will land on for "→ new" (on the
   // TARGET instance for a migration - ssh/s3 artifacts are reachable from

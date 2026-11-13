@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth, verifyUserPassword } from "@/lib/auth";
 import { can } from "@/lib/roles";
 import { getTwoFactorPolicy, twoFactorRequired } from "@/lib/two-factor";
-import { parseRecoveryFile, importGuards, isEmptyish, importRecoveryFile } from "@/lib/recovery-file";
+import { openRecoveryFile, importGuards, isEmptyish, importRecoveryFile } from "@/lib/recovery-file";
 import { getT } from "@/lib/i18n";
+import { RecoveryPassphraseError } from "@/lib/recovery-format";
+import { UserError } from "@/lib/user-error";
 
 export const dynamic = "force-dynamic";
 // pg_restore + re-encryption can take a while on a big metadata DB.
@@ -44,7 +46,13 @@ export async function POST(req: NextRequest) {
   if (!(upload instanceof File)) return NextResponse.json({ error: t("messages.recoveryNoFile") }, { status: 400 });
 
   try {
-    const file = parseRecoveryFile(await upload.text());
+    let file;
+    try {
+      file = await openRecoveryFile(Buffer.from(await upload.arrayBuffer()), String(form.get("passphrase") ?? ""));
+    } catch (e) {
+      if (e instanceof RecoveryPassphraseError) return NextResponse.json({ error: t("messages.recoveryWrongPassphrase") }, { status: 400 });
+      return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    }
     const guard = await importGuards(file);
     if (guard.error) return NextResponse.json({ error: t(guard.error.key, guard.error.vars) }, { status: 400 });
     if (!override && !(await isEmptyish())) {
@@ -61,6 +69,7 @@ export async function POST(req: NextRequest) {
       detail: t(source === "latest" ? "messages.recoveryRestoredLatest" : "messages.recoveryRestoredEmbedded"),
     });
   } catch (e) {
+    if (e instanceof UserError) return NextResponse.json({ error: t(e.key, e.vars) }, { status: 400 });
     console.error("[recovery/import] failed:", (e as Error).message);
     return NextResponse.json({ error: t("messages.recoveryImportFailed") }, { status: 500 });
   }

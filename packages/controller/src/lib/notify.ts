@@ -1,4 +1,5 @@
 import { redactSecrets } from "@cbm/shared";
+import { recoveryHoldSince } from "./recovery-hold";
 import { prisma } from "./prisma";
 import { env } from "./env";
 
@@ -15,6 +16,9 @@ async function webhookUrl(): Promise<string | undefined> {
 export async function sendAlert(rawMessage: string): Promise<void> {
   const url = await webhookUrl();
   if (!url) return;
+  // An install restored from a recovery file and not resumed yet must not
+  // alert production's webhook (lib/recovery-hold).
+  if (await recoveryHoldSince()) return;
   // Alerts leave the system (Discord/Slack): never let a credential through.
   const message = redactSecrets(rawMessage);
   await fetch(url, {

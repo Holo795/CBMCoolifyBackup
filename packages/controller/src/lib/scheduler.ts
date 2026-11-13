@@ -10,9 +10,11 @@ import { checkOverdue } from "./overdue";
 import { maybeSelfBackup, checkSelfBackupOverdue } from "./self-backup";
 import { syncInstance } from "./discovery";
 import { getTimezone } from "./settings";
-import { cleanupJobHistory } from "./housekeeping";
+import { cleanupJobHistory, trimHistory } from "./housekeeping";
 import { retryStuckDeletions } from "./snapshot-removal";
 import { catchUpMirrors } from "./mirror-catchup";
+import { dedupeStoredEnvs } from "./env-blobs";
+import { RUNS_ON_HOLD, recoveryHoldSince } from "./recovery-hold";
 import { autoUpdateAgents } from "./agent-update";
 
 /**
@@ -271,7 +273,9 @@ const TASKS: Array<{ name: string; cron: string; run: () => Promise<unknown>; de
   { name: "restore drills", cron: "0 5 * * 6", run: () => drillAllResources(), detached: true },
   { name: "overdue check", cron: "7 * * * *", run: () => checkOverdue(new Date()), detached: true },
   { name: "self-backup overdue check", cron: "11 * * * *", run: () => checkSelfBackupOverdue(new Date()), detached: true },
-  { name: "job history cleanup", cron: "45 2 * * *", run: () => cleanupJobHistory(new Date()), detached: true },
+  { name: "job history cleanup", cron: "45 2 * * *", run: () => cleanupJobHistory(new Date()).then(() => trimHistory(new Date())), detached: true },
+  // Moves the env of snapshots stored before 2.8.0 out of their manifests, a batch at a time.
+  { name: "env dedupe", cron: "*/10 * * * *", run: () => dedupeStoredEnvs(), detached: true },
   { name: "deletion retry", cron: "20 */6 * * *", run: () => retryStuckDeletions(new Date()), detached: true },
   { name: "mirror retention", cron: "40 3 * * *", run: () => applyAllMirrorRetention(), detached: true },
   { name: "mirror catch-up", cron: "50 * * * *", run: () => catchUpMirrors(new Date()), detached: true },
@@ -337,14 +341,18 @@ export function startScheduler(): void {
         .catch(() => undefined);
     }
     const tz = await getTimezone().catch(() => "UTC");
+    // Imported from a recovery file and not resumed yet: nothing that acts on
+    // production (lib/recovery-hold).
+    const onHold = !!(await recoveryHoldSince());
     for (const m of minutes) {
       const at = new Date(m * 60_000);
       try {
-        await tick(at);
+        if (!onHold) await tick(at);
       } catch (e) {
         console.error("[scheduler] tick error", e);
       }
       for (const t of TASKS) {
+        if (onHold && !RUNS_ON_HOLD.has(t.name)) continue;
         let due = false;
         try {
           due = cronMatches(t.cron, at, tz);
@@ -362,7 +370,7 @@ export function startScheduler(): void {
     try {
       // Self-backup of the controller metadata DB: change-driven + throttled,
       // with a daily safety re-run (see lib/self-backup.ts).
-      await maybeSelfBackup(new Date());
+      if (!onHold) await maybeSelfBackup(new Date());
     } catch (e) {
       console.error("[scheduler] self-backup error", e);
     }

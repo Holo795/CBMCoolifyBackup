@@ -335,6 +335,10 @@ model Snapshot {
   id            String       @id @default(cuid())
   resourceId    String
   resource      Resource     @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  // The resource's environment variables at backup time, stored once per
+  // distinct content (lib/env-blobs) instead of in every manifest.
+  envBlobId     String?
+  envBlob       EnvBlob?     @relation(fields: [envBlobId], references: [id], onDelete: SetNull)
   policyId      String?
   policy        BackupPolicy? @relation(fields: [policyId], references: [id], onDelete: SetNull)
   destinationId String
@@ -382,6 +386,7 @@ model Snapshot {
 
   @@index([runId])
   @@index([mirrorOfId])
+  @@index([envBlobId])
   // Hot paths: a resource's history, a destination's snapshots, running ones.
   @@index([resourceId, startedAt])
   @@index([destinationId, status])
@@ -505,6 +510,14 @@ model Setting {
   recoveryFileAt          DateTime?
   recoveryFileDestId      String?
   recoveryFileKeyFp       String?
+  // What the last recovery file holds of the self-backup's destination (an
+  // HMAC of its credentials), and its format: it is out of date only when
+  // these change, not whenever the destination's row is touched.
+  recoveryFileDestHash    String?
+  recoveryFileFormat      Int?
+  // Set by a recovery-file import: schedules, the self-backup and alerts wait
+  // until an admin resumes them (lib/recovery-hold).
+  recoveryHoldSince       DateTime?
   // Automatic restore drills: weekly, each backup-enabled resource's latest
   // snapshot is restored into an agent-side sandbox to prove it's restorable.
   // Opt-in (drills use CPU/disk on the agent hosts).
@@ -602,4 +615,16 @@ model SetupState {
   tokenHash String?
   email     String?
   usedAt    DateTime?
+}
+
+// A resource's environment variables as captured by a backup (encrypted with
+// the master key), shared by every snapshot that captured the same content.
+// `digest` is an HMAC of the plaintext keyed by the master key: equal contents
+// meet, nothing about them shows.
+model EnvBlob {
+  id        String     @id @default(cuid())
+  digest    String     @unique
+  envEnc    String
+  createdAt DateTime   @default(now())
+  snapshots Snapshot[]
 }

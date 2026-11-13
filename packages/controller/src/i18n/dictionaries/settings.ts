@@ -71,9 +71,21 @@ export const en = {
   // Disaster recovery — recovery file panel
   recoveryFileTitle: "Recovery file",
   recoveryFileDesc:
-    "A single downloadable file that IS your recovery key: it carries the master key and the address of your latest self-backup. Store it in a password manager / vault. It only needs re-downloading if your master key or the self-backup destination changes.",
+    "A single file that rebuilds this install on a fresh CBM: it carries the master key and the way to your latest self-backup, encrypted with a passphrase you choose. Keep the file and the passphrase apart (e.g. the file in a vault, the passphrase in a password manager). It only needs re-downloading when the master key or the self-backup's destination or credentials change: the self-backup itself stays current on its own.",
+  recoveryKind: "Kind of file",
+  recoveryKindLight: "Light (recommended)",
+  recoveryKindLightHint: "A few kilobytes: the master key and the way to the self-backup, which is always current.",
+  recoveryKindFull: "Full",
+  recoveryKindFullHint: "Also a copy of the database as it is now, for when the self-backup can't be reached. Larger, and out of date as soon as things change.",
+  recoveryPassphrase: "Passphrase",
+  recoveryPassphraseHint: "12 characters at least. Without it the file can't be opened - by anyone, you included.",
+  recoveryPassphraseConfirm: "Passphrase again",
+  recoveryPassphraseMismatch: "The two passphrases differ.",
+  recoveryCode: "Authenticator code",
+  importPassphraseLabel: "The file's passphrase",
+  importPassphraseHint: "Not needed for a file made before 2.8.0.",
   recoveryFileNoSelfBackup:
-    "Enable the metadata self-backup above first - the recovery file needs a destination to point at.",
+    "No self-backup: only a full file can be made (it holds the database at this moment). Turn the self-backup on (to SSH or S3) for a light file that stays current.",
   recoveryFileCurrent: "Current:",
   recoveryFileGeneration: "generation {n}",
   recoveryFileStale: "out of date - re-download ({reason})",
@@ -98,6 +110,7 @@ export const en = {
   staleDestChanged: "self-backup destination changed",
   staleCredsChanged: "destination credentials changed",
   staleKeyChanged: "master key changed",
+  staleOldFormat: "made before 2.8.0, master key in clear: download one protected by a passphrase",
 
   // Action result messages
   saved: "Saved ✓",
@@ -230,9 +243,21 @@ export const fr: typeof en = {
   // Reprise après sinistre — panneau du fichier de récupération
   recoveryFileTitle: "Fichier de récupération",
   recoveryFileDesc:
-    "Un unique fichier téléchargeable qui EST votre clé de récupération : il contient la clé maîtresse et l'adresse de votre dernière auto-sauvegarde. Conservez-le dans un gestionnaire de mots de passe / coffre-fort. Il n'a besoin d'être retéléchargé que si votre clé maîtresse ou la destination de l'auto-sauvegarde change.",
+    "Un seul fichier qui reconstruit cette installation sur un CBM vierge : il contient la clé maîtresse et le chemin vers votre dernière auto-sauvegarde, chiffrés avec une phrase de passe que vous choisissez. Gardez le fichier et la phrase de passe séparément (le fichier dans un coffre, la phrase dans un gestionnaire de mots de passe). Il n'est à retélécharger que si la clé maîtresse, ou la destination ou les identifiants de l'auto-sauvegarde changent : l'auto-sauvegarde, elle, reste à jour toute seule.",
+  recoveryKind: "Type de fichier",
+  recoveryKindLight: "Léger (recommandé)",
+  recoveryKindLightHint: "Quelques kilo-octets : la clé maîtresse et le chemin vers l'auto-sauvegarde, toujours à jour.",
+  recoveryKindFull: "Complet",
+  recoveryKindFullHint: "Aussi une copie de la base telle qu'elle est maintenant, pour le cas où l'auto-sauvegarde serait injoignable. Plus gros, et périmé dès que les choses changent.",
+  recoveryPassphrase: "Phrase de passe",
+  recoveryPassphraseHint: "12 caractères au moins. Sans elle, le fichier ne s'ouvre pas - pour personne, vous compris.",
+  recoveryPassphraseConfirm: "Phrase de passe, à nouveau",
+  recoveryPassphraseMismatch: "Les deux phrases de passe diffèrent.",
+  recoveryCode: "Code d'authentification",
+  importPassphraseLabel: "La phrase de passe du fichier",
+  importPassphraseHint: "Inutile pour un fichier créé avant la 2.8.0.",
   recoveryFileNoSelfBackup:
-    "Activez d'abord l'auto-sauvegarde des métadonnées ci-dessus - le fichier de récupération a besoin d'une destination vers laquelle pointer.",
+    "Pas d'auto-sauvegarde : seul un fichier complet est possible (il contient la base à cet instant). Activez l'auto-sauvegarde (vers SSH ou S3) pour un fichier léger qui reste à jour.",
   recoveryFileCurrent: "Actuel :",
   recoveryFileGeneration: "génération {n}",
   recoveryFileStale: "périmé - retéléchargez ({reason})",
@@ -258,6 +283,7 @@ export const fr: typeof en = {
   staleDestChanged: "la destination de l'auto-sauvegarde a changé",
   staleCredsChanged: "les identifiants de la destination ont changé",
   staleKeyChanged: "la clé maîtresse a changé",
+  staleOldFormat: "créé avant la 2.8.0, clé maîtresse en clair : téléchargez-en un protégé par une phrase de passe",
 
   // Messages de résultat d'action
   saved: "Enregistré ✓",

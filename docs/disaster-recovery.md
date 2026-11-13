@@ -47,19 +47,30 @@ The self-backup lives on a destination whose credentials are *inside* the very
 database you'd be restoring — a chicken-and-egg you break by holding a small
 **recovery file** off-machine (a password manager / vault).
 
-**Settings → Disaster recovery → Recovery file**: confirm your password, then
-**Generate & download** (admin only; the self-backup must be enabled first). The
-file is downloaded **once** and never stored on the server. It contains:
+**Settings → Disaster recovery → Recovery file** (admin only): pick the kind of file, choose a
+**passphrase** (12 characters at least) and type it twice, confirm your password (and your
+authenticator code if you use two-factor), then **Generate & download**. The file is downloaded
+**once** and never stored on the server. It contains:
 
 - your **master key**,
 - the **location + credentials** of the self-backup destination (so a fresh CBM
   can fetch the latest metadata),
-- an embedded copy of the metadata dump as a last-resort fallback.
+- for a **full** file only, a copy of the metadata database as it is now, a fallback for when the
+  self-backup can't be reached.
 
-Because it carries the master key, **the file _is_ the secret** — guard it. It
-only needs re-downloading when your master key or the self-backup destination
-changes; the page marks the current file *out of date* when that happens.
-Generating a new one supersedes the old — destroy older copies.
+Everything in it is encrypted with the passphrase (scrypt, then AES-256-GCM): the file alone
+opens nothing, and without the passphrase nobody can open it - you included. Keep them apart:
+the file in a vault or offline copy, the passphrase in a password manager.
+
+| Kind | Size | Use |
+| --- | --- | --- |
+| **Light** (default) | a few kilobytes | Points to the self-backup, which is always current. Needs the self-backup to be enabled. |
+| **Full** | the size of the metadata database, compressed | Also embeds the database at this moment, used when the self-backup can't be downloaded or decrypted. Out of date as soon as things change. |
+
+It only needs re-downloading when the master key, or the self-backup's destination or
+credentials change - not after each backup. The page marks the current file *out of date* when
+one of these changes (or when it was made before 2.8.0: those held the master key in clear).
+Generating a new one supersedes the old - destroy older copies.
 
 > Freshness comes from the **self-backup** (updated continuously), not from
 > re-downloading the file. A months-old recovery file still recovers yesterday's
@@ -101,31 +112,38 @@ Machine (Coolify + CBM) is gone. To fully recover:
    fine (the recovery file carries the old one).
 2. **Import the recovery file.** Settings → Disaster recovery → *Import a
    recovery file* (collapsed at the bottom of the section): pick the file, enter
-   your password, type `IMPORT`, then **Import & overwrite** (on an install that
-   already has instances or destinations, also tick the replace box). CBM
-   fetches the latest self-backup from its destination, restores it, and
-   re-encrypts every secret under the new install's master key. You are signed
+   its passphrase and your password, type `IMPORT`, then **Import & overwrite**
+   (on an install that already has instances or destinations, also tick the
+   replace box). CBM fetches the latest self-backup from its destination - or,
+   when it can't be downloaded or decrypted, uses the copy a full file embeds -
+   restores it, and re-encrypts every secret under the new install's master key.
+   A file from before 2.8.0 (`.json`) imports too, without a passphrase. You are signed
    out — **sign back in with your OLD credentials** (the imported accounts).
    Two-factor authentication is turned off for every account (its secrets were
    encrypted with the old install's `BETTER_AUTH_SECRET`): set it up again from
    Profile — accounts the policy requires it from are asked at sign-in.
-3. **Re-point the instance** at your new, blank Coolify (instance "…" menu →
+3. **Resume.** An imported install starts **on hold**: no scheduled backup,
+   retention, self-backup or alert, so that a test import never acts on
+   production. Every page says so; on the install that now replaces production,
+   an admin clicks **This install is production now: resume**. Its self-backup
+   then takes over the destination.
+4. **Re-point the instance** at your new, blank Coolify (instance "…" menu →
    **Re-point the instance**).
-4. **Re-install the agent** on the new Coolify host (same per-instance install
+5. **Re-install the agent** on the new Coolify host (same per-instance install
    command, from the instance "…" menu → **Install command**). The agent
    auto-detects its server; on a brand-new empty host where it can't yet, set
    the server on the **Agents** page or pass `AGENT_SERVER_UUID` at install (see [multi-server.md](multi-server.md)).
-5. *(Multi-server)* set the server map (instance "…" menu → **Server mapping
+6. *(Multi-server)* set the server map (instance "…" menu → **Server mapping
    for restores**).
-6. **Clone** (restore → new) each resource from its snapshot. CBM recreates the
+7. **Clone** (restore → new) each resource from its snapshot. CBM recreates the
    project/environment, reconstructs the resource from the captured config
    (pinned commit/image), re-injects env + database credentials, and the agent
    restores the data. The source Coolify being dead no longer matters.
-7. Verify and deploy.
+8. Verify and deploy.
 
 > **Requirements.** DR needs a **non-`local` destination** for the self-backup,
 > and the controller image ships the PostgreSQL client used for the dump/restore.
-> After importing, the self-backup destination is re-used automatically; its next
+> After importing and resuming, the self-backup destination is re-used; its next
 > run overwrites the artefact under the new master key.
 
 ## Test it before you need it
@@ -133,4 +151,5 @@ Machine (Coolify + CBM) is gone. To fully recover:
 Do a **dry run**: generate a recovery file, stand up a throwaway CBM with a
 *different* master key, import the file, and confirm your instances, destinations
 and snapshots come back and that a destination still connects. That drill is the
-only real proof your recovery works.
+only real proof your recovery works. **Don't resume** the throwaway install: on
+hold, it never touches production's self-backup, schedules or webhook.

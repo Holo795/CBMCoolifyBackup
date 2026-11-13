@@ -58,6 +58,11 @@ export const en = {
   recoveryNeeds2fa: "Set up two-factor authentication first: it is required for your role.",
   recoveryBadForm: "Expected multipart form data",
   recoveryWrongPassword: "Wrong password",
+  recoveryWrongCode: "Wrong authenticator code.",
+  recoveryPassphraseShort: "Choose a passphrase of {min} characters at least: it is the only thing protecting the file.",
+  recoveryLightNeedsSelfBackup: "A light file only points to the self-backup: turn the self-backup on (to SSH or S3) first, or download a full file.",
+  recoveryLatestUnreachable: "The self-backup this file points to couldn't be downloaded or decrypted, and it is a light file (no copy of the database in it). Import a full file, or make the self-backup's destination reachable.",
+  recoveryWrongPassphrase: "Wrong passphrase (or the file is damaged).",
   recoveryTypeImport: 'Type "IMPORT" to confirm overwriting this install',
   recoveryNoFile: "No recovery file uploaded",
   recoveryNewerVersion:
@@ -241,6 +246,11 @@ export const fr: typeof en = {
   recoveryNeeds2fa: "Configurez d'abord l'authentification à deux facteurs : elle est exigée pour votre rôle.",
   recoveryBadForm: "Données de formulaire multipart attendues",
   recoveryWrongPassword: "Mot de passe incorrect",
+  recoveryWrongCode: "Code d'authentification incorrect.",
+  recoveryPassphraseShort: "Choisissez une phrase de passe d'au moins {min} caractères : c'est la seule chose qui protège le fichier.",
+  recoveryLightNeedsSelfBackup: "Un fichier léger pointe seulement vers l'auto-sauvegarde : activez d'abord l'auto-sauvegarde (vers SSH ou S3), ou téléchargez un fichier complet.",
+  recoveryLatestUnreachable: "L'auto-sauvegarde vers laquelle pointe ce fichier n'a pas pu être téléchargée ou déchiffrée, et c'est un fichier léger (sans copie de la base). Importez un fichier complet, ou rendez la destination de l'auto-sauvegarde joignable.",
+  recoveryWrongPassphrase: "Phrase de passe incorrecte (ou fichier endommagé).",
   recoveryTypeImport: "Tapez « IMPORT » pour confirmer l'écrasement de cette installation",
   recoveryNoFile: "Aucun fichier de récupération envoyé",
   recoveryNewerVersion:

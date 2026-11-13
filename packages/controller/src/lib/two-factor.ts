@@ -98,3 +98,20 @@ export async function resetTwoFactor(userIds?: string[]): Promise<void> {
     ...(userIds ? [prisma.session.deleteMany({ where: { userId: { in: userIds } } })] : []),
   ]);
 }
+
+/**
+ * Step-up for a signed-in account with two-factor on: is `code` its current
+ * authenticator code? (Better Auth's own check, which changes nothing for a
+ * session whose two-factor is already set up.)
+ */
+export async function verifyTotpCode(headers: Headers, rawCode: string): Promise<boolean> {
+  const code = rawCode.replace(/\s/g, "");
+  if (!/^\d{6}$/.test(code)) return false;
+  try {
+    const { auth } = await import("./auth");
+    await auth.api.verifyTOTP({ body: { code }, headers });
+    return true;
+  } catch {
+    return false;
+  }
+}

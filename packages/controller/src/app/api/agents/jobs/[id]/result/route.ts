@@ -16,6 +16,7 @@ import { MIRROR_ATTEMPTS, mirrorFailures } from "@/lib/mirror-catchup";
 import { enqueueMirror, redeployOnSnapshotVersion } from "@/lib/jobs";
 import { scrubPayload } from "@/lib/scrub";
 import { learnHostKeys } from "@/lib/ssh-hostkeys";
+import { splitManifestEnv } from "@/lib/env-blobs";
 import { removeSnapshots, settlePrune } from "@/lib/snapshot-removal";
 import { resticPartIds } from "@cbm/shared";
 import { applyRetention, applyMirrorRetention } from "@/lib/retention";
@@ -73,12 +74,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const totalSize = m.artifacts.reduce((acc, a) => acc + (a.sizeBytes ?? 0), 0);
       // A late result for a reaped job may follow a partial earlier write.
       await prisma.artifact.deleteMany({ where: { snapshotId: job.snapshotId } });
+      // Its env is stored once per distinct content (lib/env-blobs).
+      const stored = await splitManifestEnv(m);
       const done = await prisma.snapshot.update({
         where: { id: job.snapshotId },
         data: {
           status: "succeeded",
           finishedAt: new Date(),
-          manifest: m as unknown as object,
+          manifest: stored.manifest as unknown as object,
+          envBlobId: stored.envBlobId,
           // The agent's manifest is authoritative for how it actually captured
           // (e.g. a Redis resource dumped logically, not frozen).
           captureMode: m.captureMode,
@@ -175,6 +179,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (src && !already) {
         const m = result.manifest;
         const totalSize = m.artifacts.reduce((acc, a) => acc + (a.sizeBytes ?? 0), 0);
+        const stored = await splitManifestEnv(m);
         await prisma.snapshot.create({
           data: {
             resourceId: src.resourceId,
@@ -185,7 +190,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             warnings: src.warnings,
             status: "succeeded",
             destinationDir: src.destinationDir,
-            manifest: m as unknown as object,
+            manifest: stored.manifest as unknown as object,
+            envBlobId: stored.envBlobId ?? src.envBlobId,
             sizeBytes: BigInt(totalSize),
             resticSnapshotId: result.resticSnapshotId ?? undefined,
             // A restic copy keeps each volume as its own snapshot: deleting the

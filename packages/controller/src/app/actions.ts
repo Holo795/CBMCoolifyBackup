@@ -1097,6 +1097,15 @@ export async function setDestinationProtection(destinationId: string, fd: FormDa
   }
 }
 
+/** This install, restored from a recovery file, now runs production: schedules,
+ * the self-backup (it takes over its destination) and alerts start again. */
+export async function resumeAfterRecovery(): Promise<{ ok?: boolean; error?: string }> {
+  await requireRole("admin");
+  await prisma.setting.update({ where: { id: "global" }, data: { recoveryHoldSince: null } });
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
 /** Forget an SSH destination's known host keys: the next connection learns new ones. */
 export async function forgetHostKeys(destinationId: string): Promise<{ ok?: boolean; error?: string }> {
   await requireRole("admin");

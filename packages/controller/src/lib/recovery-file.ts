@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { readFile, writeFile, mkdtemp, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,22 +7,26 @@ import type { ResolvedDestination, SnapshotManifest } from "@cbm/shared";
 import { prisma } from "./prisma";
 import { env } from "./env";
 import { UserError } from "./user-error";
+import { masterKeyB64, masterKeyFingerprint, decryptFileWithKey, decryptSecretWithKey, encryptSecret } from "./crypto";
 import {
-  masterKeyB64,
-  masterKeyFingerprint,
-  encryptFileWithKey,
-  decryptFileWithKey,
-  decryptSecretWithKey,
-  encryptSecret,
-} from "./crypto";
+  decodeRecoveryFile,
+  encodeRecoveryFile,
+  isRecoveryV2,
+  MIN_PASSPHRASE,
+  passphraseProblem,
+  type RecoveryKind,
+  type RecoverySecrets,
+} from "./recovery-format";
 import { resolveDestination } from "./jobs";
 import { dumpMetadataDb, downloadFileFromDestination, SELF_BACKUP_PATH } from "./self-backup";
 import { version as CBM_VERSION } from "../../package.json";
 import { resetTwoFactor } from "./two-factor";
+import { reencryptEnvBlobs } from "./env-blobs";
 
 /**
- * The recovery file: a single, self-sufficient bootstrap seed held by the
- * operator OUT of band. It carries the master key, the self-backup
+ * The recovery file (format: lib/recovery-format; version 1 below is the one
+ * 2.7 and before wrote, still imported): a self-sufficient bootstrap seed held
+ * by the operator OUT of band. It carries the master key, the self-backup
  * destination's resolved credentials (so a fresh CBM can fetch the LATEST
  * metadata dump), and an embedded point-in-time dump as a last-resort
  * fallback. The file IS the secret — it is streamed once and never persisted
@@ -67,75 +72,130 @@ async function localMigrationIds(): Promise<Set<string>> {
   }
 }
 
-/** Build the recovery file content + bump the generation bookkeeping. */
-export async function buildRecoveryFile(): Promise<{ filename: string; content: string }> {
+/**
+ * Build the recovery file (format version 2, see lib/recovery-format) and
+ * bump the generation bookkeeping. `light`: the master key and the way to the
+ * self-backup only - a few kilobytes, current as long as neither changes;
+ * `full`: also the database as it is now, for when the self-backup can't be
+ * reached.
+ */
+export async function buildRecoveryFile(opts: { passphrase: string; kind: RecoveryKind }): Promise<{ filename: string; content: Buffer }> {
+  if (passphraseProblem(opts.passphrase)) throw new UserError("messages.recoveryPassphraseShort", { min: MIN_PASSPHRASE });
   const setting = await prisma.setting.findUnique({ where: { id: "global" } });
 
   // The seed's whole point is reaching the LATEST self-backup — carry the
   // destination resolved (decrypted) so a fresh CBM can dial it directly.
-  let selfBackup: RecoveryFile["selfBackup"] = null;
+  let selfBackup: RecoverySecrets["selfBackup"] = null;
   if (setting?.selfBackupEnabled && setting.selfBackupDestinationId) {
     const dest = await prisma.destination.findUnique({ where: { id: setting.selfBackupDestinationId } });
     if (dest && dest.type !== "local") {
       selfBackup = { destination: resolveDestination(dest), path: SELF_BACKUP_PATH };
     }
   }
+  if (opts.kind === "light" && !selfBackup) throw new UserError("messages.recoveryLightNeedsSelfBackup");
 
-  // Embedded fallback dump (encrypted with the master key that's in the file).
-  const stage = await mkdtemp(join(tmpdir(), "cbm-recovery-"));
-  let dumpB64: string;
-  try {
-    const plain = join(stage, "metadata.dump");
-    const enc = join(stage, "metadata.dump.enc");
-    await dumpMetadataDb(plain);
-    await encryptFileWithKey(plain, enc);
-    dumpB64 = (await readFile(enc)).toString("base64");
-  } finally {
-    await rm(stage, { recursive: true, force: true });
+  let dump: Buffer | null = null;
+  if (opts.kind === "full") {
+    const stage = await mkdtemp(join(tmpdir(), "cbm-recovery-"));
+    try {
+      const plain = join(stage, "metadata.dump");
+      await dumpMetadataDb(plain);
+      dump = await readFile(plain);
+    } finally {
+      await rm(stage, { recursive: true, force: true });
+    }
   }
 
   const generation = (setting?.recoveryFileGeneration ?? 0) + 1;
-  const file: RecoveryFile = {
-    format: "cbm-recovery",
-    version: 1,
-    generation,
-    createdAt: new Date().toISOString(),
-    cbmVersion: CBM_VERSION,
-    migrationId: await latestMigrationId(),
-    masterKey: masterKeyB64(),
-    selfBackup,
-    dump: dumpB64,
-  };
+  const content = await encodeRecoveryFile(
+    {
+      kind: opts.kind,
+      generation,
+      createdAt: new Date().toISOString(),
+      cbmVersion: CBM_VERSION,
+      migrationId: await latestMigrationId(),
+    },
+    { masterKey: masterKeyB64(), selfBackup },
+    dump,
+    opts.passphrase,
+  );
 
   // Bookkeeping for the reveal-once model + the staleness warning.
-  await prisma.setting.upsert({
-    where: { id: "global" },
-    create: {
-      id: "global",
-      recoveryFileGeneration: generation,
-      recoveryFileAt: new Date(),
-      recoveryFileDestId: setting?.selfBackupDestinationId ?? null,
-      recoveryFileKeyFp: masterKeyFingerprint(),
-    },
-    update: {
-      recoveryFileGeneration: generation,
-      recoveryFileAt: new Date(),
-      recoveryFileDestId: setting?.selfBackupDestinationId ?? null,
-      recoveryFileKeyFp: masterKeyFingerprint(),
-    },
-  });
+  const book = {
+    recoveryFileGeneration: generation,
+    recoveryFileAt: new Date(),
+    recoveryFileDestId: setting?.selfBackupDestinationId ?? null,
+    recoveryFileKeyFp: masterKeyFingerprint(),
+    recoveryFileDestHash: selfBackup ? destinationCredentialsHash(selfBackup.destination as ResolvedDestination) : null,
+    recoveryFileFormat: 2,
+  };
+  await prisma.setting.upsert({ where: { id: "global" }, create: { id: "global", ...book }, update: book });
 
   const date = new Date().toISOString().slice(0, 10);
-  return { filename: `cbm-recovery-g${generation}-${date}.json`, content: JSON.stringify(file) };
+  return { filename: `cbm-recovery-g${generation}-${opts.kind}-${date}.cbmrec`, content };
 }
 
-/** Parse + sanity-check an uploaded recovery file. */
+/**
+ * What a recovery file holds of a destination: an HMAC of its credentials
+ * (keyed by the master key), without the SSH host keys learned since. The
+ * file is out of date only when this changes.
+ */
+export function destinationCredentialsHash(dest: ResolvedDestination): string {
+  const { hostKey: _h, jumpHostKey: _j, ...creds } = dest as ResolvedDestination & { hostKey?: string; jumpHostKey?: string };
+  return createHmac("sha256", Buffer.from(masterKeyB64(), "base64")).update(JSON.stringify(creds)).digest("hex");
+}
+
+/** A recovery file opened: what an import needs, whatever its format version. */
+export interface OpenedRecovery {
+  version: 1 | 2;
+  kind: RecoveryKind;
+  generation: number;
+  cbmVersion: string;
+  migrationId: string;
+  masterKey: string;
+  selfBackup: { destination: ResolvedDestination; path: string } | null;
+  /** The database embedded at export time: plain (v2) or encrypted with masterKey (v1). */
+  embedded: { plain: Buffer } | { encrypted: Buffer } | null;
+}
+
+/**
+ * Open an uploaded recovery file: version 2 with its passphrase, version 1
+ * (the JSON files of 2.7 and before, master key in clear) as is.
+ */
+export async function openRecoveryFile(buf: Buffer, passphrase: string): Promise<OpenedRecovery> {
+  if (isRecoveryV2(buf)) {
+    const { header, secrets, dump } = await decodeRecoveryFile(buf, passphrase);
+    return {
+      version: 2,
+      kind: header.kind,
+      generation: header.generation,
+      cbmVersion: header.cbmVersion,
+      migrationId: header.migrationId,
+      masterKey: secrets.masterKey,
+      selfBackup: secrets.selfBackup as OpenedRecovery["selfBackup"],
+      embedded: dump ? { plain: dump } : null,
+    };
+  }
+  const file = parseRecoveryFile(buf.toString("utf8"));
+  return {
+    version: 1,
+    kind: "full",
+    generation: file.generation,
+    cbmVersion: file.cbmVersion,
+    migrationId: file.migrationId,
+    masterKey: file.masterKey,
+    selfBackup: file.selfBackup,
+    embedded: { encrypted: Buffer.from(file.dump, "base64") },
+  };
+}
+
+/** Parse + sanity-check a version 1 recovery file (JSON, 2.7 and before). */
 export function parseRecoveryFile(raw: string): RecoveryFile {
   let file: RecoveryFile;
   try {
     file = JSON.parse(raw) as RecoveryFile;
   } catch {
-    throw new Error("Not a CBM recovery file (invalid JSON)");
+    throw new Error("Not a CBM recovery file");
   }
   if (file?.format !== "cbm-recovery" || file.version !== 1) {
     throw new Error("Not a CBM recovery file (unknown format/version)");
@@ -145,7 +205,7 @@ export function parseRecoveryFile(raw: string): RecoveryFile {
 }
 
 /** Guards evaluated before a destructive import. */
-export async function importGuards(file: RecoveryFile): Promise<{ error?: UserError }> {
+export async function importGuards(file: { migrationId: string; cbmVersion: string }): Promise<{ error?: UserError }> {
   // Version guard: refuse a dump newer than this build (older rolls forward
   // via `prisma migrate deploy` at next startup).
   if (file.migrationId !== "unknown") {
@@ -169,33 +229,45 @@ export async function isEmptyish(): Promise<boolean> {
 }
 
 /**
- * Import: fetch the LATEST self-backup via the seed (fallback: the embedded
- * dump), pg_restore it over this install's DB, then re-encrypt every secret
- * under THIS install's master key (the file's key is never adopted — restarts
- * keep working with the env key). Returns which dump source was used.
+ * Import: fetch the LATEST self-backup via the seed, else use the embedded
+ * dump (also when the latest one doesn't decrypt with the file's key - another
+ * install may have written there), pg_restore it over this install's DB, then
+ * re-encrypt every secret under THIS install's master key (the file's key is
+ * never adopted). Schedules, the self-backup and alerts stay on hold until an
+ * admin resumes them (see lib/recovery-hold): a test import must not take over
+ * production's self-backup or run its schedules. Returns the dump used.
  */
-export async function importRecoveryFile(file: RecoveryFile): Promise<{ source: "latest" | "embedded" }> {
+export async function importRecoveryFile(file: OpenedRecovery): Promise<{ source: "latest" | "embedded" }> {
   const oldKey = Buffer.from(file.masterKey, "base64");
   if (oldKey.length !== 32) throw new Error("Recovery file carries an invalid master key");
 
   const stage = await mkdtemp(join(tmpdir(), "cbm-import-"));
   try {
-    // 1. Get the freshest dump we can reach.
-    const enc = join(stage, "metadata.dump.enc");
-    let source: "latest" | "embedded" = "embedded";
+    // 1. The freshest dump we can reach and read.
+    const plain = join(stage, "metadata.dump");
+    let source: "latest" | "embedded" | null = null;
     if (file.selfBackup) {
+      const enc = join(stage, "latest.dump.enc");
       try {
         await downloadFileFromDestination(file.selfBackup.destination, file.selfBackup.path, enc);
+        await decryptFileWithKey(enc, plain, oldKey);
         source = "latest";
-      } catch {
-        /* destination unreachable — use the embedded point-in-time dump */
+      } catch (e) {
+        console.warn(`[recovery/import] the latest self-backup can't be used (${(e as Error).message}): using the embedded dump`);
       }
     }
-    if (source === "embedded") await writeFile(enc, Buffer.from(file.dump, "base64"));
+    if (!source) {
+      if (!file.embedded) throw new UserError("messages.recoveryLatestUnreachable");
+      if ("plain" in file.embedded) await writeFile(plain, file.embedded.plain);
+      else {
+        const enc = join(stage, "embedded.dump.enc");
+        await writeFile(enc, file.embedded.encrypted);
+        await decryptFileWithKey(enc, plain, oldKey);
+      }
+      source = "embedded";
+    }
 
-    // 2. Decrypt with the FILE's key and restore over this database.
-    const plain = join(stage, "metadata.dump");
-    await decryptFileWithKey(enc, plain, oldKey);
+    // 2. Restore over this database.
     await pgRestore(plain);
 
     // 3. Re-encrypt every master-key secret under THIS install's env key.
@@ -206,10 +278,12 @@ export async function importRecoveryFile(file: RecoveryFile): Promise<{ source: 
     // their next sign-in.
     await resetTwoFactor();
 
-    // 4. Refresh bookkeeping so the staleness check reflects THIS install.
-    await prisma.setting
-      .update({ where: { id: "global" }, data: { recoveryFileKeyFp: masterKeyFingerprint() } })
-      .catch(() => undefined);
+    // 4. Refresh bookkeeping so the staleness check reflects THIS install, and
+    // hold everything that acts on production until an admin resumes it.
+    // (Upserted: the restored database may have no settings row yet - the
+    // hold must never be skipped.)
+    const after = { recoveryFileKeyFp: masterKeyFingerprint(), recoveryHoldSince: new Date() };
+    await prisma.setting.upsert({ where: { id: "global" }, create: { id: "global", ...after }, update: after });
 
     return { source };
   } finally {
@@ -282,6 +356,8 @@ async function reencryptAllSecrets(oldKey: Buffer): Promise<void> {
   if (setting?.smtpPasswordEnc) {
     await prisma.setting.update({ where: { id: "global" }, data: { smtpPasswordEnc: re(setting.smtpPasswordEnc) } });
   }
+  // Environment variables stored apart (lib/env-blobs).
+  await reencryptEnvBlobs(re, (blob) => decryptSecretWithKey(blob, oldKey));
   // Snapshot manifests carry their own encrypted blobs.
   const snapshots = await prisma.snapshot.findMany({ where: { manifest: { not: undefined } } });
   for (const snap of snapshots) {

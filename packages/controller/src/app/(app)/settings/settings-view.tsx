@@ -36,7 +36,7 @@ export async function SettingsView({
   smtpCurrent: SmtpCurrent;
   drDestinations: { id: string; name: string; type: string }[];
   selfBackup: { enabled: boolean; destinationId: string; lastRunAt: string | null; lastStatus: string | null };
-  recoveryFile: { generation: number; at: string | null; stale: boolean; staleReason: string | null; hasSelfBackup: boolean };
+  recoveryFile: { generation: number; at: string | null; stale: boolean; staleReason: string | null; hasSelfBackup: boolean; twoFactor: boolean };
   drillsEnabled: boolean;
   apiTokens: ApiTokenRow[];
   twoFactor: { policy: "optional" | "admins" | "everyone"; total: number; without: number };
