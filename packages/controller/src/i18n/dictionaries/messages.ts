@@ -121,6 +121,7 @@ export const en = {
   retentionEmpty: "Keep at least one daily, weekly or monthly backup: with 0 / 0 / 0, every backup would be deleted as soon as it finished",
   retentionPeriod: { daily: "daily", weekly: "weekly", monthly: "monthly", last: "last", hourly: "hourly", yearly: "yearly" },
   snapshotPinned: "This snapshot is pinned: unpin it first.",
+  integrityWeeksInvalid: "Pick between 1 and 20 weeks.",
   pinNeedsSuccess: "Only a successful snapshot can be pinned.",
 
   // Hooks
@@ -318,6 +319,7 @@ export const fr: typeof en = {
   retentionEmpty: "Conservez au moins une sauvegarde quotidienne, hebdomadaire ou mensuelle : avec 0 / 0 / 0, chaque sauvegarde serait supprimée dès sa fin",
   retentionPeriod: { daily: "quotidienne", weekly: "hebdomadaire", monthly: "mensuelle", last: "dernières", hourly: "horaire", yearly: "annuelle" },
   snapshotPinned: "Ce snapshot est épinglé : désépinglez-le d'abord.",
+  integrityWeeksInvalid: "Choisissez entre 1 et 20 semaines.",
   pinNeedsSuccess: "Seul un snapshot réussi peut être épinglé.",
 
   hookTooLong: "Une commande de hook est trop longue (4000 caractères max.)",

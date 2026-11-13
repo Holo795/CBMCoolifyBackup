@@ -1,13 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { integrityReadSubset, INTEGRITY_SLICES } from "../src/lib/jobs";
+import { integrityReadSubset, INTEGRITY_READ_WEEKS } from "../src/lib/jobs";
 
-test("the integrity check reads every slice of the data once in 20 weeks", () => {
-  const start = new Date("2026-10-10T04:00:00Z").getTime();
-  const seen = new Set<string>();
-  for (let w = 0; w < INTEGRITY_SLICES; w++) seen.add(integrityReadSubset(new Date(start + w * 7 * 86_400_000)));
-  assert.equal(seen.size, INTEGRITY_SLICES);
-  for (const s of seen) assert.match(s, /^\d+\/20$/);
-  // Same week, same slice.
-  assert.equal(integrityReadSubset(new Date(start)), integrityReadSubset(new Date(start + 3600_000)));
+test("a restic check reads a new slice each day: all of it in N weeks", () => {
+  const start = Date.parse("2026-11-01T04:00:00Z");
+  for (const weeks of [INTEGRITY_READ_WEEKS, 1, 12]) {
+    const seen = new Set<string>();
+    for (let d = 0; d < 7 * weeks; d++) seen.add(integrityReadSubset(new Date(start + d * 86_400_000), weeks));
+    assert.equal(seen.size, 7 * weeks);
+    assert.ok([...seen].every((s) => s.endsWith(`/${7 * weeks}`)));
+  }
+  // Same slice all day; out-of-range weeks are clamped.
+  assert.equal(integrityReadSubset(new Date(start), 4), integrityReadSubset(new Date(start + 3600_000), 4));
+  assert.match(integrityReadSubset(new Date(start), 99), /\/140$/);
 });

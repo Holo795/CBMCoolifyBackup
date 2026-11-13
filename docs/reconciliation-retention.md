@@ -28,9 +28,9 @@ investigate.
 Reconciliation confirms the files are *present*; the **integrity check** confirms they're not
 silently *corrupt* (bit-rot, a truncated upload). It re-reads the stored content:
 
-- **restic:** runs `restic check` and re-hashes one twentieth of the pack data each week
-  (`--read-data-subset=k/20`, a different slice every week), so every pack is read once in 20
-  weeks, not just the structure. Test restores of large folders rely on it for the data they
+- **restic:** runs `restic check` **every day** and re-hashes one slice of the pack data a day
+  (`--read-data-subset=k/n`, the next slice each day), so all the data is read once in the
+  number of weeks chosen next to the switch (4 by default, 1 to 20), not just the structure. Test restores of large folders rely on it for the data they
   don't read (see [Test restores](restore.md#test-restores-restore-drills)). The check holds a
   shared lock on the repository: backups and test restores run alongside, a prune of the
   destination waits until it is done (a prune changing the repository under a check would make it
@@ -38,9 +38,10 @@ silently *corrupt* (bit-rot, a truncated upload). It re-reads the stored content
 - **tar:** re-downloads each artifact and either decrypts it (the AES-GCM tag proves integrity)
   or compares its sha256 to the manifest.
 
-It's **opt-in per destination** (the **Weekly integrity check** switch in the card footer,
-admin) because it re-reads the data and is more expensive than reconciliation; it runs weekly
-(Sunday 04:00), or on demand with **Check integrity** in the card's **…** menu. A
+It's **opt-in per destination** (the integrity check switch in the card footer, admin) because it
+re-reads the data and is more expensive than reconciliation; it runs at 04:00 - every day for
+restic (a slice), on Sundays for tar (everything) - or on demand with **Check integrity** in the
+card's **…** menu. A
 backup that fails is flagged **corrupt** and alerted; a restic repo-level failure alerts and
 shows on the destination. A corrupt backup that later passes flips back to *succeeded*.
 

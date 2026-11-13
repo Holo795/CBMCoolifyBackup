@@ -49,12 +49,16 @@ async function reconcileAllDestinations(): Promise<void> {
 
 /** Weekly deep integrity check for destinations that opted in: re-read the
  * stored content (restic `check` / tar re-checksum) to catch silent corruption. */
-async function integrityCheckAllDestinations(): Promise<void> {
+async function integrityCheckAllDestinations(now = new Date()): Promise<void> {
   const dests = await prisma.destination.findMany({
     where: { integrityCheckEnabled: true },
-    select: { id: true, name: true },
+    select: { id: true, name: true, engine: true },
   });
+  // restic: a slice of the data a day (all of it in integrityReadWeeks); tar
+  // re-reads every file, so once a week (Sunday) as before.
+  const sunday = now.getUTCDay() === 0;
   for (const d of dests) {
+    if (d.engine !== "restic" && !sunday) continue;
     await enqueueVerifyDestination(d.id, { deep: true })
       .then((res) => recordVerifyOutcome(d.id, res))
       .catch((e) => console.error(`[scheduler] integrity check ${d.name} failed:`, (e as Error).message));
@@ -270,7 +274,7 @@ export async function tick(now = new Date()): Promise<number> {
 const TASKS: Array<{ name: string; cron: string; run: () => Promise<unknown>; detached: boolean }> = [
   { name: "auto-sync", cron: "*/5 * * * *", run: () => syncAllInstances(), detached: true },
   { name: "reconcile", cron: "30 3 * * *", run: () => reconcileAllDestinations(), detached: true },
-  { name: "integrity check", cron: "0 4 * * 0", run: () => integrityCheckAllDestinations(), detached: true },
+  { name: "integrity check", cron: "0 4 * * *", run: () => integrityCheckAllDestinations(), detached: true },
   { name: "restore drills", cron: "0 5 * * 6", run: () => drillAllResources(), detached: true },
   { name: "overdue check", cron: "7 * * * *", run: () => checkOverdue(new Date()), detached: true },
   { name: "self-backup overdue check", cron: "11 * * * *", run: () => checkSelfBackupOverdue(new Date()), detached: true },

@@ -340,7 +340,7 @@ export async function DestinationsView({
                   <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-b-xl border-t bg-surface px-5 py-3">
                     <MirrorPicker id={d.id} current={d.mirrorToId} candidates={allDests.filter((c) => c.id !== d.id)} />
                     {d.type !== "local" && <ReadAgentPicker id={d.id} current={d.readAgentId} agents={agents} />}
-                    <IntegrityToggle id={d.id} enabled={d.integrityCheckEnabled} />
+                    <IntegrityToggle id={d.id} enabled={d.integrityCheckEnabled} restic={d.engine === "restic"} weeks={d.integrityReadWeeks} />
                   </div>
                 )}
               </Card>

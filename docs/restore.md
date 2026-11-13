@@ -150,9 +150,9 @@ actually restorable — without touching Coolify or the original resource:
      and bigger than 20 GB is checked on a **sample** instead: up to 300 of its files picked at
      random (2 GB at most) are restored whole and compared with the sizes the snapshot records -
      minutes instead of hours for a few hundred GB. The check says so (`sample read back: 300 of
-     391586 files`); the rest of its data is read by the destination's weekly
+     391586 files`); the rest of its data is read by the destination's
      [integrity check](reconciliation-retention.md#integrity-check--detecting-silent-corruption),
-     a different twentieth each week. Database dumps are always loaded in full.
+     a slice a day, all of it in a few weeks. Database dumps are always loaded in full.
    - **The files of a database that has no dump in the snapshot** (its dump failed, see
      [Backups with warnings](backups.md#backups-with-warnings)) are put back in a sandbox volume
      and the **same database image** (the exact digest recorded at backup time) is started on

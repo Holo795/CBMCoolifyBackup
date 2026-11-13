@@ -83,6 +83,11 @@ export const en = {
     title: "Run a deep integrity check (re-read the data) weekly for this destination",
     label: "weekly check",
     row: "Weekly integrity check",
+    titleRestic: "Check the repository daily (restic check) and re-read a slice of its data each day, so all of it is read in the chosen number of weeks",
+    rowRestic: "Integrity check, all data read in",
+    weeks: "Weeks to read all the data in",
+    weeksOne: "{n} week",
+    weeksMany: "{n} weeks",
   },
   protection: {
     button: "Deletion protection",
@@ -301,6 +306,11 @@ export const fr: typeof en = {
     title: "Lancer une vérification d'intégrité approfondie (relecture des données) chaque semaine pour cette destination",
     label: "vérif hebdo",
     row: "Vérification d'intégrité hebdo",
+    titleRestic: "Contrôler le dépôt chaque jour (restic check) et relire une tranche de ses données par jour, pour tout relire dans le nombre de semaines choisi",
+    rowRestic: "Contrôle d'intégrité, tout relu en",
+    weeks: "Semaines pour tout relire",
+    weeksOne: "{n} semaine",
+    weeksMany: "{n} semaines",
   },
   protection: {
     button: "Protection contre la suppression",

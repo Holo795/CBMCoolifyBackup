@@ -274,6 +274,9 @@ model Destination {
   // catch silent corruption before a restore needs it. Reconciliation (presence)
   // always runs; this re-reads the stored content and is more expensive.
   integrityCheckEnabled Boolean @default(false)
+  // restic: the check runs daily and reads one slice of the repository's data
+  // a day, so all of it is read in this many weeks (lib/jobs integrityReadSubset).
+  integrityReadWeeks    Int     @default(4)
   lastIntegrityAt      DateTime?
   lastIntegrityStatus  String?   // "ok" | an error detail
   // SSH host keys by "host:port" ("<type> <base64>"), the target's and the jump

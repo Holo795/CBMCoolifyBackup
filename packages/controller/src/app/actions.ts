@@ -1238,6 +1238,15 @@ export async function setIntegrityCheck(destinationId: string, enabled: boolean)
   }
 }
 
+/** How many weeks a restic destination's integrity check takes to read all its data. */
+export async function setIntegrityReadWeeks(destinationId: string, weeks: number): Promise<{ ok?: boolean; error?: string }> {
+  await requireRole("admin");
+  if (!Number.isInteger(weeks) || weeks < 1 || weeks > 20) return { error: (await getT())("messages.integrityWeeksInvalid") };
+  await prisma.destination.update({ where: { id: destinationId }, data: { integrityReadWeeks: weeks } });
+  revalidatePath("/destinations");
+  return { ok: true };
+}
+
 /** Create/update a per-resource override schedule. */
 export async function setResourceSchedule(resourceId: string, fd: FormData) {
   await requireRole("admin");

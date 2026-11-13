@@ -1248,17 +1248,19 @@ export function groupSnapshotsForPrune(
   return [...groups.values()];
 }
 
-/** Weekly slices the integrity check reads a restic repository's data in. */
-export const INTEGRITY_SLICES = 20;
+/** Weeks to read all of a restic repository's data in, by default (1 to 20). */
+export const INTEGRITY_READ_WEEKS = 4;
 
 /**
- * Which part of a restic repository's data a deep check reads: slice k of
- * INTEGRITY_SLICES, one more each week, so every pack is read once in 20
- * weeks - where a random 5% each time left some never read. Same cost per run.
+ * Which part of a restic repository's data the daily deep check reads: slice
+ * k of 7 x `weeks`, the next one each day, so every pack is read once in
+ * `weeks` weeks. Before 2.8.0 it read a twentieth once a week: everything in
+ * 20 weeks.
  */
-export function integrityReadSubset(now: Date): string {
-  const week = Math.floor(now.getTime() / (7 * 86_400_000));
-  return `${(week % INTEGRITY_SLICES) + 1}/${INTEGRITY_SLICES}`;
+export function integrityReadSubset(now: Date, weeks = INTEGRITY_READ_WEEKS): string {
+  const slices = 7 * Math.min(20, Math.max(1, Math.round(weeks)));
+  const day = Math.floor(now.getTime() / 86_400_000);
+  return `${(day % slices) + 1}/${slices}`;
 }
 
 /**
@@ -1285,7 +1287,7 @@ export async function enqueueVerifyDestination(
   // restic: re-read a sample of pack data (catches on-disk corruption, not just
   // structure). tar: hand over the AES key so encrypted artifacts can be verified
   // by decrypting them (the GCM tag is the integrity proof).
-  const readDataSubset = deep && isRestic ? (opts?.readDataSubset ?? integrityReadSubset(new Date())) : undefined;
+  const readDataSubset = deep && isRestic ? (opts?.readDataSubset ?? integrityReadSubset(new Date(), dest.integrityReadWeeks)) : undefined;
   const decryptionKey =
     deep && !isRestic && dest.encryptionEnabled && dest.encryptionKeyEnc
       ? decryptSecret(dest.encryptionKeyEnc)
