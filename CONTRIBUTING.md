@@ -51,6 +51,16 @@ npm audit --omit=dev --audit-level=high   # no known high/critical vulnerability
 
 Each of these is a generic, repo-wide command — there's nothing extra to run per package.
 
+The agent also has tests that drive Docker (real database dumps and restores, freezes, restic
+repositories, test-restore sandboxes, an SSH server). They're skipped by default; CI runs them on
+every pull request with the agent image built from it. To run them locally (Docker, and `sshpass`
+for the SSH test):
+
+```bash
+docker build --load -f Dockerfile.agent -t cbm-agent:dev .
+cd packages/agent && AGENT_HELPER_IMAGE=cbm-agent:dev CBM_DOCKER_TESTS=1 npx tsx --test test/*.test.ts
+```
+
 - Keep pull requests **focused** — one logical change per PR.
 - Match the **style of the surrounding code** (TypeScript, existing naming and comment
   density), and keep `npm run lint` clean. ESLint config lives in `eslint.config.mjs` at the

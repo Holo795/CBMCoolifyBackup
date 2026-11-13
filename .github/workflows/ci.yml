@@ -55,3 +55,41 @@ jobs:
 
       - name: Build (all packages)
         run: npm run build
+
+  # The agent's tests that drive Docker: real database dumps and restores,
+  # freezes, restic repositories, sandboxes, an SSH server, with the agent image
+  # built from this commit as the helper image. They used to run only on a
+  # maintainer's machine before a release.
+  agent-docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DATABASE_URL: postgresql://cbm:cbm@localhost:5432/cbm
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      # sshpass: the SSH host key test signs in with a password, like a
+      # password-auth destination does.
+      - name: Tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
+
+      - name: Build the shared package
+        run: npm run build:shared
+
+      - name: Build the agent image
+        run: docker build --load -f Dockerfile.agent -t cbm-agent:ci .
+
+      - name: Agent tests with Docker
+        working-directory: packages/agent
+        env:
+          AGENT_HELPER_IMAGE: cbm-agent:ci
+          CBM_DOCKER_TESTS: "1"
+        run: npx tsx --test test/*.test.ts
