@@ -586,3 +586,13 @@ model SsoProvider {
   updatedAt       DateTime @updatedAt
 }
 
+
+// The first account's setup token (see lib/setup-token.ts): only its hash, and
+// which email used it (an attempt that failed can be retried with the same
+// email; anyone else waits). Cleared once the first account exists.
+model SetupState {
+  id        String    @id @default("global")
+  tokenHash String?
+  email     String?
+  usedAt    DateTime?
+}

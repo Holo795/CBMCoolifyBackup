@@ -21,6 +21,13 @@ export const en = {
   profile: "Profile",
   back: "Back",
   ago: { s: "{n}s ago", m: "{n}m ago", h: "{n}h ago", d: "{n}d ago", future: "in the future" },
+  weakSecrets: {
+    title: "This install's secrets can be guessed",
+    authSecret: "BETTER_AUTH_SECRET is an example value or shorter than 32 characters.",
+    masterKey:
+      "MASTER_KEY isn't set: the secrets CBM stores are encrypted with a key derived from BETTER_AUTH_SECRET, so a copy of the database plus that secret reads them all.",
+    fix: "How to fix it without losing the stored secrets",
+  },
 };
 
 export const fr: typeof en = {
@@ -45,4 +52,11 @@ export const fr: typeof en = {
   profile: "Profil",
   back: "Retour",
   ago: { s: "il y a {n} s", m: "il y a {n} min", h: "il y a {n} h", d: "il y a {n} j", future: "dans le futur" },
+  weakSecrets: {
+    title: "Les secrets de cette installation peuvent être devinés",
+    authSecret: "BETTER_AUTH_SECRET est une valeur d'exemple ou fait moins de 32 caractères.",
+    masterKey:
+      "MASTER_KEY n'est pas défini : les secrets que CBM stocke sont chiffrés avec une clé dérivée de BETTER_AUTH_SECRET, donc une copie de la base et ce secret suffisent à tous les lire.",
+    fix: "Comment corriger sans perdre les secrets stockés",
+  },
 };

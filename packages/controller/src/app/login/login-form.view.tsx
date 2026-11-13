@@ -16,6 +16,8 @@ export function LoginFormView({
   password,
   firstName,
   lastName,
+  setupToken,
+  onSetupTokenChange,
   error,
   notice,
   loading,
@@ -35,6 +37,8 @@ export function LoginFormView({
   password: string;
   firstName: string;
   lastName: string;
+  setupToken: string;
+  onSetupTokenChange: (v: string) => void;
   error: string | null;
   notice: string | null;
   loading: boolean;
@@ -64,6 +68,18 @@ export function LoginFormView({
     <AuthShell title={title} description={description} footer={forgot ? forgotLink : null}>
       <div className="flex flex-col gap-4">
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          {needsSetup && !forgot && (
+            <Field label={t("auth.setupToken")} htmlFor="setupToken" hint={t("auth.setupTokenHint")}>
+              <Input
+                id="setupToken"
+                value={setupToken}
+                onChange={(e) => onSetupTokenChange(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                required
+              />
+            </Field>
+          )}
           {needsSetup && !forgot && (
             <div className="grid grid-cols-2 gap-3">
               <Field label={t("auth.firstName")} htmlFor="firstName">
@@ -103,7 +119,8 @@ export function LoginFormView({
           </Button>
         </form>
 
-        {!forgot && <OAuthButtons providers={providers} onProvider={onProvider} />}
+        {/* The admin account is created with a password: a single sign-on can't present the setup token. */}
+        {!forgot && !needsSetup && <OAuthButtons providers={providers} onProvider={onProvider} />}
       </div>
     </AuthShell>
   );

@@ -189,8 +189,10 @@ reference in **[docs/configuration.md](docs/configuration.md)**.
 
 ### 2. First run — create the admin
 
-Open your `BETTER_AUTH_URL` and **register**. The **first account becomes the administrator**,
-then public sign‑up closes automatically — no seeding, no default password. To add teammates,
+Open the link the controller prints in its logs at startup (`/login?setup=…`) and **register**:
+the **first account becomes the administrator** — it needs that setup token (or the
+`SETUP_TOKEN` you set) — then public sign‑up closes automatically: no seeding, no default
+password. To add teammates,
 use **Users → Invite** with a role (admin / operator / viewer); see
 **[docs/accounts.md](docs/accounts.md)**. For password reset and verification emails, configure
 SMTP in **Settings → Email (SMTP)** (**[docs/email.md](docs/email.md)**).

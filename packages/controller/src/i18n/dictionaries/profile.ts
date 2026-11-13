@@ -17,6 +17,14 @@ export const en = {
   currentPassword: "Current password",
   newPassword: "New password",
   confirmPassword: "Confirm new password",
+  sso: {
+    card: "Single sign-on",
+    hint: "Link a provider to sign in with it. Google and GitHub link on their own at your first sign-in with them; a GitLab or OpenID Connect account is linked here, while signed in.",
+    linked: "Linked",
+    link: "Link",
+    failed: "The provider couldn't be linked.",
+    provider: { google: "Google", github: "GitHub", gitlab: "GitLab", oidc: "OpenID Connect" },
+  },
 };
 
 export const fr: typeof en = {
@@ -37,4 +45,12 @@ export const fr: typeof en = {
   currentPassword: "Mot de passe actuel",
   newPassword: "Nouveau mot de passe",
   confirmPassword: "Confirmer le nouveau mot de passe",
+  sso: {
+    card: "Authentification unique",
+    hint: "Liez un fournisseur pour vous connecter avec. Google et GitHub se lient seuls à votre première connexion avec eux ; un compte GitLab ou OpenID Connect se lie ici, une fois connecté.",
+    linked: "Lié",
+    link: "Lier",
+    failed: "Le fournisseur n'a pas pu être lié.",
+    provider: { google: "Google", github: "GitHub", gitlab: "GitLab", oidc: "OpenID Connect" },
+  },
 };

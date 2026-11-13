@@ -25,3 +25,19 @@ test("production accepts a real secret with a valid or empty MASTER_KEY", () => 
   assert.deepEqual(startupProblems({ nodeEnv: "production", authSecret: "a-long-random-secret", masterKey: "" }), []);
   assert.deepEqual(startupProblems({ nodeEnv: "production", authSecret: "a-long-random-secret" }), []);
 });
+
+test("a new install refuses example or short secrets and a missing MASTER_KEY; an existing one keeps running", async () => {
+  const { secretWeaknesses } = await import("../src/lib/startup-check");
+  const strong = "x".repeat(48);
+  assert.deepEqual(secretWeaknesses({ authSecret: strong, masterKey: GOOD_KEY }), []);
+  assert.deepEqual(secretWeaknesses({ authSecret: "change-me-to-a-long-random-string", masterKey: GOOD_KEY }), ["auth-secret-weak"]);
+  assert.deepEqual(secretWeaknesses({ authSecret: "short", masterKey: GOOD_KEY }), ["auth-secret-weak"]);
+  assert.deepEqual(secretWeaknesses({ authSecret: strong, masterKey: "" }), ["master-key-derived"]);
+
+  const fresh = startupProblems({ nodeEnv: "production", authSecret: "change-me-to-a-long-random-string", masterKey: "" }, true);
+  assert.equal(fresh.length, 2);
+  assert.match(fresh.join(" "), /too weak/);
+  assert.match(fresh.join(" "), /MASTER_KEY is not set/);
+  assert.deepEqual(startupProblems({ nodeEnv: "production", authSecret: "short-but-existing", masterKey: "" }, false), []);
+  assert.deepEqual(startupProblems({ nodeEnv: "production", authSecret: strong, masterKey: GOOD_KEY }, true), []);
+});

@@ -7,6 +7,7 @@ import { authErrorText, ssoErrorText } from "@/lib/auth-errors";
 import { useT } from "@/components/i18n-provider";
 import type { SsoButton } from "@/lib/sso";
 import { LoginFormView } from "./login-form.view";
+import { SETUP_TOKEN_HEADER } from "@/lib/setup-shared";
 
 /**
  * needsSetup = there are no users yet, so this first registration creates the
@@ -16,11 +17,14 @@ import { LoginFormView } from "./login-form.view";
  */
 export function LoginForm({
   needsSetup,
+  initialSetupToken = "",
   providers,
   canReset,
   ssoError,
 }: {
   needsSetup: boolean;
+  /** From ?setup= (the link the controller logs at startup). */
+  initialSetupToken?: string;
   /** Social sign-in providers configured on the server. */
   providers: SsoButton[];
   canReset: boolean;
@@ -34,6 +38,7 @@ export function LoginForm({
   const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [setupToken, setSetupToken] = useState(initialSetupToken);
   const [error, setError] = useState<string | null>(() => ssoErrorText(ssoError, t));
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -52,7 +57,14 @@ export function LoginForm({
       const name = `${firstName} ${lastName}`.trim() || email.split("@")[0];
       // firstName/lastName are additional fields; pass via a variable so TS keeps
       // them (object literals would trip the excess-property check).
-      const signUpBody = { email, password, name, firstName, lastName };
+      const signUpBody = {
+        email,
+        password,
+        name,
+        firstName,
+        lastName,
+        fetchOptions: { headers: { [SETUP_TOKEN_HEADER]: setupToken.trim() } },
+      };
       const res = await (needsSetup ? authClient.signUp.email(signUpBody) : authClient.signIn.email({ email, password }));
       if (res.error) setError(authErrorText(res.error, t, "auth.authFailed"));
       // A second factor is due: the auth client is already on its way to /two-factor.
@@ -74,6 +86,8 @@ export function LoginForm({
       password={password}
       firstName={firstName}
       lastName={lastName}
+      setupToken={setupToken}
+      onSetupTokenChange={setSetupToken}
       error={error}
       notice={notice}
       loading={loading}

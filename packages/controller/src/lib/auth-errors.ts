@@ -6,10 +6,12 @@ import type { T } from "./i18n-shared";
 /** Codes thrown by our own hooks in lib/auth.ts. */
 export const PASSWORD_BREACHED = "PASSWORD_BREACHED";
 export const REGISTRATION_CLOSED = "REGISTRATION_CLOSED";
+export const SETUP_TOKEN_INVALID = "SETUP_TOKEN_INVALID";
 
 const KNOWN = new Set([
   PASSWORD_BREACHED,
   REGISTRATION_CLOSED,
+  SETUP_TOKEN_INVALID,
   "INVALID_EMAIL_OR_PASSWORD",
   "INVALID_PASSWORD",
   "INVALID_EMAIL",

@@ -6,8 +6,11 @@ people only see what they can actually do.
 
 ## The first account
 
-The **first person to register becomes the administrator**, then public sign-up closes
-automatically. Everyone else joins through an **invitation** (below) — there is no open
+The **first account is the administrator**, created with an email and a password and the
+**setup token**: at each start while no account exists, the controller prints in its logs a
+link to the sign-up page with the token in it (`/login?setup=…`), or uses `SETUP_TOKEN` if you
+set it. Someone who reaches the URL before you can't take the admin account without it. Public
+sign-up then closes automatically. Everyone else joins through an **invitation** (below) — there is no open
 registration and no default password.
 
 ## Roles
@@ -140,12 +143,19 @@ For each provider:
 3. Turn on **Offer this provider on the sign-in page** and save. A **Continue with …** button then
    appears on the sign-in and invitation pages (the OpenID Connect one shows its label).
 
-Accounts still exist **by invitation only**. A provider signs in the CBM user with the **same
-email**: an existing user (who signed up with a password) is linked on first use, and an invited
-person can accept the invitation with the provider instead of a password. An email with no account
-and no invitation is refused, and the sign-in page says so. An admin trusts a provider by
-configuring it: the email it returns is taken as proven, even when the provider doesn't say it
-was verified (GitLab never does). Two-factor authentication still applies after a provider sign-in.
+Accounts still exist **by invitation only**. An invited person can accept the invitation with a
+provider instead of a password. An email with no account and no invitation is refused, and the
+sign-in page says so. Two-factor authentication still applies after a provider sign-in.
+
+An **existing** account (one that signed up with a password) is linked to a provider in one of two
+ways:
+
+- **Google and GitHub** link on their own, at the first sign-in with them using the same email:
+  both only return addresses their owner verified.
+- **GitLab and OpenID Connect** don't: a GitLab or OIDC server may let a user set any address,
+  which would let them sign in as the CBM account with that email. Sign in with your password,
+  then open **Profile → Single sign-on** and click **Link** next to the provider. Until then, a
+  sign-in with it says the account isn't linked. Links made before 2.8.0 stay as they are.
 
 When a provider sign-in fails, you come back to the sign-in page with the reason (cancelled,
 provider refused the client, sign-in expired, no account for that email…).

@@ -4,17 +4,21 @@ import { ActionForm } from "@/components/action-form";
 import { changeEmail, changePassword, updateProfileName } from "@/app/actions";
 import { getT } from "@/lib/i18n";
 import { TwoFactorCard } from "@/components/two-factor/profile-card";
+import { SsoLinks } from "@/components/sso-links";
+import type { SsoButton } from "@/lib/sso";
 
 /** Presentation only: the Profile page markup. Data is fetched in ./page.tsx. */
 export async function ProfileView({
   email,
   firstName,
   lastName,
+  sso,
   twoFactor,
 }: {
   email: string;
   firstName: string;
   lastName: string;
+  sso: { providers: SsoButton[]; linked: string[] };
   twoFactor: { enabled: boolean; required: boolean; hasPassword: boolean };
 }) {
   const t = await getT();
@@ -78,6 +82,18 @@ export async function ProfileView({
             </ActionForm>
           </CardContent>
         </Card>
+
+        {sso.providers.length > 0 && (
+          <Card id="sso" className="scroll-mt-8">
+            <CardHeader>
+              <CardTitle>{t("profile.sso.card")}</CardTitle>
+              <CardDescription>{t("profile.sso.hint")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SsoLinks providers={sso.providers} linked={sso.linked} />
+            </CardContent>
+          </Card>
+        )}
 
         <TwoFactorCard {...twoFactor} />
       </div>

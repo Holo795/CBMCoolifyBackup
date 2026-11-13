@@ -8,6 +8,8 @@ export const en = {
   email: "Email",
   password: "Password",
   createAdmin: "Create admin account",
+  setupToken: "Setup token",
+  setupTokenHint: "Printed in the controller's logs when it starts (or the SETUP_TOKEN you set).",
   signIn: "Sign in",
   signingIn: "Signing in…",
   forgotPassword: "Forgot password?",
@@ -45,7 +47,7 @@ export const en = {
   ssoErrors: {
     REGISTRATION_CLOSED: "There's no CBM account for this email yet, and registration is by invitation only: ask an admin for an invite, then use its link.",
     access_denied: "Sign-in was cancelled at the provider.",
-    account_not_linked: "A CBM account with this email exists, but it couldn't be linked to this provider. Sign in with your password, or ask an admin.",
+    account_not_linked: "A CBM account with this email exists, but this provider can't link to it on its own (it doesn't vouch for emails). Sign in with your password, then link it from Profile → Single sign-on.",
     unable_to_link_account: "This provider account couldn't be linked to your CBM account.",
     account_already_linked_to_different_user: "This provider account is already linked to another CBM user.",
     email_not_found: "The provider didn't share an email address: allow CBM to read it (scopes: email / read_user), then try again.",
@@ -63,6 +65,7 @@ export const en = {
   errors: {
     PASSWORD_BREACHED: "This password appears in a known data breach - choose another one.",
     REGISTRATION_CLOSED: "Registration is closed - ask an admin for an invite link.",
+    SETUP_TOKEN_INVALID: "The setup token is missing or wrong. It is printed in the controller's logs at startup (or set by SETUP_TOKEN).",
     INVALID_EMAIL_OR_PASSWORD: "Invalid email or password",
     INVALID_PASSWORD: "Invalid password",
     INVALID_CODE: "Invalid code - try again.",
@@ -90,6 +93,8 @@ export const fr: typeof en = {
   email: "E-mail",
   password: "Mot de passe",
   createAdmin: "Créer le compte admin",
+  setupToken: "Jeton de mise en route",
+  setupTokenHint: "Affiché dans les journaux du contrôleur à son démarrage (ou le SETUP_TOKEN que vous avez défini).",
   signIn: "Se connecter",
   signingIn: "Connexion…",
   forgotPassword: "Mot de passe oublié ?",
@@ -126,7 +131,7 @@ export const fr: typeof en = {
   ssoErrors: {
     REGISTRATION_CLOSED: "Aucun compte CBM n'existe encore pour cet email, et l'inscription se fait sur invitation : demandez une invitation à un admin, puis utilisez son lien.",
     access_denied: "La connexion a été annulée chez le fournisseur.",
-    account_not_linked: "Un compte CBM existe avec cet email, mais il n'a pas pu être lié à ce fournisseur. Connectez-vous avec votre mot de passe, ou demandez à un admin.",
+    account_not_linked: "Un compte CBM existe avec cet email, mais ce fournisseur ne peut pas s'y lier seul (il ne garantit pas les emails). Connectez-vous avec votre mot de passe, puis liez-le depuis Profil → Authentification unique.",
     unable_to_link_account: "Ce compte n'a pas pu être lié à votre compte CBM.",
     account_already_linked_to_different_user: "Ce compte est déjà lié à un autre utilisateur CBM.",
     email_not_found: "Le fournisseur n'a pas transmis d'adresse email : autorisez CBM à la lire (scopes email / read_user), puis réessayez.",
@@ -144,6 +149,7 @@ export const fr: typeof en = {
   errors: {
     PASSWORD_BREACHED: "Ce mot de passe figure dans une fuite de données connue - choisissez-en un autre.",
     REGISTRATION_CLOSED: "Les inscriptions sont fermées - demandez un lien d'invitation à un admin.",
+    SETUP_TOKEN_INVALID: "Le jeton de mise en route manque ou est faux. Il est affiché dans les journaux du contrôleur au démarrage (ou défini par SETUP_TOKEN).",
     INVALID_EMAIL_OR_PASSWORD: "E-mail ou mot de passe incorrect",
     INVALID_PASSWORD: "Mot de passe incorrect",
     INVALID_CODE: "Code invalide - réessayez.",

@@ -10,7 +10,8 @@ import { prisma } from "./prisma";
 import { env } from "./env";
 import { sendMail } from "./email";
 import { decideInviteSignup } from "./invitations";
-import { PASSWORD_BREACHED, REGISTRATION_CLOSED } from "./auth-errors";
+import { PASSWORD_BREACHED, REGISTRATION_CLOSED, SETUP_TOKEN_INVALID } from "./auth-errors";
+import { SETUP_TOKEN_HEADER, clearSetupToken, holdSetupToken, setupAuthorizes } from "./setup-token";
 import { oauthTwoFactorGate, TRUST_DEVICE_MAX_AGE, CHALLENGE_MAX_AGE } from "./two-factor";
 
 /** Kept for the sign-in pages' types: the provider ids a button can carry. */
@@ -29,6 +30,9 @@ async function passwordBreached(password: string): Promise<boolean> {
   const timeout = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), BREACH_CHECK_TIMEOUT_MS).unref());
   return Promise.race([isPasswordCompromised(password).catch(() => false), timeout]);
 }
+
+/** Providers that only return emails their owner verified. */
+const VERIFYING_PROVIDERS = new Set<SsoProviderId>(["google", "github"]);
 
 /** Better Auth's options for a set of single sign-on providers (see lib/sso). */
 function authOptions(sso: SsoConfig[]) {
@@ -133,11 +137,17 @@ function authOptions(sso: SsoConfig[]) {
   },
   socialProviders,
   account: {
-    // A provider an admin configured is trusted to vouch for the email it
-    // returns: a CBM user signs in with it on first use (GitLab never says an
-    // email is verified, and CBM's own verification is optional). Accounts only
-    // exist by invitation, so an email can't be claimed ahead of its owner.
-    accountLinking: { enabled: true, trustedProviders: sso.map((c) => c.id), requireLocalEmailVerified: false },
+    // An existing CBM account is linked to a provider on its first sign-in
+    // only when that provider verifies the emails it returns: Google and
+    // GitHub. A GitLab or OpenID Connect server may let a user claim any
+    // address - linking on it would let them sign in as that CBM account. With
+    // those, the account is linked from Profile → Single sign-on, signed in.
+    // Links made before stay; new accounts still sign up through an invite.
+    accountLinking: {
+      enabled: true,
+      trustedProviders: sso.filter((c) => VERIFYING_PROVIDERS.has(c.id)).map((c) => c.id),
+      requireLocalEmailVerified: false,
+    },
   },
   plugins: [
     // Two-factor sign-in: an authenticator app (TOTP) plus single-use backup
@@ -175,6 +185,18 @@ function authOptions(sso: SsoConfig[]) {
   hooks: {
     after: oauthTwoFactorGate,
     before: createAuthMiddleware(async (ctx) => {
+      // The first account: the setup token is checked (and held for this email)
+      // before anything else, so a wrong one never reaches the breach check.
+      if (ctx.path === "/sign-up/email" && (await prisma.user.count()) === 0) {
+        const email = (ctx.body as { email?: unknown } | undefined)?.email;
+        const token = ctx.headers?.get(SETUP_TOKEN_HEADER) ?? "";
+        if (typeof email !== "string" || !(await holdSetupToken(token, email))) {
+          throw new APIError("FORBIDDEN", {
+            code: SETUP_TOKEN_INVALID,
+            message: "The setup token is missing or wrong - it is printed in the controller's logs at startup.",
+          });
+        }
+      }
       if (!env.passwordBreachCheck || !NEW_PASSWORD_PATHS.has(ctx.path)) return;
       const body = ctx.body as { password?: unknown; newPassword?: unknown } | undefined;
       const password = body?.newPassword ?? body?.password;
@@ -191,7 +213,8 @@ function authOptions(sso: SsoConfig[]) {
   databaseHooks: {
     user: {
       create: {
-        // The first person to register becomes the admin; afterwards self-signup
+        // The first person to register, with the setup token, becomes the admin
+        // (an SSO sign-in can't present it); afterwards self-signup
         // is closed and only an *invited* email may register. An invite must have
         // been claimed (its link opened, proving token possession) and still be
         // pending/unexpired. Blocks every sign-up path (email + social) otherwise.
@@ -213,6 +236,7 @@ function authOptions(sso: SsoConfig[]) {
           const decision = decideInviteSignup({
             userCount,
             email: user.email,
+            setupOk: userCount === 0 && (await setupAuthorizes(user.email)),
             invite: invite
               ? {
                   email: invite.email,
@@ -232,8 +256,10 @@ function authOptions(sso: SsoConfig[]) {
           }
           return { data: decision.role ? { ...user, role: decision.role } : user };
         },
-        // Consume the invite that authorized this signup (single use).
+        // Consume the invite that authorized this signup (single use), or the
+        // setup token for the first account.
         after: async (user) => {
+          await clearSetupToken().catch(() => undefined);
           await prisma.invitation.updateMany({
             where: {
               email: { equals: user.email, mode: "insensitive" },

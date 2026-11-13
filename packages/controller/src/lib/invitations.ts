@@ -29,7 +29,8 @@ export interface InviteFacts {
 /**
  * Pure decision for "may this email/password signup proceed?", used by the
  * Better Auth `user.create.before` gate. Allowed when:
- *  - bootstrap: there are no users yet → first account becomes admin; or
+ *  - bootstrap: there are no users yet and this email presented the setup
+ *    token (see lib/setup-token) → first account becomes admin; or
  *  - a matching invite was claimed (token proven) WITHIN the claim window, is
  *    still pending and unexpired, and its email matches the signup email.
  * Otherwise registration stays closed.
@@ -39,9 +40,11 @@ export function decideInviteSignup(input: {
   email: string;
   invite: InviteFacts | null;
   now: Date;
+  /** Bootstrap only: this email just presented the setup token. */
+  setupOk?: boolean;
 }): { allow: boolean; role?: string } {
   const { userCount, email, invite, now } = input;
-  if (userCount === 0) return { allow: true, role: "admin" };
+  if (userCount === 0) return input.setupOk ? { allow: true, role: "admin" } : { allow: false };
   if (
     invite &&
     invite.acceptedAt === null &&

@@ -5,13 +5,14 @@
 | Variable | Required | Default | Description |
 | --- | :---: | --- | --- |
 | `DATABASE_URL` | ✅ (prod) | — | PostgreSQL connection string for the controller's metadata DB. |
-| `BETTER_AUTH_SECRET` | ✅ | `dev-insecure…` | Long random string for session signing. Also the fallback for `MASTER_KEY`. `AUTH_SECRET` is accepted as an alias. |
+| `BETTER_AUTH_SECRET` | ✅ | `dev-insecure…` | Long random string (32 characters or more) for session signing. Also the fallback for `MASTER_KEY`. `AUTH_SECRET` is accepted as an alias. |
 | `BETTER_AUTH_URL` | ✅ | `http://localhost:3000` | The public URL the app is served at (used by auth + links in alerts). `APP_URL` is accepted as an alias. In production it is the only origin trusted for sign-in requests. |
-| `MASTER_KEY` | recommended | falls back to `BETTER_AUTH_SECRET` | Base64, 32 bytes. Encrypts all secrets at rest (and restic repo passwords). **Back this up.** |
+| `MASTER_KEY` | ✅ (new installs) | falls back to `BETTER_AUTH_SECRET` | Base64, 32 bytes. Encrypts all secrets at rest (and restic repo passwords). **Back this up.** A new install doesn't start without it (see [Weak secrets](#weak-secrets)). |
 | `AGENT_IMAGE` | — | `ghcr.io/holo795/cbm-agent` | Agent image the install command / `/install.sh` tells hosts to run. |
 | `AGENT_IMAGE_TAG` | — | `latest` | Tag for the agent image. |
 | `COOLIFY_API_RATE_LIMIT` | — | `120` | Calls per minute CBM allows itself towards each Coolify instance. Coolify limits its API per user (its own `API_RATE_LIMIT`, 200 a minute by default); a call that still gets "429 Too Many Attempts" waits what Coolify asks and is retried. Lower it if you use the same Coolify token elsewhere. |
 | `AGENT_CONTROLLER_URL` | — | falls back to `BETTER_AUTH_URL` | URL agents dial to reach the controller, if it differs from the browser URL (e.g. `http://host.docker.internal:3000` in local dev). |
+| `SETUP_TOKEN` | — | random, printed in the logs | The token the first account (the admin) is created with. Unset, a random one is generated at each start while no account exists and printed in the logs with a sign-up link. |
 | `PASSWORD_BREACH_CHECK` | — | `true` | Refuse new passwords (sign-up, change, reset) that appear in a known breach, via HaveIBeenPwned's k-anonymity API (only the first 5 characters of the password's SHA-1 leave the server). If the API can't be reached within 3 s the password is accepted. `false` turns it off. |
 
 Generate secrets:
@@ -47,6 +48,29 @@ a move to a fresh key by re-entering your secrets.
 
 A failed database migration also stops the container now, instead of starting the app on an
 out-of-date schema.
+
+### Weak secrets
+
+Since 2.8.0, a **new** install (no account, no Coolify instance, no destination yet) also refuses
+to start when:
+
+- **`BETTER_AUTH_SECRET` is an example value** (from `.env.example` or these docs) **or shorter
+  than 32 characters**;
+- **`MASTER_KEY` is empty**: every secret CBM stores (Coolify tokens, S3 and SSH credentials,
+  encryption and restic keys) would be encrypted with a key derived from `BETTER_AUTH_SECRET`,
+  so a copy of the database plus that secret would read them all.
+
+An install that already holds data keeps running, but every admin sees a red banner on every
+page until it's fixed. To fix it without losing the stored secrets, set `MASTER_KEY` to the key
+the install has been using (derived from its current `BETTER_AUTH_SECRET`), then restart:
+
+```bash
+# with the install's current BETTER_AUTH_SECRET in the environment
+node -e "console.log(require('crypto').createHash('sha256').update(process.env.BETTER_AUTH_SECRET).digest('base64'))"
+```
+
+From then on `BETTER_AUTH_SECRET` can be replaced by a long random one (`openssl rand -base64
+48`); everyone signs in again. Keep `MASTER_KEY` safe: it decrypts everything CBM stores.
 
 ### Optional single sign-on
 

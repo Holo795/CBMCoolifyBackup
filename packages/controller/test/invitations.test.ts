@@ -16,11 +16,12 @@ test("inviteExpiry adds 48h", () => {
   assert.equal(inviteExpiry(NOW).getTime(), NOW.getTime() + INVITE_TTL_MS);
 });
 
-test("bootstrap: first user (no users yet) is allowed as admin, ignoring invites", () => {
-  assert.deepEqual(decideInviteSignup({ userCount: 0, email: "anyone@x.com", invite: null, now: NOW }), {
+test("bootstrap: the first user is admin only with the setup token, ignoring invites", () => {
+  assert.deepEqual(decideInviteSignup({ userCount: 0, email: "anyone@x.com", invite: null, now: NOW, setupOk: true }), {
     allow: true,
     role: "admin",
   });
+  assert.deepEqual(decideInviteSignup({ userCount: 0, email: "anyone@x.com", invite: null, now: NOW }), { allow: false });
 });
 
 test("valid claimed invite allows signup with the invite's role", () => {
