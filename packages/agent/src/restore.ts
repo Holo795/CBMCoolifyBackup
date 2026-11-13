@@ -18,7 +18,7 @@ import { decryptFile } from "./crypto.js";
 import { makeTransfer } from "./transfer.js";
 import { resticRestoreById, withResticCtx } from "./restic.js";
 import { partKind, resticRestorePath } from "./restic-helper.js";
-import { resolveResource, readDbCredentials, readDbLogins, resourceContainers, uniqueLogins } from "./resolve.js";
+import { resolveResource, readDbCredentials, readDbLogins, uniqueLogins, containersToStopForRestore } from "./resolve.js";
 import type { Emit } from "./backup.js";
 import { artifactExcludes } from "./excludes.js";
 
@@ -194,7 +194,20 @@ export async function runRestore(job: RestoreJob, workDir: string, emit: Emit): 
       }
     } else if (volumes.length > 0 || redisDumps.length > 0) {
       // in place: stop the resource, overwrite its volumes / drop the RDB, restart.
-      const containers = resourceContainers(manifest.resource);
+      // Its containers as they are now (a redeploy since the backup renamed
+      // them) plus anything else of it mounting a volume about to be rewritten:
+      // nothing may write into a volume while it's overwritten.
+      const targets = [
+        ...volumes.filter((v) => !v.meta.bindSource && v.meta.volume).map((v) => v.meta.volume as string),
+        ...redisDumps.filter((d) => d.meta.volume).map((d) => d.meta.volume as string),
+      ];
+      const { stop: containers, foreign } = await containersToStopForRestore(manifest.resource, targets);
+      if (foreign.length > 0) {
+        throw new Error(
+          `Not restored: ${foreign.join(", ")} (not part of ${manifest.resource.name}) uses a volume this restore would overwrite. ` +
+            `Stop it first, or restore to a new resource`,
+        );
+      }
       const stopped: string[] = [];
       let restored = false;
       try {

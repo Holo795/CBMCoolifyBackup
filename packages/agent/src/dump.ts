@@ -1,8 +1,9 @@
 import { appendFile, open, rm, stat, truncate } from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
-import type { ResourceType, DbCredentials } from "@cbm/shared";
+import { redactSecrets, type ResourceType, type DbCredentials } from "@cbm/shared";
 import { docker, dockerToFile, dockerFromFile, inspectContainer, type SecretEnv } from "./docker.js";
+import { logger } from "./logger.js";
 
 /*
  * Secrets travel in the docker client's ENVIRONMENT (`-e NAME` without a value),
@@ -371,6 +372,24 @@ async function readByte(file: string, pos: number): Promise<number> {
   }
 }
 
+/**
+ * The errors psql reported while loading a dump. A privilege granted to a role
+ * that doesn't exist on the target (a clone, a sandbox: roles aren't in the
+ * dump) is the one expected and harmless kind; any other means data or schema
+ * didn't load.
+ */
+export function pgLoadErrors(stderr: string): { fatal: string[]; ignored: string[] } {
+  const fatal: string[] = [];
+  const ignored: string[] = [];
+  for (const line of stderr.split("\n")) {
+    const m = /\b(?:ERROR|FATAL|PANIC):\s+(.*)$/.exec(line);
+    if (!m) continue;
+    const msg = m[1].trim();
+    (/^role ".*" does not exist$/.test(msg) ? ignored : fatal).push(msg);
+  }
+  return { fatal, ignored };
+}
+
 /** Restore a logical dump into a running database container (`image`: run the
  * client from that image instead, see `into`). */
 export async function restoreDatabase(
@@ -387,9 +406,20 @@ export async function restoreDatabase(
   switch (type) {
     case "postgresql": {
       const s = secret("PGPASSWORD", password);
-      const args = [...into(container, s.args, image, true), "psql", "-U", user || "postgres"];
+      const args = [...into(container, s.args, image, true), "psql", "-X", "-U", user || "postgres"];
       if (database) args.push("-d", database);
-      await dockerFromFile(args, inFile, s.env);
+      // psql reading a script exits 0 whatever failed in it: a COPY refused, a
+      // missing extension, a full disk left tables empty behind a "Restore
+      // complete". Its errors decide instead (see pgLoadErrors).
+      const { fatal, ignored } = pgLoadErrors(await dockerFromFile(args, inFile, s.env));
+      if (ignored.length) {
+        logger.warn(`PostgreSQL load: ${ignored.length} privilege(s) for roles absent here not applied (${ignored.slice(0, 3).join("; ")})`);
+      }
+      if (fatal.length) {
+        throw new Error(
+          `the PostgreSQL dump did not load completely (${fatal.length} error${fatal.length > 1 ? "s" : ""}): ${redactSecrets(fatal.slice(0, 5).join(" | ")).slice(0, 1500)}`,
+        );
+      }
       return;
     }
     case "mysql":

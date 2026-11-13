@@ -82,10 +82,14 @@ export async function dockerToFile(args: string[], outFile: string, secrets?: Se
 }
 
 /** Run a docker command feeding a file into stdin (for restores). */
-export async function dockerFromFile(args: string[], inFile: string, secrets?: SecretEnv): Promise<void> {
+export async function dockerFromFile(args: string[], inFile: string, secrets?: SecretEnv): Promise<string> {
   const child = spawn(DOCKER, labelled(args), { stdio: ["pipe", "pipe", "pipe"], env: childEnv(secrets) });
   let stderr = "";
-  child.stderr.on("data", (d) => (stderr += d.toString()));
+  // Kept for the caller (a load's errors), bounded: a dump failing on every row
+  // mustn't fill the agent's memory.
+  child.stderr.on("data", (d) => {
+    if (stderr.length < STDERR_KEPT) stderr += d.toString();
+  });
   child.stdout.on("data", () => {}); // drain so a full pipe can't block the child
   // Capture the exit code independently of the stdin write. If the child closes
   // its stdin early (e.g. it rejected the input) the write side gets EPIPE - we
@@ -96,7 +100,11 @@ export async function dockerFromFile(args: string[], inFile: string, secrets?: S
   if (code !== 0) {
     throw new Error(`docker ${describe(args)} exited ${code}: ${redactSecrets(stderr.slice(0, 2000))}`);
   }
+  return stderr;
 }
+
+/** How much of a command's stderr dockerFromFile keeps. */
+const STDERR_KEPT = 1024 * 1024;
 
 /** The subset of `docker inspect` JSON the agent reads (the rest stays dynamic). */
 export interface DockerInspect {

@@ -70,11 +70,44 @@ async function countCreateTablesInFile(path: string): Promise<number> {
   return n;
 }
 
-/** Pass/fail for a SQL load: every table declared by the dump must be there. */
-export function sqlVerdict(declared: number, restored: number, image: string): { ok: boolean; detail: string } {
+/** Rows a pg_dump script loads: the data lines of its `COPY ... FROM stdin;`
+ * blocks (one per row - COPY escapes newlines inside values). */
+export async function countCopyRowsInFile(path: string): Promise<number> {
+  let n = 0;
+  let inCopy = false;
+  const rl = createInterface({ input: createReadStream(path), crlfDelay: Infinity });
+  for await (const line of rl) {
+    if (inCopy) {
+      if (line === "\\.") inCopy = false;
+      else n++;
+    } else if (/^COPY .* FROM stdin;$/.test(line)) inCopy = true;
+  }
+  return n;
+}
+
+/**
+ * Pass/fail for a SQL load: every table declared by the dump must be there and,
+ * when they were counted (PostgreSQL), every row it carries. Counting tables
+ * alone passed a dump whose data was refused, leaving its tables empty.
+ */
+export function sqlVerdict(
+  declared: number,
+  restored: number,
+  image: string,
+  rows?: { expected: number; loaded: number },
+): { ok: boolean; detail: string } {
   if (declared === 0) return { ok: true, detail: `empty database - the dump loaded cleanly into ${image}` };
-  if (restored >= declared) return { ok: true, detail: `restored ${restored}/${declared} tables into a sandbox ${image}` };
-  return { ok: false, detail: `only ${restored}/${declared} tables restored into ${image} - the dump did not load completely` };
+  if (restored < declared) {
+    return { ok: false, detail: `only ${restored}/${declared} tables restored into ${image} - the dump did not load completely` };
+  }
+  if (rows && rows.loaded < rows.expected) {
+    return {
+      ok: false,
+      detail: `only ${rows.loaded}/${rows.expected} rows restored into ${image} (${restored} tables) - the dump's data did not load completely`,
+    };
+  }
+  const withRows = rows ? `, ${rows.loaded} rows` : "";
+  return { ok: true, detail: `restored ${restored}/${declared} tables${withRows} into a sandbox ${image}` };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -173,6 +206,21 @@ async function waitReady(sb: Sandbox, timeoutMs = 240_000): Promise<void> {
   throw new Error(`the ${sb.engine} sandbox did not become ready within ${Math.round(timeoutMs / 1000)}s`);
 }
 
+/** PostgreSQL: the rows of every table of every database of the sandbox. */
+async function countRestoredRows(sb: Sandbox): Promise<number> {
+  const q =
+    "select coalesce(sum((xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text::bigint), 0) " +
+    "from information_schema.tables where table_schema not in ('pg_catalog','information_schema') and table_type='BASE TABLE'";
+  const r = await sandboxExec(
+    sb,
+    `PGPASSWORD="$CBM_SB_PW" psql -U cbm -d drill -AtXc "select datname from pg_database where not datistemplate and datallowconn" | ` +
+      `while IFS= read -r d; do PGPASSWORD="$CBM_SB_PW" psql -U cbm -d "$d" -AtXc "${q}"; done | awk '{s+=$1} END {print s+0}'`,
+  );
+  const n = Number.parseInt(r.stdout.trim().split("\n").pop() ?? "", 10);
+  if (r.code !== 0 || !Number.isFinite(n)) throw new Error(`could not count restored rows: ${r.stderr.trim().slice(0, 300)}`);
+  return n;
+}
+
 /** How many tables/collections the sandbox holds after the load. */
 async function countRestored(sb: Sandbox): Promise<number> {
   let r: RunResult;
@@ -215,7 +263,9 @@ async function drillSqlDump(file: string, engine: string, image: string, name: s
     if (engine === "mongodb") {
       return { ok: true, detail: `restored ${restored} collection(s) into a sandbox ${image}` };
     }
-    return sqlVerdict(await countCreateTablesInFile(file), restored, image);
+    const rows =
+      engine === "postgresql" ? { expected: await countCopyRowsInFile(file), loaded: await countRestoredRows(sb) } : undefined;
+    return sqlVerdict(await countCreateTablesInFile(file), restored, image, rows);
   } finally {
     await removeSandbox(sb);
   }

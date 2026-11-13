@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import type { RestoreDrillJob, SnapshotManifest, Artifact } from "@cbm/shared";
-import { dumpEngine, sandboxImage, countCreateTables, sqlVerdict, runRestoreDrill, DEFAULT_IMAGES } from "../src/drill.js";
+import { dumpEngine, sandboxImage, countCreateTables, countCopyRowsInFile, sqlVerdict, runRestoreDrill, DEFAULT_IMAGES } from "../src/drill.js";
 import { encryptFile, generateKeyB64 } from "../src/crypto.js";
 import { docker, dockerToFile } from "../src/docker.js";
 
@@ -40,6 +40,29 @@ test("sqlVerdict passes only when every declared table is restored", () => {
   const bad = sqlVerdict(3, 1, "img");
   assert.equal(bad.ok, false);
   assert.match(bad.detail, /1\/3/);
+});
+
+test("sqlVerdict fails a load whose rows didn't all arrive, even with every table there", () => {
+  const empty = sqlVerdict(1, 1, "img", { expected: 1000, loaded: 0 });
+  assert.equal(empty.ok, false);
+  assert.match(empty.detail, /0\/1000 rows/);
+  const full = sqlVerdict(1, 1, "img", { expected: 1000, loaded: 1000 });
+  assert.equal(full.ok, true);
+  assert.match(full.detail, /1000 rows/);
+});
+
+test("countCopyRowsInFile counts the data lines of COPY blocks only", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "cbm-copyrows-"));
+  try {
+    const f = join(dir, "d.sql");
+    await writeFile(
+      f,
+      "CREATE TABLE a (v text);\nCOPY public.a (v) FROM stdin;\nx\nline with \\n escaped\n\\.\nSELECT 1;\nCOPY public.b (v) FROM stdin;\n\\.\nCOPY public.c (v) FROM stdin;\nz\n\\.\n",
+    );
+    assert.equal(await countCopyRowsInFile(f), 3);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 /* ----------------------- real docker drills (opt-in) ----------------------- */
@@ -138,7 +161,8 @@ test("drill fails a dump that doesn't fully load", { skip: !DOCKER, timeout: 600
     await mkdir(work, { recursive: true });
     const r = await runRestoreDrill(drillJob(join(dir, "dest"), m), work, noop);
     assert.equal(r.ok, false);
-    assert.match(r.checks[0].detail, /1\/2 tables/);
+    // psql's own error fails it now, before the tables are counted.
+    assert.match(r.checks[0].detail, /did not load completely.*not_a_type/);
     assert.equal(await leftoverSandboxes(), "");
   } finally {
     await rm(dir, { recursive: true, force: true });

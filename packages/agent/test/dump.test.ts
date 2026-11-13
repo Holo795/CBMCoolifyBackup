@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ResourceType, DbCredentials } from "@cbm/shared";
-import { dumpDatabase, restoreDatabase } from "../src/dump.js";
+import { dumpDatabase, restoreDatabase, pgLoadErrors } from "../src/dump.js";
 import { docker } from "../src/docker.js";
 
 /*
@@ -147,6 +147,59 @@ test("a failed dump never puts the password in its error message", { skip: !DOCK
     );
   } finally {
     await docker(["rm", "-f", "-v", name]);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a PostgreSQL load fails on its errors, except a privilege for a role that isn't there", () => {
+  const stderr = [
+    'ERROR:  role "reader" does not exist',
+    'ERROR:  invalid input syntax for type numeric: "not-a-number"',
+    "CONTEXT:  COPY orders, line 2, column total: \"not-a-number\"",
+    'psql:<stdin>:40: ERROR:  extension "postgis" is not available',
+    "NOTICE:  table \"x\" does not exist, skipping",
+  ].join("\n");
+  const { fatal, ignored } = pgLoadErrors(stderr);
+  assert.deepEqual(ignored, ['role "reader" does not exist']);
+  assert.deepEqual(fatal, ['invalid input syntax for type numeric: "not-a-number"', 'extension "postgis" is not available']);
+  assert.deepEqual(pgLoadErrors(""), { fatal: [], ignored: [] });
+});
+
+test("postgresql: a dump whose data is refused fails the restore; one in place and one with a missing role don't", { skip: !DOCKER, timeout: 600_000 }, async () => {
+  const e = ENGINES[0];
+  const dir = await mkdtemp(join(tmpdir(), "cbm-dump-"));
+  const name = `cbm-dumptest-pgload-${Date.now()}`;
+  const other = `cbm-dumptest-pgload2-${Date.now()}`;
+  try {
+    await start(e, name);
+    const seeded = await sh(
+      name,
+      `psql -U app -d shop -c "create table orders (id int primary key, total numeric); insert into orders select g, g from generate_series(1,500) g; create role reader; grant select on orders to reader"`,
+      e.creds.password,
+    );
+    assert.equal(seeded.code, 0, seeded.stderr);
+    const file = join(dir, "dump");
+    await dumpDatabase(e.type, name, e.creds, file);
+
+    // In place: the dump drops and recreates what it holds, without an error.
+    await restoreDatabase(e.type, name, e.creds, file);
+    const count = (db: string) => sh(db, `psql -U app -d shop -tAc "select count(*) from orders"`, e.creds.password);
+    assert.equal((await count(name)).stdout.trim(), "500");
+
+    // Elsewhere, without the role its privilege names: loaded, the privilege skipped.
+    await start(e, other);
+    await restoreDatabase(e.type, other, e.creds, file);
+    assert.equal((await count(other)).stdout.trim(), "500");
+
+    // Data the target refuses: psql exits 0, the restore must not.
+    const bad = join(dir, "bad.sql");
+    await writeFile(
+      bad,
+      "DROP TABLE IF EXISTS orders;\nCREATE TABLE orders (id int primary key, total numeric);\nCOPY public.orders (id, total) FROM stdin;\n1\t10\n2\tnot-a-number\n\\.\n",
+    );
+    await assert.rejects(restoreDatabase(e.type, other, e.creds, bad), /did not load completely.*not-a-number/);
+  } finally {
+    await docker(["rm", "-f", "-v", name, other]);
     await rm(dir, { recursive: true, force: true });
   }
 });

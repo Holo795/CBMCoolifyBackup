@@ -86,7 +86,7 @@ export async function resolveResource(resource: ResourceDescriptor): Promise<Res
   for (const c of await listLines(["ps", "-a", "--filter", `name=${uuid}`, "--format", "{{.Names}}"])) {
     containerSet.add(c);
   }
-  for (const labelKey of ["coolify.resourceUuid", "coolify.name", "coolify.applicationId", "coolify.serviceId"]) {
+  for (const labelKey of COOLIFY_LABELS) {
     for (const c of await listLines([
       "ps",
       "-a",
@@ -282,6 +282,66 @@ export async function withFileSecrets(container: string, env: Record<string, str
  *  primary container, else none. */
 export function resourceContainers(r: { containerNames: string[]; containerName?: string }): string[] {
   return r.containerNames.length ? r.containerNames : r.containerName ? [r.containerName] : [];
+}
+
+/** The labels Coolify puts on a resource's containers (see resolveResource). */
+const COOLIFY_LABELS = ["coolify.resourceUuid", "coolify.name", "coolify.applicationId", "coolify.serviceId"];
+
+/** Whether a container is one of the resource's: named after its uuid or
+ * labelled with it. */
+export function belongsToResource(
+  name: string,
+  labels: Record<string, string> | undefined,
+  coolifyUuid: string,
+): boolean {
+  // Coolify's own containers (coolify, coolify-db, coolify-redis...).
+  if (coolifyUuid.startsWith("coolify-self")) return name === "coolify" || name.startsWith("coolify-");
+  if (name.includes(coolifyUuid.replace(/-/g, ""))) return true;
+  return COOLIFY_LABELS.some((k) => labels?.[k] === coolifyUuid);
+}
+
+/**
+ * The containers to stop before an in-place restore overwrites `volumes`: the
+ * resource's containers as they are NOW on the host - never only the names
+ * recorded in the snapshot, which a redeploy renames (`<uuid>-<timestamp>`) -
+ * and every running container mounting one of the volumes. A container of
+ * another resource using one of them is returned in `foreign`: the caller
+ * refuses rather than stop someone else's application or overwrite data under
+ * it.
+ */
+export async function containersToStopForRestore(
+  resource: ResourceDescriptor,
+  volumes: string[],
+): Promise<{ stop: string[]; foreign: string[] }> {
+  // An older snapshot's descriptor may lack the lists newer agents record.
+  const hints: ResourceDescriptor = {
+    ...resource,
+    containerNames: resource.containerNames ?? [],
+    volumes: resource.volumes ?? [],
+    bindMounts: resource.bindMounts ?? [],
+  };
+  const live = await resolveResource(hints).catch((e) => {
+    logger.warn(`could not resolve ${resource.name} on this host before the restore: ${(e as Error).message}`);
+    return hints;
+  });
+  // Mounting a volume about to be rewritten (running only: a stopped one
+  // writes nothing).
+  const users = new Set<string>();
+  for (const v of volumes) {
+    for (const c of await listLines(["ps", "--filter", `volume=${v}`, "--format", "{{.Names}}"])) users.add(c);
+  }
+  // Discovery also picks up whatever mounts the resource's volumes, so the
+  // resource's own are told apart by name or label (or as recorded in the
+  // snapshot, if still there).
+  const recorded = new Set(resourceContainers(hints));
+  const stop = new Set<string>();
+  const foreign = new Set<string>();
+  for (const c of new Set([...resourceContainers(live), ...users])) {
+    const info = await inspectContainer(c);
+    if (recorded.has(c) || belongsToResource(c, info?.Config?.Labels, resource.coolifyUuid)) stop.add(c);
+    else if (users.has(c)) foreign.add(c);
+  }
+  return { stop: [...stop], foreign: [...foreign] };
 }
 
 /** Detect database engines among a resource's containers (e.g. the Postgres
