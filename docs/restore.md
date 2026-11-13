@@ -18,7 +18,14 @@ Overwrites the existing resource's data with the snapshot:
 
 - **Database dumps** are loaded into the running container — **no downtime**.
 - **Volumes** require a brief stop: the agent stops the containers, overwrites the volume,
-  then restarts them.
+  then restarts them. The containers are looked up on the host at restore time (a redeploy since
+  the backup renames them), together with any container of the resource mounting a volume about
+  to be rewritten. If a container of **another** resource mounts one of those volumes, the
+  restore stops before touching anything and names it: stop it first, or restore → new.
+- **PostgreSQL dumps** fail the restore if anything in them didn't load (a row the target refuses,
+  a missing extension, a full disk) instead of reporting success with empty tables. A privilege
+  granted to a role that doesn't exist on the target (a clone: roles aren't in the dump) is
+  skipped, not an error.
 - **Redis** RDB snapshots are written into the data volume and loaded on restart.
 - **Service-internal databases** are additionally re-loaded from their logical dump after the
   containers are back up (best-effort, on top of the volume restore).
@@ -135,7 +142,8 @@ actually restorable — without touching Coolify or the original resource:
    - **PostgreSQL / MySQL / MariaDB / MongoDB dumps** are loaded into a fresh container of the
      same engine — the exact image recorded at backup time when available — running with
      **no network at all** and random credentials. CBM then checks that every table declared in the
-     dump exists after the load (`restored 12/12 tables`); MongoDB reports its collections.
+     dump exists after the load (`restored 12/12 tables`) and, for PostgreSQL, that every row it
+     carries arrived (`restored 12/12 tables, 48210 rows`); MongoDB reports its collections.
    - **Redis RDB exports** are loaded by a throwaway `redis-server` (key count reported). KeyDB and
      Dragonfly exports get an RDB header check.
    - **Volume and bind-mount archives** are read back end to end. A folder read in place by restic

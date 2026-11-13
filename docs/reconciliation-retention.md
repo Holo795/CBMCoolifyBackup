@@ -48,7 +48,10 @@ shows on the destination. A corrupt backup that later passes flips back to *succ
 
 A destination can **mirror** every backup to a second destination (the **Mirror to** selector
 in the card footer, admin). Each new successful backup is copied right after it lands; backups
-taken before you set it aren't copied, and a mirror copy is never mirrored again. The copy is
+taken before you set it aren't copied, and a mirror copy is never mirrored again. A copy that
+fails sends an alert, and every hour CBM copies each resource's newest backup of the last 7 days
+that has no copy yet (one that failed, or that couldn't start because no agent was online),
+three attempts at most per backup. The copy is
 re-packaged under the target's own engine and encryption, so it's a **first-class snapshot** you
 can restore, reconcile and integrity-check independently — your insurance if one destination is
 lost or corrupted. In the snapshot list a copy reads *mirror copy*.
@@ -79,11 +82,16 @@ mirror copies** in its **…** menu.
 Each schedule keeps a configurable number of **daily / weekly / monthly** snapshots (7 / 4 / 6
 by default) and deletes the rest of that schedule's successful snapshots. Retention runs after
 each scheduled fire and after each successful backup on a schedule (cheap, idempotent).
+At least one of the three counts must be above 0, and each resource's newest successful backup
+is always kept, whatever the counts.
 
 - **Files first, records second.** A snapshot being deleted shows as **deleting**: an agent
   deletes its files (and those of the mirror copies that follow it), and the database record is removed **only
   once that succeeded**. If no agent can take it or the deletion fails, the snapshot stays
   *deleting* (with the reason) and CBM retries every 6 hours — files are never orphaned.
+- **Never under a reader.** A snapshot that a restore, a test restore or a mirror copy is reading
+  shows *deleting* (no new restore can pick it) and is deleted at the next retry once that is
+  over, never while it's read.
 - **tar engine:** the snapshot directories are deleted at the destination; empty parent
   directories are cleaned up too.
 - **restic engine:** deletion is delegated to `restic forget --prune`, which removes the

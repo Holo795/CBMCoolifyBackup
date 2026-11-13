@@ -18,6 +18,7 @@ without saving it.
 | **Corrupt** | A snapshot's stored data failed its deep integrity check (tar re-checksum or restic `check` on its files): it may not restore. |
 | **Integrity check failed** | A destination's repository-level integrity check (weekly when opted in per destination, or *Check integrity*) failed. |
 | **Restore drill failed** | A restore drill (manual, scheduled or API) could not restore the snapshot into its sandbox, or one of its checks failed. |
+| **Mirror copy failed** | Copying a backup to its mirror destination failed. The alert says whether CBM tries again (hourly, 3 attempts per backup) or has stopped, leaving that backup without its second copy. |
 | **Self-backup problem** | The controller's metadata self-backup failed, or hasn't succeeded for over 26 hours. Sent once per failure episode. |
 
 Each alert names what it's about — the resource and instance (up to 20 per message for
@@ -35,6 +36,7 @@ They catch different failure modes:
 - **Overdue** = it never ran at all.
 - **Corrupt** / **Integrity check failed** = the files are there, but their content is damaged.
 - **Restore drill failed** = everything looks fine, but the backup doesn't actually restore.
+- **Mirror copy failed** = the backup exists, but its second copy doesn't.
 - **Self-backup problem** = CBM's own metadata (schedules, snapshot index, keys) isn't protected.
 
 Together they close the "I thought I had backups" gap from every side.

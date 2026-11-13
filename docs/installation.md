@@ -72,8 +72,11 @@ In the UI: **Coolify instances → Connect an instance** (in the page header), a
 - a Coolify **API token** (Coolify → Keys & Tokens → API tokens, read access is enough to
   discover resources; write access is needed for "restore → new" which creates resources).
 
-**Connect & sync** saves it, syncs the instance and lists its resources. The sync button on the
-instance card re-syncs on demand; the card's **…** menu also holds **Re-point the instance**
+**Connect & sync** saves it, syncs the instance and lists its resources. CBM re-syncs every 5
+minutes. A sync where Coolify answers an error (or something else than a list) changes nothing,
+and a resource counts as removed from Coolify only once 3 syncs in a row didn't list it: it then
+leaves scheduled backups and shows under *Removed from Coolify*, keeping its backups and settings, and is
+backed up as before if it comes back. The sync button on the instance card re-syncs on demand; the card's **…** menu also holds **Re-point the instance**
 (point it at another Coolify) and **Delete** (type the instance name to confirm).
 
 ---

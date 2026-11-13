@@ -15,7 +15,9 @@ A single Coolify panel can manage several servers. CBM handles this natively.
   Docker host; CBM matches them to the known servers and assigns the agent automatically. No
   manual mapping needed in the common case.
 - **Routing.** Every backup/restore is sent to the agent on the **resource's server**. If no
-  agent is online there, you get a clear error rather than a backup of the wrong host.
+  agent is online there, you get a clear error rather than a backup of the wrong host: an agent
+  known to be on another server is never used instead, even when it's the only one online. A
+  restore **→ new** goes to the agent of the server the clone is created on.
 
 ## Manual override
 
