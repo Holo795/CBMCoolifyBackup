@@ -1,4 +1,5 @@
 import type { Prisma } from "@/generated/prisma/client";
+import { logFailure } from "./log";
 import { prisma } from "./prisma";
 import { scrubPayload } from "./scrub";
 import { notifyBackupFailed } from "./notify";
@@ -223,7 +224,7 @@ async function failJob(
       where: { id: j.snapshotId, status: "running" },
       data: { status: "failed", error: reason, finishedAt: now },
     });
-    if (snap.count > 0) await notifyBackupFailed(j.snapshotId).catch(() => undefined);
+    if (snap.count > 0) await notifyBackupFailed(j.snapshotId).catch(logFailure("alert"));
   }
   if (j.restoreId) {
     await prisma.restoreJob.updateMany({

@@ -407,6 +407,7 @@ model Snapshot {
   @@index([envBlobId])
   // Hot paths: a resource's history, a destination's snapshots, running ones.
   @@index([resourceId, startedAt])
+  @@index([policyId, startedAt])
   @@index([destinationId, status])
   @@index([status])
 }

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { logFailure } from "./log";
 import { CONFIG_ONLY_CAPTURE } from "@cbm/shared";
 import { prisma } from "./prisma";
 import { cronDue } from "./cron";
@@ -254,14 +255,14 @@ export async function tick(now = new Date()): Promise<number> {
             },
           });
           const { notifyBackupFailed } = await import("./notify");
-          await notifyBackupFailed(snap.id).catch(() => undefined);
+          await notifyBackupFailed(snap.id).catch(logFailure("alert"));
         } catch (e2) {
           console.error(`[scheduler] could not record failed snapshot for ${r.name}:`, (e2 as Error).message);
         }
       }
     }
     // Retention runs after each policy fire (cheap, idempotent).
-    await applyRetention(p.id).catch(() => undefined);
+    await applyRetention(p.id).catch(logFailure(`retention ${p.name}`));
   }
   return triggered;
 }
@@ -330,6 +331,21 @@ export function startScheduler(): void {
   let lastEvaluated: number | null = null;
   let loaded = false;
 
+  // Schedule fires, one minute after the other, apart from the loop.
+  let ticks: Promise<void> = Promise.resolve();
+  const queueTick = (at: Date) => {
+    ticks = ticks.then(async () => {
+      const started = Date.now();
+      try {
+        await tick(at);
+      } catch (e) {
+        console.error("[scheduler] tick error", e);
+      }
+      const took = Date.now() - started;
+      if (took > 60_000) console.warn(`[scheduler] firing the schedules of ${at.toISOString()} took ${Math.round(took / 1000)} s`);
+    });
+  };
+
   const loop = async () => {
     // Resume where the previous process stopped (persisted), so a restart
     // replays the minutes it missed rather than skipping their schedules.
@@ -352,11 +368,10 @@ export function startScheduler(): void {
     const onHold = !!(await recoveryHoldSince());
     for (const m of minutes) {
       const at = new Date(m * 60_000);
-      try {
-        if (!onHold) await tick(at);
-      } catch (e) {
-        console.error("[scheduler] tick error", e);
-      }
+      // Fired in order, apart from this loop: queueing a hundred backups asks
+      // Coolify for each one's configuration and can take minutes, during
+      // which the reaper, the housekeeping and the self-backup used to wait.
+      if (!onHold) queueTick(at);
       for (const t of TASKS) {
         if (onHold && !RUNS_ON_HOLD.has(t.name)) continue;
         let due = false;
@@ -373,13 +388,10 @@ export function startScheduler(): void {
     } catch (e) {
       console.error("[scheduler] reaper error", e);
     }
-    try {
-      // Self-backup of the controller metadata DB: change-driven + throttled,
-      // with a daily safety re-run (see lib/self-backup.ts).
-      if (!onHold) await maybeSelfBackup(new Date());
-    } catch (e) {
-      console.error("[scheduler] self-backup error", e);
-    }
+    // Self-backup of the controller metadata DB: change-driven + throttled,
+    // with a daily safety re-run (see lib/self-backup.ts). Detached: a dump and
+    // an upload mustn't hold the loop (it guards against overlapping itself).
+    if (!onHold) void maybeSelfBackup(new Date()).catch((e) => console.error("[scheduler] self-backup error", e));
   };
 
   const schedule = () => {

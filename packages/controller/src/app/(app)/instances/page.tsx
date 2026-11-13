@@ -30,13 +30,13 @@ export default async function InstancesPage() {
 
   // Last scheduled run per policy (instance- and server-level).
   const policyIds = instances.flatMap((i) => i.policies.map((p) => p.id));
+  // DISTINCT ON in SQL: Prisma's `distinct` read every snapshot ever made by
+  // these schedules and deduplicated them in memory, on each page view.
   const latestRuns = policyIds.length
-    ? await prisma.snapshot.findMany({
-        where: { policyId: { in: policyIds }, runId: { not: null } },
-        orderBy: { startedAt: "desc" },
-        distinct: ["policyId"],
-        select: { policyId: true, runId: true, startedAt: true },
-      })
+    ? await prisma.$queryRaw<{ policyId: string; runId: string | null; startedAt: Date }[]>`
+        SELECT DISTINCT ON ("policyId") "policyId", "runId", "startedAt" FROM "Snapshot"
+        WHERE "policyId" = ANY(${policyIds}) AND "runId" IS NOT NULL
+        ORDER BY "policyId", "startedAt" DESC`
     : [];
   // Tally each run's snapshot statuses in ONE grouped query (not one per policy).
   const runIds = latestRuns.map((r) => r.runId).filter((x): x is string => !!x);

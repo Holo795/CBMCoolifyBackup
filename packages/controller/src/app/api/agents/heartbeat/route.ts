@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logFailure } from "@/lib/log";
 import { HeartbeatRequest } from "@cbm/shared";
 import { prisma } from "@/lib/prisma";
 import { authenticateAgentFromRequest } from "@/lib/agent-auth";
@@ -63,7 +64,7 @@ export async function POST(req: Request) {
   }
 
   // Jobs we think it runs but it doesn't report (agent restarted mid-job).
-  if (data.activeJobIds) await releaseLostJobs(agent.id, data.activeJobIds).catch(() => undefined);
+  if (data.activeJobIds) await releaseLostJobs(agent.id, data.activeJobIds).catch(logFailure("heartbeat"));
   // Jobs it still runs that we gave up on (time limit, agent lost): it stops
   // their containers, which may hold a repository lock.
   const cancel = data.activeJobIds?.length

@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { logFailure } from "./log";
 import { previousFireWithin } from "./cron";
 import { effectivePolicy } from "./schedule";
 import { getTimezone } from "./settings";
@@ -104,7 +105,7 @@ export async function checkOverdue(now = new Date()): Promise<{ overdue: number;
   }
 
   if (alerts.length) {
-    await notifyOverdue(alerts.map((a) => ({ name: a.name, instance: a.instance, due: a.due }))).catch(() => undefined);
+    await notifyOverdue(alerts.map((a) => ({ name: a.name, instance: a.instance, due: a.due }))).catch(logFailure("alert"));
     await prisma.resource.updateMany({ where: { id: { in: alerts.map((a) => a.id) } }, data: { lastOverdueAlertAt: now } });
   }
   const newlyStale = stale.filter((x) => x.fresh).map((x) => x.id);
@@ -112,7 +113,7 @@ export async function checkOverdue(now = new Date()): Promise<{ overdue: number;
   if (freshAgain.length) await prisma.resource.updateMany({ where: { id: { in: freshAgain } }, data: { staleSince: null } });
   if (staleToAlert.length) {
     const items = stale.filter((x) => staleToAlert.includes(x.id));
-    await notifyStale(items.map((x) => ({ name: x.name, instance: x.instance, lastSuccessAt: x.lastSuccessAt }))).catch(() => undefined);
+    await notifyStale(items.map((x) => ({ name: x.name, instance: x.instance, lastSuccessAt: x.lastSuccessAt }))).catch(logFailure("alert"));
     await prisma.resource.updateMany({ where: { id: { in: staleToAlert } }, data: { lastStaleAlertAt: now } });
   }
   return { overdue: alerts.length, stale: stale.length };

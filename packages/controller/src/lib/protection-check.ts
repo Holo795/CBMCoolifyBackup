@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { logFailure } from "./log";
 import type { ResolvedDestination } from "@cbm/shared";
 import { redactSecrets } from "@cbm/shared";
 
@@ -121,7 +122,7 @@ export async function runProtectionCheck(destinationId: string): Promise<{ statu
   });
   if (dest.protectionStatus === "protected" && res.status !== "protected") {
     const { notifyProtectionLost } = await import("./notify");
-    await notifyProtectionLost(dest.name, describeDetail(res.detail)).catch(() => undefined);
+    await notifyProtectionLost(dest.name, describeDetail(res.detail)).catch(logFailure("alert"));
   }
   return res;
 }

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { logFailure } from "./log";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdtemp, rm, mkdir, copyFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -48,7 +49,7 @@ async function withSftp<T>(
     return await fn(client);
   } finally {
     await close();
-    await learnHostKeys(seen).catch(() => undefined);
+    await learnHostKeys(seen).catch(logFailure("ssh host keys"));
   }
 }
 
@@ -196,7 +197,7 @@ export async function runSelfBackup(
     if (alert) {
       const { notifySelfBackupProblem } = await import("./notify");
       const minutes = Math.round((now.getTime() - since.getTime()) / 60_000);
-      await notifySelfBackupProblem(`${message} (failing for ${minutes} min)`).catch(() => undefined);
+      await notifySelfBackupProblem(`${message} (failing for ${minutes} min)`).catch(logFailure("alert"));
     }
     return { ok: false, error };
   }

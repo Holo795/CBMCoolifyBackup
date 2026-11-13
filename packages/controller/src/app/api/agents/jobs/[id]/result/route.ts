@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logFailure } from "@/lib/log";
 import { JobResult, redactSecrets } from "@cbm/shared";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
@@ -107,7 +108,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           where: { id: done.resourceId, OR: [{ lastSuccessAt: null }, { lastSuccessAt: { lt: done.startedAt } }] },
           data: { lastSuccessAt: done.startedAt, staleSince: null },
         })
-        .catch(() => undefined);
+        .catch(logFailure("freshness"));
       // Cache docker facts the agent resolved (containers/volumes).
       await prisma.resource
         .updateMany({
@@ -171,7 +172,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         where: { id: job.snapshotId },
         data: { status: "failed", finishedAt: new Date(), error: result.error ?? "unknown error" },
       });
-      if (before?.status !== "failed") await notifyBackupFailed(job.snapshotId).catch(() => undefined);
+      if (before?.status !== "failed") await notifyBackupFailed(job.snapshotId).catch(logFailure("alert"));
     }
   }
 
@@ -243,7 +244,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           result.error ?? "unknown error",
           attempt,
           MIRROR_ATTEMPTS,
-        ).catch(() => undefined);
+        ).catch(logFailure("alert"));
       }
     }
   }
@@ -306,7 +307,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         .create({ data: { jobId: id, level: "info", message: `Updated: ${result.update.from} -> ${result.update.to}`, progress: 100 } })
         .catch(() => undefined);
     }
-    if (!succeeded) await sendAlert(`CBM agent ${agent.hostname}: update failed - ${result.error ?? "no detail"}`).catch(() => undefined);
+    if (!succeeded) await sendAlert(`CBM agent ${agent.hostname}: update failed - ${result.error ?? "no detail"}`).catch(logFailure("alert"));
   }
 
   if (job.type === "verify-destination" && result.verify) {
@@ -357,7 +358,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           where: { destinationId, ...match(missing) },
           data: { status: "missing", lastCheckedAt: now },
         });
-        if (newly.length) await notifyMissingBackups(newly.map((s) => s.id)).catch(() => undefined);
+        if (newly.length) await notifyMissingBackups(newly.map((s) => s.id)).catch(logFailure("alert"));
       }
       // Deep check: content corruption (tar, per-snapshot).
       if (corrupt.length) {
@@ -369,7 +370,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           where: { destinationId, ...match(corrupt) },
           data: { status: "corrupt", lastCheckedAt: now },
         });
-        if (newly.length) await notifyCorruptBackups(newly.map((s) => s.id)).catch(() => undefined);
+        if (newly.length) await notifyCorruptBackups(newly.map((s) => s.id)).catch(logFailure("alert"));
       }
       // restic: what the repository - and each resource in it - really stores.
       const usage = result.verify.usage;
@@ -399,7 +400,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           data: { lastIntegrityAt: now, lastIntegrityStatus: ok ? "ok" : (integrityError ?? `${corrupt.length} corrupt`).slice(0, 500) },
           select: { name: true },
         });
-        if (integrityError) await notifyIntegrityFailure(updated.name, integrityError).catch(() => undefined);
+        if (integrityError) await notifyIntegrityFailure(updated.name, integrityError).catch(logFailure("alert"));
       }
     }
   }
