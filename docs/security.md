@@ -4,7 +4,9 @@
 
 All sensitive values — Coolify API tokens, SSH/S3 credentials, tar encryption keys, and restic
 repository passwords — are **AES-256-GCM encrypted at rest** with your `MASTER_KEY`
-(falling back to `BETTER_AUTH_SECRET` if unset).
+(falling back to `BETTER_AUTH_SECRET` if unset). That includes the jobs waiting for an agent:
+the credentials a job carries are stored encrypted, decrypted only when an agent takes it, and
+erased once it ended.
 
 > **Back up your `MASTER_KEY`.** It is the root of all stored secrets and (with the restic engine)
 > your backup encryption. If you lose it, encrypted data is unrecoverable. If it leaks, rotate

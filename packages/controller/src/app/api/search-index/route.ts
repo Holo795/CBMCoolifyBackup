@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/session";
+import { apiSessionUser } from "@/lib/api-session";
 import { can } from "@/lib/roles";
 import { prisma } from "@/lib/prisma";
 
@@ -8,8 +8,9 @@ import { prisma } from "@/lib/prisma";
  * Users and API tokens are only listed for admins (the pages they lead to are
  * admin-only too). */
 export async function GET() {
-  const session = await getSession();
-  if (!session?.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Same session and two-factor policy as the pages (lib/api-session).
+  const session = await apiSessionUser();
+  if (session.error) return session.error;
   const isAdmin = can(session.user, "admin");
 
   const [resources, destinations, instances, agents, snapshots, users, apiTokens] = await Promise.all([

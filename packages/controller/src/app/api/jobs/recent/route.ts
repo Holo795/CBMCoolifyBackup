@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/session";
+import { apiSessionUser } from "@/lib/api-session";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +13,9 @@ const LOCK_WAIT_PREFIX = "Waiting for the repository lock";
  * can see the fleet's activity.
  */
 export async function GET() {
-  const session = await getSession();
-  if (!session?.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Same session and two-factor policy as the pages (lib/api-session).
+  const session = await apiSessionUser();
+  if (session.error) return session.error;
 
   const select = {
     id: true,

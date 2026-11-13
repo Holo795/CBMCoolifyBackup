@@ -214,6 +214,7 @@ async function failJob(
       error: reason,
       finishedAt: now,
       payload: { ...scrubPayload(j.payload), type: j.type } as Prisma.InputJsonValue,
+      payloadEnc: null,
     },
   });
   if (upd.count === 0) return false;

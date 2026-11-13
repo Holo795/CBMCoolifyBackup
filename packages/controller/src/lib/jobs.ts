@@ -24,6 +24,7 @@ import { decryptSecret, encryptSecret } from "./crypto";
 import { effectivePolicy } from "./schedule";
 import { CoolifyClient, GENERATED_SECRET, type AppVolume, type DbEngine, type CloneEngine, type DbConfig, type CoolifyRaw } from "./coolify";
 import { syncInstance } from "./discovery";
+import { scrubPayload } from "./scrub";
 import { storedHostKeys, withHostKeys } from "./ssh-hostkeys";
 import { remapEnv, type RemapChange } from "./remap";
 import { UserError } from "./user-error";
@@ -90,6 +91,20 @@ function newJobId(): string {
 }
 
 /**
+ * A job's payload as stored: the full job encrypted (credentials, keys - for
+ * the agent only), and the part CBM reads in clear (ids, flags). Secrets
+ * stayed in clear in the database, and in its self-backup, until the job ended.
+ */
+export function jobPayload(full: unknown): { payload: Prisma.InputJsonValue; payloadEnc: string } {
+  return { payload: scrubPayload(full) as Prisma.InputJsonValue, payloadEnc: encryptSecret(JSON.stringify(full)) };
+}
+
+/** The full job of a stored row (the encrypted one; older rows kept it in clear). */
+export function fullJobPayload(row: { payload: unknown; payloadEnc: string | null }): unknown {
+  return row.payloadEnc ? JSON.parse(decryptSecret(row.payloadEnc)) : row.payload;
+}
+
+/**
  * Queue an agent job in ONE write, payload included. Creating the row first and
  * filling the payload afterwards let an agent claim an empty job in between (it
  * then failed to parse it and the job sat "running" until the reaper).
@@ -105,7 +120,7 @@ async function createAgentJob(data: {
   timeLimitMs?: number | null;
 }): Promise<void> {
   await prisma.agentJob.create({
-    data: { ...data, status: "queued", payload: data.payload as Prisma.InputJsonValue },
+    data: { ...data, status: "queued", ...jobPayload(data.payload) },
   });
 }
 
@@ -1149,10 +1164,10 @@ export async function enqueuePrune(opts: {
   const pending = await prisma.agentJob.findFirst({
     where: { agentId: agent.id, type: "prune", status: "queued", payload: { path: ["destinationId"], equals: opts.destination.id } },
     orderBy: { createdAt: "asc" },
-    select: { id: true, payload: true },
+    select: { id: true, payload: true, payloadEnc: true },
   });
   if (pending) {
-    const prev = pending.payload as { dirs?: string[]; resticSnapshotIds?: string[]; snapshotIds?: string[] };
+    const prev = fullJobPayload(pending) as { dirs?: string[]; resticSnapshotIds?: string[]; snapshotIds?: string[] };
     const merged = {
       ...job,
       id: pending.id,
@@ -1162,7 +1177,7 @@ export async function enqueuePrune(opts: {
     };
     const updated = await prisma.agentJob.updateMany({
       where: { id: pending.id, status: "queued" },
-      data: { payload: merged as unknown as Prisma.InputJsonValue },
+      data: jobPayload(merged),
     });
     if (updated.count === 1) return { jobId: pending.id, agentId: agent.id };
   }

@@ -815,7 +815,7 @@ export async function cancelSnapshot(snapshotId: string): Promise<void> {
   // is left untouched and we only fail the snapshot when we actually cancelled.
   const cancelled = await prisma.agentJob.updateMany({
     where: { snapshotId, type: "backup", status: "queued" },
-    data: { status: "failed", error: "cancelled", finishedAt: new Date() },
+    data: { status: "failed", error: "cancelled", finishedAt: new Date(), payloadEnc: null },
   });
   if (cancelled.count > 0) {
     await prisma.snapshot.update({

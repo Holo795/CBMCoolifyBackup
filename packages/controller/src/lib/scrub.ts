@@ -25,6 +25,15 @@ export function scrubPayload(payload: unknown): Record<string, unknown> {
     if (v === null || ["string", "number", "boolean"].includes(typeof v)) out[k] = v;
     // Lists of ids a late result still needs (a prune's snapshots).
     else if (KEPT_LISTS.has(k) && Array.isArray(v) && v.every((x) => typeof x === "string")) out[k] = v;
+    // A verify's resources per tag: ids only.
+    else if (
+      k === "usageResources" &&
+      v &&
+      typeof v === "object" &&
+      !Array.isArray(v) &&
+      Object.values(v).every((l) => Array.isArray(l) && l.every((x) => typeof x === "string"))
+    )
+      out[k] = v;
   }
   return out;
 }

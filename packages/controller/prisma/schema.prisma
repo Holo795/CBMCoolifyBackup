@@ -432,7 +432,11 @@ model AgentJob {
   agent      Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
   type       String     // backup | restore
   status     String     @default("queued") // queued | running | succeeded | failed
-  payload    Json       // the full Job object (shared contract)
+  // What CBM itself reads of the job: ids, flags, no secret (lib/scrub).
+  payload    Json
+  // The full Job object for the agent (shared contract), encrypted with the
+  // master key; given out when an agent claims the job, cleared once it ended.
+  payloadEnc String?
   snapshotId String?    // linked snapshot for backups
   restoreId  String?
   error      String?

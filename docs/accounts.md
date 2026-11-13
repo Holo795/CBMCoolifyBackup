@@ -108,7 +108,8 @@ many wrong codes lock the account for a few minutes, and a code can't be used tw
 
 An account the policy covers but that hasn't set it up is held on a setup page (sign-in still
 works, nothing else does) until it is done — your own account included — and can't turn it off
-from Profile. The section shows how many accounts don't use it yet.
+from Profile. That includes the recovery file's download and import, the search, and the live job
+logs. The section shows how many accounts don't use it yet.
 
 **Lost phone and backup codes?** An admin opens the person's **…** menu on **Users** → **Reset
 two-factor** (type their email to confirm): their authenticator, backup codes and trusted

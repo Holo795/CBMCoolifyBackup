@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/session";
+import { apiSessionUser } from "@/lib/api-session";
 
 /** Live log feed for a snapshot - polled by the LiveLog client component. */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getSession();
-  if (!session?.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Same session and two-factor policy as the pages (lib/api-session).
+  const session = await apiSessionUser();
+  if (session.error) return session.error;
   const { id } = await params;
 
   const snap = await prisma.snapshot.findUnique({ where: { id }, select: { status: true } });

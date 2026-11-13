@@ -54,3 +54,23 @@ test("keeps what a late result needs: the restore's redeploy flags and a prune's
   // A list that isn't only ids is still dropped.
   assert.deepEqual(scrubPayload({ snapshotIds: [{ password: "pw" }] }), { scrubbed: true });
 });
+
+test("a stored job keeps its secrets encrypted; CBM reads the clear part, the agent gets it whole", async () => {
+  const { jobPayload, fullJobPayload } = await import("../src/lib/jobs");
+  const job = {
+    id: "j3",
+    type: "verify-destination",
+    destinationId: "d1",
+    isDeep: true,
+    usageResources: { tagA: ["r1", "r2"] },
+    destination: { type: "s3", accessKeyId: "AK", secretAccessKey: "SK-very-secret" },
+    storage: { engine: "restic", resticPassword: "pw-very-secret" },
+  };
+  const stored = jobPayload(job);
+  assert.doesNotMatch(JSON.stringify(stored.payload), /SK-very-secret|pw-very-secret/);
+  assert.doesNotMatch(stored.payloadEnc, /SK-very-secret|pw-very-secret/);
+  assert.deepEqual(stored.payload, { scrubbed: true, id: "j3", type: "verify-destination", destinationId: "d1", isDeep: true, usageResources: { tagA: ["r1", "r2"] } });
+  assert.deepEqual(fullJobPayload({ payload: stored.payload, payloadEnc: stored.payloadEnc }), job);
+  // A row from before: its payload was the whole job.
+  assert.deepEqual(fullJobPayload({ payload: job, payloadEnc: null }), job);
+});

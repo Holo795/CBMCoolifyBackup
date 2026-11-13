@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth, verifyUserPassword } from "@/lib/auth";
 import { can } from "@/lib/roles";
+import { getTwoFactorPolicy, twoFactorRequired } from "@/lib/two-factor";
 import { parseRecoveryFile, importGuards, isEmptyish, importRecoveryFile } from "@/lib/recovery-file";
 import { getT } from "@/lib/i18n";
 
@@ -21,6 +22,10 @@ export async function POST(req: NextRequest) {
   const t = await getT();
   const session = await auth.api.getSession({ headers: req.headers });
   if (!session?.user) return NextResponse.json({ error: t("messages.recoveryUnauthorized") }, { status: 401 });
+  // The two-factor policy applies here like on the pages (lib/api-session).
+  if (!session.user.twoFactorEnabled && twoFactorRequired(await getTwoFactorPolicy(), session.user.role)) {
+    return NextResponse.json({ error: t("messages.recoveryNeeds2fa") }, { status: 403 });
+  }
   if (!can(session.user, "admin")) return NextResponse.json({ error: t("messages.recoveryAdminsOnly") }, { status: 403 });
 
   const form = await req.formData().catch(() => null);

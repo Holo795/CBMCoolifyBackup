@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { fullJobPayload } from "@/lib/jobs";
 import { prisma } from "@/lib/prisma";
 import { authenticateAgentFromRequest } from "@/lib/agent-auth";
 import { nextJob } from "@/lib/job-order";
@@ -46,8 +47,8 @@ export async function GET(req: Request) {
     });
     if (claimed.count === 1) {
       // Read once taken: a prune may have had snapshots added to it until then.
-      const taken = await prisma.agentJob.findUnique({ where: { id: job.id }, select: { payload: true } });
-      return NextResponse.json({ job: taken?.payload });
+      const taken = await prisma.agentJob.findUnique({ where: { id: job.id }, select: { payload: true, payloadEnc: true } });
+      return NextResponse.json({ job: taken ? fullJobPayload(taken) : null });
     }
     // Someone else changed it in between (expired, cancelled): try the next one.
   }

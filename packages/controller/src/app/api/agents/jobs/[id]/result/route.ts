@@ -394,7 +394,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // The payload held decrypted credentials and keys for the agent; nothing reads
   // it once the job is done, so keep only its non-secret scalars.
   await prisma.agentJob
-    .update({ where: { id }, data: { payload: scrubPayload(job.payload) as Prisma.InputJsonValue } })
+    .update({ where: { id }, data: { payload: scrubPayload(job.payload) as Prisma.InputJsonValue, payloadEnc: null } })
     .catch(() => undefined);
 
   return NextResponse.json({ ok: true });
