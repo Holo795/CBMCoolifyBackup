@@ -101,6 +101,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           },
         },
       });
+      // Freshness (lib/overdue): the newest success, and it's fresh again.
+      await prisma.resource
+        .updateMany({
+          where: { id: done.resourceId, OR: [{ lastSuccessAt: null }, { lastSuccessAt: { lt: done.startedAt } }] },
+          data: { lastSuccessAt: done.startedAt, staleSince: null },
+        })
+        .catch(() => undefined);
       // Cache docker facts the agent resolved (containers/volumes).
       await prisma.resource
         .updateMany({

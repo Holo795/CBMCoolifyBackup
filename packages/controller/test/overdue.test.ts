@@ -21,3 +21,16 @@ test("nor one before the resource existed or before its schedule was set or chan
   // Included long ago, schedule unchanged: a missed run counts.
   assert.equal(dueBeforeExpected(d("2026-10-09T02:00:00Z"), resource, policy), false);
 });
+
+test("fresh: a success since the run before the last one; stale after two runs without", async () => {
+  const { isFresh } = await import("../src/lib/overdue");
+  const r = { createdAt: new Date("2026-10-01T00:00:00Z"), scheduledSince: null };
+  const policy = { createdAt: new Date("2026-10-01T00:00:00Z"), updatedAt: new Date("2026-10-01T00:00:00Z") };
+  const runBefore = new Date("2026-11-12T02:00:00Z"); // the night before last
+  assert.equal(isFresh(new Date("2026-11-12T02:03:00Z"), runBefore, r, policy), true);
+  // Last success three nights ago: the last two runs failed or were skipped.
+  assert.equal(isFresh(new Date("2026-11-11T02:03:00Z"), runBefore, r, policy), false);
+  assert.equal(isFresh(null, runBefore, r, policy), false);
+  // A run from before the resource was scheduled never counts.
+  assert.equal(isFresh(null, runBefore, { ...r, scheduledSince: new Date("2026-11-12T12:00:00Z") }, policy), true);
+});

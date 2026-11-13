@@ -47,6 +47,15 @@ card then shows *host key known* (its tooltip gives the SHA256 fingerprints, to 
 connection learns the new ones. Run **Test** right after creating an SSH destination, so the key
 is learned from where you trust the network.
 
+### Editing a destination
+
+An admin edits a destination with the pencil on its card: its name, its address (SSH host, port,
+user, jump host; S3 region and endpoint) and its credentials. A secret left empty keeps the stored
+one, so a key is rotated without retyping the rest. The new settings are tested from the
+controller before they are saved, then CBM checks again what the destination holds. Where the data
+is - the type, the storage engine, the S3 bucket and prefix, the base path - can't change: the
+existing backups are there. To move the data, create a new destination and mirror to it.
+
 ### S3 (and S3-compatible)
 Bucket, region (default `us-east-1`), optional prefix, optional endpoint (MinIO etc.), access
 key ID, secret access key, and "force path-style" for MinIO. Reachable from any agent.

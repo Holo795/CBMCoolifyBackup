@@ -2,7 +2,7 @@ import { prisma } from "./prisma";
 import { previousFireWithin } from "./cron";
 import { effectivePolicy } from "./schedule";
 import { getTimezone } from "./settings";
-import { notifyOverdue } from "./notify";
+import { notifyOverdue, notifyStale } from "./notify";
 
 /** Grace after a scheduled fire before a missing run is considered overdue
  * (covers a controller restart and the agent's poll latency). */
@@ -33,7 +33,22 @@ export function dueBeforeExpected(
   return due.getTime() < since;
 }
 
-export async function checkOverdue(now = new Date()): Promise<{ overdue: number }> {
+/**
+ * Pure: has the resource a successful backup since the scheduled run before
+ * the last one? A run that was never expected (before it was included, or
+ * before the schedule changed) never makes it stale.
+ */
+export function isFresh(
+  lastSuccessAt: Date | null,
+  runBefore: Date | null,
+  r: { createdAt: Date; scheduledSince: Date | null },
+  policy: { createdAt: Date; updatedAt: Date },
+): boolean {
+  if (!runBefore || dueBeforeExpected(runBefore, r, policy)) return true;
+  return !!lastSuccessAt && lastSuccessAt.getTime() >= runBefore.getTime();
+}
+
+export async function checkOverdue(now = new Date()): Promise<{ overdue: number; stale: number }> {
   const tz = await getTimezone();
   const resources = await prisma.resource.findMany({
     where: { backupEnabled: true, status: { not: "deleted" } },
@@ -42,19 +57,39 @@ export async function checkOverdue(now = new Date()): Promise<{ overdue: number 
 
   const prevCache = new Map<string, Date | null>();
   const alerts: { id: string; name: string; instance: string; due: Date }[] = [];
+  const staleToAlert: string[] = [];
+
+  const stale: { id: string; name: string; instance: string; lastSuccessAt: Date | null; fresh: boolean }[] = [];
+  const freshAgain: string[] = [];
+  const prevOf = (cron: string, at: Date) => {
+    const key = `${cron}@${at.getTime()}`;
+    let p = prevCache.get(key);
+    if (p === undefined) {
+      p = previousFireWithin(cron, at, tz);
+      prevCache.set(key, p);
+    }
+    return p;
+  };
 
   for (const r of resources) {
     const { policy } = await effectivePolicy(r.id);
     if (!policy) continue; // no schedule -> a backup isn't expected
 
-    let prev = prevCache.get(policy.cron);
-    if (prev === undefined) {
-      prev = previousFireWithin(policy.cron, now, tz);
-      prevCache.set(policy.cron, prev);
-    }
+    const prev = prevOf(policy.cron, now);
     if (!prev) continue; // schedule hasn't fired within the scan window
     if (now.getTime() < prev.getTime() + GRACE_MS) continue; // still within grace
     if (dueBeforeExpected(prev, r, policy)) continue; // not expected at that time
+
+    // Freshness: two scheduled runs in a row without a successful backup (a
+    // run that failed, or "skipped" every night, still counted as a run for
+    // the overdue check below). Mirror copies don't count.
+    const before = prevOf(policy.cron, new Date(prev.getTime() - 60_000));
+    const fresh = isFresh(r.lastSuccessAt, before, r, policy);
+    if (!fresh) {
+      stale.push({ id: r.id, name: r.name, instance: r.instance.name, lastSuccessAt: r.lastSuccessAt, fresh: !r.staleSince });
+      // Reminded once per scheduled run while it lasts.
+      if (!r.lastStaleAlertAt || r.lastStaleAlertAt < prev) staleToAlert.push(r.id);
+    } else if (r.staleSince) freshAgain.push(r.id);
 
     // Was anything at all attempted for this fire?
     const attempted = await prisma.snapshot.findFirst({
@@ -72,5 +107,13 @@ export async function checkOverdue(now = new Date()): Promise<{ overdue: number 
     await notifyOverdue(alerts.map((a) => ({ name: a.name, instance: a.instance, due: a.due }))).catch(() => undefined);
     await prisma.resource.updateMany({ where: { id: { in: alerts.map((a) => a.id) } }, data: { lastOverdueAlertAt: now } });
   }
-  return { overdue: alerts.length };
+  const newlyStale = stale.filter((x) => x.fresh).map((x) => x.id);
+  if (newlyStale.length) await prisma.resource.updateMany({ where: { id: { in: newlyStale } }, data: { staleSince: now } });
+  if (freshAgain.length) await prisma.resource.updateMany({ where: { id: { in: freshAgain } }, data: { staleSince: null } });
+  if (staleToAlert.length) {
+    const items = stale.filter((x) => staleToAlert.includes(x.id));
+    await notifyStale(items.map((x) => ({ name: x.name, instance: x.instance, lastSuccessAt: x.lastSuccessAt }))).catch(() => undefined);
+    await prisma.resource.updateMany({ where: { id: { in: staleToAlert } }, data: { lastStaleAlertAt: now } });
+  }
+  return { overdue: alerts.length, stale: stale.length };
 }

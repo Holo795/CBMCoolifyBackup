@@ -91,6 +91,11 @@ export const en = {
   // Destinations
   nameAndTypeRequired: "Name and type required",
   unknownDestinationType: "Unknown destination type",
+  destinationEditIncomplete: "Fill in the host, user and port (SSH) or both access keys (S3).",
+  destinationEditNoAuth: "An SSH destination needs a password or a private key.",
+  destinationEditTestFailed: "Not saved: the destination couldn't be reached with these settings ({error}).",
+  destinationEdited: "Destination saved.",
+  destinationEditedChecking: "Destination saved - checking what it holds with the new settings.",
   destinationInUse: "Still used by {count} schedule(s): {names}. Point them at another destination first.",
   localTestInfo: "Local folders live on each agent's host ({path}) - use Verify to check them from the agents.",
   sshTestOk: "Connected to {host}:{port}, {count} entries in {path}",
@@ -277,6 +282,11 @@ export const fr: typeof en = {
 
   nameAndTypeRequired: "Nom et type obligatoires",
   unknownDestinationType: "Type de destination inconnu",
+  destinationEditIncomplete: "Renseignez l'hôte, l'utilisateur et le port (SSH) ou les deux clés d'accès (S3).",
+  destinationEditNoAuth: "Une destination SSH a besoin d'un mot de passe ou d'une clé privée.",
+  destinationEditTestFailed: "Non enregistré : la destination n'a pas pu être jointe avec ces réglages ({error}).",
+  destinationEdited: "Destination enregistrée.",
+  destinationEditedChecking: "Destination enregistrée - vérification de son contenu avec les nouveaux réglages.",
   destinationInUse:
     "Encore utilisée par {count} planification(s) : {names}. Faites-les d'abord pointer vers une autre destination.",
   localTestInfo:

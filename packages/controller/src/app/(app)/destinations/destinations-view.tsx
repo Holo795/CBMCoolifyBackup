@@ -11,6 +11,7 @@ import {
   setDestinationProtection,
   checkDestinationProtection,
   forgetHostKeys,
+  updateDestination,
 } from "@/app/actions";
 import { ActionsMenu, type MenuAction } from "@/components/actions-menu";
 import { IntegrityToggle } from "@/components/integrity-toggle";
@@ -18,6 +19,7 @@ import { MirrorPicker } from "@/components/mirror-picker";
 import { ReadAgentPicker } from "@/components/read-agent-picker";
 import { FormDialog } from "@/components/form-dialog";
 import { DestinationProtectionFields } from "@/components/destination-protection";
+import { DestinationEditFields, type EditableDestination } from "@/components/destination-edit";
 import { parseProtectionDetail } from "@/lib/protection-check";
 import { protectionDetailText } from "@/lib/protection-text";
 import { getT } from "@/lib/i18n";
@@ -31,6 +33,7 @@ import {
   Lock,
   PlugZap,
   KeyRound,
+  Pencil,
   ShieldCheck,
   ShieldAlert,
   ShieldHalf,
@@ -55,6 +58,8 @@ export type DestinationItem = {
   missing: number;
   /** SSH: host keys learned, by host:port. */
   hostKeys: Array<{ host: string; fingerprint: string }>;
+  /** The edit dialog's values (no secret). */
+  editable: EditableDestination;
 };
 
 const TYPE_ICON = { local: FolderOpen, ssh: Server, s3: Cloud } as const;
@@ -99,7 +104,7 @@ export async function DestinationsView({
         />
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
-          {items.map(({ dest: d, bytes, disk, missing, hostKeys }) => {
+          {items.map(({ dest: d, bytes, disk, missing, hostKeys, editable }) => {
             const Icon = TYPE_ICON[d.type as keyof typeof TYPE_ICON] ?? HardDrive;
             const empty = d._count.snapshots === 0;
             const menu: MenuAction[] = [
@@ -170,6 +175,23 @@ export async function DestinationsView({
             const protection = d.protectionCheckedAt
               ? protectionDetailText(t, parseProtectionDetail(d.protectionDetail), d.protectionCheckedAt)
               : null;
+            const editButton = isAdmin ? (
+              <FormDialog
+                trigger={
+                  <Button variant="ghost" size="icon-sm" aria-label={t("destinations.edit.button")}>
+                    <Pencil />
+                  </Button>
+                }
+                side="right"
+                title={t("destinations.edit.title", { name: d.name })}
+                description={t("destinations.edit.desc")}
+                action={updateDestination.bind(null, d.id)}
+                submitLabel={t("common.save")}
+                openKey={`edit-${d.id}`}
+              >
+                <DestinationEditFields name={d.name} d={editable} />
+              </FormDialog>
+            ) : null;
             const protectionButton = isAdmin ? (
               <FormDialog
                 trigger={
@@ -217,6 +239,7 @@ export async function DestinationsView({
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-0.5">
+                    {editButton}
                     {protectionButton}
                     {menu.length > 0 && <ActionsMenu items={menu} />}
                   </div>

@@ -78,6 +78,19 @@ export async function notifyOverdue(
   );
 }
 
+/** Resources whose scheduled runs stopped producing a successful backup
+ * (two runs in a row: failed, skipped or never run). */
+export async function notifyStale(items: { name: string; instance: string; lastSuccessAt: Date | null }[]): Promise<void> {
+  if (items.length === 0) return;
+  const base = (env.authUrl || "").replace(/\/$/, "");
+  const lines = items
+    .slice(0, 20)
+    .map((i) => `• ${i.name} (${i.instance}) - last successful backup: ${i.lastSuccessAt ? i.lastSuccessAt.toISOString() : "never"}`);
+  const more = items.length > 20 ? `\n…and ${items.length - 20} more` : "";
+  const link = base ? `\n${base}/resources` : "";
+  await sendAlert(`🕰️ No successful backup for two scheduled runs - these resources aren't protected anymore:\n${lines.join("\n")}${more}${link}`);
+}
+
 /** Notify that a deep integrity check found corrupt backups (tar: content no
  * longer matches its sha256 / fails to decrypt). Takes the newly-corrupt ids. */
 export async function notifyCorruptBackups(snapshotIds: string[]): Promise<void> {

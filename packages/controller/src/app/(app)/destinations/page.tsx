@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { editableFields } from "@/lib/destination-edit";
+import { resolveDestination } from "@/lib/jobs";
 import { fingerprint, storedHostKeys } from "@/lib/ssh-hostkeys";
 import { DestinationsView, type DestinationItem } from "./destinations-view";
 import { DESTINATION_SECRETS } from "@/lib/public-fields";
@@ -19,6 +21,10 @@ export default async function DestinationsPage() {
     prisma.agent.findMany({ orderBy: { hostname: "asc" }, select: { id: true, hostname: true } }),
   ]);
 
+  // The configs, for the edit dialog's values (decrypted here, never sent whole).
+  const withConfig = new Map(
+    (await prisma.destination.findMany({ where: { id: { in: destinations.map((d) => d.id) } } })).map((d) => [d.id, d]),
+  );
   const sizeByDest = new Map(sizeGroups.map((g) => [g.destinationId, g._sum.sizeBytes ?? 0n]));
   const missingByDest = new Map(missingGroups.map((g) => [g.destinationId, g._count._all]));
   const items: DestinationItem[] = destinations.map((dest) => ({
@@ -29,6 +35,8 @@ export default async function DestinationsPage() {
     missing: missingByDest.get(dest.id) ?? 0,
     // SSH: the host keys learned (enforced from then on), as fingerprints.
     hostKeys: Object.entries(storedHostKeys(dest.sshHostKeys)).map(([host, key]) => ({ host, fingerprint: fingerprint(key) })),
+    // The edit dialog's values (no secret).
+    editable: editableFields(resolveDestination(withConfig.get(dest.id)!)),
   }));
   // On disk where measured, the logical size elsewhere (tar: the same).
   const globalBytes = items.reduce((n, i) => n + (i.disk ? BigInt(i.disk.bytes) : BigInt(i.bytes)), 0n);

@@ -733,6 +733,52 @@ export async function createDestination(fd: FormData) {
   return { ok: true };
 }
 
+/**
+ * Edit a destination's name, address and credentials (M-01), keeping its
+ * backups: the new config is tested from the controller first, then saved,
+ * then a check of what it holds is queued. Where the data is can't change.
+ */
+export async function updateDestination(id: string, fd: FormData): Promise<{ ok?: boolean; error?: string; detail?: string }> {
+  await requireRole("admin");
+  const t = await getT();
+  const dest = await prisma.destination.findUniqueOrThrow({ where: { id } });
+  const { mergeDestinationConfig, destinationEditProblem } = await import("@/lib/destination-edit");
+  const form: Record<string, string> = {};
+  for (const [k, v] of fd.entries()) if (typeof v === "string") form[k] = v;
+  const current = resolveDestination(dest);
+  const next = mergeDestinationConfig(current, form);
+  const problem = destinationEditProblem(next);
+  if (problem) return { error: t(problem) };
+  const name = s(fd, "name") || dest.name;
+
+  // Tested before anything is saved (a local folder lives on the agents' hosts:
+  // nothing to test from here). The test learns a new SSH server's host key.
+  if (next.type !== "local") {
+    const { testDestination } = await import("@/lib/destination-test");
+    const seen: Record<string, string> = {};
+    const result = await testDestination(next, seen);
+    if (!result.ok) {
+      const e = result.error;
+      return { error: t("messages.destinationEditTestFailed", { error: typeof e === "string" ? e : e ? t(e.key, e.vars) : "" }) };
+    }
+    await prisma.destination.update({ where: { id }, data: { name, configEnc: encryptSecret(JSON.stringify(withoutHostKeys(next))) } });
+    const { learnHostKeys } = await import("@/lib/ssh-hostkeys");
+    await learnHostKeys(seen);
+  } else {
+    await prisma.destination.update({ where: { id }, data: { name } });
+  }
+  // What it holds, read with the new credentials.
+  const verify = await enqueueVerifyDestination(id).catch(() => ({ queued: 0 }));
+  revalidatePath("/destinations");
+  return { ok: true, detail: t(verify.queued > 0 ? "messages.destinationEditedChecking" : "messages.destinationEdited") };
+}
+
+/** The host keys travel apart (Destination.sshHostKeys), never in the config. */
+function withoutHostKeys<D extends object>(d: D): D {
+  const { hostKey: _h, jumpHostKey: _j, ...rest } = d as D & { hostKey?: string; jumpHostKey?: string };
+  return rest as D;
+}
+
 export async function deleteDestination(id: string): Promise<{ ok?: boolean; error?: string } | void> {
   await requireRole("admin");
   // Its schedules used to be cascade-deleted silently, so backups just stopped.

@@ -82,6 +82,9 @@ export const en = {
   optionsTitle: "Backup options",
   viewSnapshot: "Open",
   colScheduled: "Scheduled",
+  colLastSuccess: "Last success",
+  neverSucceeded: "never",
+  staleHint: "No successful backup for the last two scheduled runs (failed, skipped or never run): this resource isn't protected anymore.",
   toggles: {
     enabledLabel: "Include in scheduled backups",
     enabledDesc:
@@ -233,6 +236,9 @@ export const fr: typeof en = {
   optionsTitle: "Options de sauvegarde",
   viewSnapshot: "Ouvrir",
   colScheduled: "Planifiée",
+  colLastSuccess: "Dernier succès",
+  neverSucceeded: "jamais",
+  staleHint: "Aucune sauvegarde réussie lors des deux derniers passages planifiés (échec, ignorée ou jamais lancée) : cette ressource n'est plus protégée.",
   toggles: {
     enabledLabel: "Inclure dans les sauvegardes planifiées",
     enabledDesc:
