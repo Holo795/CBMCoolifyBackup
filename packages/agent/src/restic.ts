@@ -97,6 +97,13 @@ const SSH_OPTS = (knownHosts: string) => [
   "HashKnownHosts=no",
   "-o",
   "ConnectTimeout=20",
+  // Only the destination's own key or password: never the keys of an ssh-agent
+  // or ~/.ssh on the agent's host, which a server counts as failed attempts
+  // ("Too many authentication failures") before the password is even tried.
+  "-o",
+  "IdentityAgent=none",
+  "-o",
+  "IdentitiesOnly=yes",
   // Without it, ssh's "Permanently added '<host>' to the list of known hosts"
   // (printed on every connection: the known_hosts file is fresh each time)
   // ended up in job errors and alerts. Errors are still printed.
@@ -165,6 +172,7 @@ export async function resticContext(dest: ResolvedDestination, password: string,
     // CRLF line ends (a key pasted in a form) make `ssh -i` fail with "error in libcrypto".
     if (key) keyOpt.push("-i", await secretFile(`key_${tag}`, normalizePrivateKey(key), true));
     if (pwd) prefix.push("sshpass", "-f", await secretFile(`pw_${tag}`, pwd, false));
+    if (pwd && !key) keyOpt.push("-o", "PubkeyAuthentication=no");
     return { prefix, keyOpt };
   };
 

@@ -51,12 +51,14 @@ test("the verifier accepts the first key and the known one, refuses another", ()
 
 /* ------------------------- a real SSH server ------------------------- */
 
-async function startSshd(): Promise<{ name: string; port: number }> {
+/** An sshd taking the password `pw` and the public key `authorizedKey` for user `u`. */
+async function startSshd(authorizedKey: string): Promise<{ name: string; port: number }> {
   const name = `cbm-sshd-${Date.now().toString(36)}`;
   const script =
     "apk add --no-cache openssh-server openssh-sftp-server >/dev/null && ssh-keygen -A >/dev/null && " +
-    "adduser -D u && echo 'u:pw' | chpasswd && mkdir -p /home/u/data && chown u /home/u/data && " +
-    "exec /usr/sbin/sshd -D -e -o PasswordAuthentication=yes";
+    "adduser -D u && echo 'u:pw' | chpasswd && mkdir -p /home/u/data /home/u/.ssh && " +
+    `echo '${authorizedKey}' > /home/u/.ssh/authorized_keys && chmod 700 /home/u/.ssh && chmod 600 /home/u/.ssh/authorized_keys && ` +
+    "chown -R u /home/u/data /home/u/.ssh && exec /usr/sbin/sshd -D -e -o PasswordAuthentication=yes";
   const r = await docker(["run", "-d", "--name", name, "-p", "127.0.0.1::22", "alpine:3.24", "sh", "-c", script]);
   assert.equal(r.code, 0, r.stderr);
   const port = Number((await docker(["port", name, "22"])).stdout.trim().split(":").pop());
@@ -70,10 +72,14 @@ async function startSshd(): Promise<{ name: string; port: number }> {
 
 test(
   "ssh2 and OpenSSH: the first key is learned, a different one refused",
-  { skip: !DOCKER || spawnSync("sshpass", ["-V"]).status !== 0, timeout: 180_000 },
+  { skip: !DOCKER, timeout: 180_000 },
   async () => {
-    const sshd = await startSshd();
     const dir = await mkdtemp(join(tmpdir(), "cbm-hostkeys-"));
+    // OpenSSH logs in with a key: sshpass on macOS sometimes sends a wrong
+    // password (a race with the terminal; never seen on Linux, where the agent runs).
+    spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", join(dir, "client")]);
+    const clientKey = await readFile(join(dir, "client"), "utf8");
+    const sshd = await startSshd((await readFile(join(dir, "client.pub"), "utf8")).trim());
     const dest = { type: "ssh", host: "127.0.0.1", port: sshd.port, username: "u", password: "pw", basePath: "/home/u/data", jumpPort: 22 } as Extract<
       ResolvedDestination,
       { type: "ssh" }
@@ -98,18 +104,19 @@ test(
       await assert.rejects(makeTransfer({ ...dest, hostKey: forged }), /host key .* changed/i);
 
       // OpenSSH (restic engine): the connect script with no key learns one...
-      const ctx = await resticContext(dest, "x", dir);
+      const keyDest = { ...dest, password: undefined, privateKey: clientKey };
+      const ctx = await resticContext(keyDest, "x", dir);
       const run = spawnSync("sh", [ctx.args[1]!.replace("sftp.command=", "")], { input: "", encoding: "utf8", timeout: 30_000 });
       await ctx.cleanup();
       assert.notEqual(run.status, 255, run.stderr);
       assert.ok(seenFor(dest)[id], "OpenSSH's accepted key was read back");
       // ...accepts the key ssh2 learned (same type asked for, same key)...
-      const known = await resticContext({ ...dest, hostKey: learned }, "x", dir);
+      const known = await resticContext({ ...keyDest, hostKey: learned }, "x", dir);
       const ok = spawnSync("sh", [known.args[1]!.replace("sftp.command=", "")], { input: "", encoding: "utf8", timeout: 30_000 });
       await known.cleanup();
       assert.notEqual(ok.status, 255, ok.stderr);
       // ...and refuses a different key.
-      const strict = await resticContext({ ...dest, hostKey: forged }, "x", dir);
+      const strict = await resticContext({ ...keyDest, hostKey: forged }, "x", dir);
       const refused = spawnSync("sh", [strict.args[1]!.replace("sftp.command=", "")], { input: "", encoding: "utf8", timeout: 30_000 });
       await strict.cleanup();
       assert.equal(refused.status, 255);
