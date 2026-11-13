@@ -488,6 +488,10 @@ model Setting {
   timezone  String   @default("Europe/Paris")
   // Optional webhook (Discord/Slack/custom) notified when a backup fails.
   alertWebhookUrl String?
+  // External check ("dead man's switch", e.g. healthchecks.io, Uptime Kuma push):
+  // pinged every 5 minutes while CBM runs and an agent answers. Its silence is
+  // the alert when the controller itself is down.
+  pingUrl         String?
   // SMTP for transactional email (password reset, account verification).
   // user/password are encrypted at rest (encryptSecret); env vars override these.
   smtpHost        String?
@@ -566,6 +570,9 @@ model RestoreDrill {
 model SchedulerState {
   id         String @id @default("global")
   lastMinute Int
+  // The external check (Setting.pingUrl): last ping and its outcome.
+  lastPingAt     DateTime?
+  lastPingStatus String?
 }
 
 // restic: bytes a repository really stores (deduplicated, compressed), measured

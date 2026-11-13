@@ -72,6 +72,22 @@ export async function updateAlertWebhook(fd: FormData) {
   return { ok: true };
 }
 
+/** Set (or clear) the external check URL CBM pings while it runs (lib/ping). */
+export async function updatePingUrl(fd: FormData) {
+  await requireRole("admin");
+  const url = s(fd, "pingUrl");
+  if (url && !/^https?:\/\//i.test(url)) return { error: (await getT())("messages.webhookUrlInvalid") };
+  await prisma.setting.upsert({
+    where: { id: "global" },
+    create: { id: "global", pingUrl: url || null },
+    update: { pingUrl: url || null },
+  });
+  // Pinged right away: the monitor sees CBM at once, the page shows the outcome.
+  if (url) await (await import("@/lib/ping")).pingExternal().catch(() => undefined);
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
 /** Send a test message to a webhook URL (without saving it). */
 export async function testAlertWebhook(url: string) {
   await requireRole("admin");

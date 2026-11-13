@@ -1,5 +1,7 @@
 import { PageHeader } from "@/components/page-header";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, Code } from "@/components/ui";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, Code, Field, Input } from "@/components/ui";
+import { ActionForm } from "@/components/action-form";
+import { updatePingUrl } from "@/app/actions";
 import { TimezoneForm } from "@/components/timezone-form";
 import { AlertWebhookForm } from "@/components/alert-webhook-form";
 import { SmtpConfigForm, EmailVerificationToggle, type SmtpCurrent } from "@/components/smtp-config-form";
@@ -17,6 +19,7 @@ import { getT, type T } from "@/lib/i18n";
 export async function SettingsView({
   tz,
   alertWebhookUrl,
+  ping,
   requireEmailVerification,
   ready,
   smtpCurrent,
@@ -31,6 +34,8 @@ export async function SettingsView({
 }: {
   tz: string;
   alertWebhookUrl: string;
+  /** External check: its URL and last ping. */
+  ping: { url: string; lastAt: string | null; lastStatus: string | null };
   requireEmailVerification: boolean;
   ready: boolean;
   smtpCurrent: SmtpCurrent;
@@ -85,6 +90,25 @@ export async function SettingsView({
             </CardHeader>
             <CardContent>
               <AlertWebhookForm current={alertWebhookUrl} />
+            </CardContent>
+          </Card>
+
+          <Card id="external-check" className="scroll-mt-8">
+            <CardHeader>
+              <CardTitle>{t("settings.pingTitle")}</CardTitle>
+              <CardDescription>{t("settings.pingDesc")}</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <ActionForm action={updatePingUrl} resetOnSuccess={false}>
+                <Field label={t("settings.pingLabel")} htmlFor="pingUrl">
+                  <Input id="pingUrl" name="pingUrl" type="url" defaultValue={ping.url} placeholder="https://hc-ping.com/…" />
+                </Field>
+              </ActionForm>
+              {ping.url && ping.lastAt && (
+                <p className="text-[13px] text-muted-foreground">
+                  {t("settings.pingLast", { when: ping.lastAt, status: ping.lastStatus ?? "" })}
+                </p>
+              )}
             </CardContent>
           </Card>
 

@@ -18,6 +18,11 @@ export const en = {
   alertWebhookLabel: "Webhook URL (Discord / Slack / custom)",
   alertWebhookPlaceholder: "https://discord.com/api/webhooks/…  (leave blank to disable)",
   sendTest: "Send test",
+  pingTitle: "External check",
+  pingDesc:
+    "Every alert comes from CBM itself: if CBM is down, none is sent. Give the ping URL of a monitor (healthchecks.io, Uptime Kuma push, Cronitor...): CBM calls it every 5 minutes while it runs and an agent answers, and the monitor alerts you when the calls stop. Set the monitor's period to 5 minutes and its grace to 10 or more.",
+  pingLabel: "Ping URL (leave blank to disable)",
+  pingLast: "Last ping {when}: {status}",
 
   // Email (SMTP)
   emailTitle: "Email (SMTP)",
@@ -186,6 +191,11 @@ export const fr: typeof en = {
   alertWebhookLabel: "URL du webhook (Discord / Slack / personnalisé)",
   alertWebhookPlaceholder: "https://discord.com/api/webhooks/…  (laissez vide pour désactiver)",
   sendTest: "Envoyer un test",
+  pingTitle: "Contrôle externe",
+  pingDesc:
+    "Toutes les alertes viennent de CBM lui-même : si CBM est arrêté, aucune ne part. Indiquez l'URL de ping d'un service de surveillance (healthchecks.io, push Uptime Kuma, Cronitor...) : CBM l'appelle toutes les 5 minutes tant qu'il tourne et qu'un agent répond, et le service vous prévient quand les appels s'arrêtent. Réglez sa période sur 5 minutes et sa marge sur 10 ou plus.",
+  pingLabel: "URL de ping (laissez vide pour désactiver)",
+  pingLast: "Dernier ping {when} : {status}",
 
   // E-mail (SMTP)
   emailTitle: "E-mail (SMTP)",

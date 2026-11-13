@@ -15,6 +15,7 @@ import { retryStuckDeletions } from "./snapshot-removal";
 import { catchUpMirrors } from "./mirror-catchup";
 import { dedupeStoredEnvs } from "./env-blobs";
 import { RUNS_ON_HOLD, recoveryHoldSince } from "./recovery-hold";
+import { pingExternal } from "./ping";
 import { autoUpdateAgents } from "./agent-update";
 
 /**
@@ -279,6 +280,7 @@ const TASKS: Array<{ name: string; cron: string; run: () => Promise<unknown>; de
   { name: "deletion retry", cron: "20 */6 * * *", run: () => retryStuckDeletions(new Date()), detached: true },
   { name: "mirror retention", cron: "40 3 * * *", run: () => applyAllMirrorRetention(), detached: true },
   { name: "mirror catch-up", cron: "50 * * * *", run: () => catchUpMirrors(new Date()), detached: true },
+  { name: "external ping", cron: "*/5 * * * *", run: () => pingExternal(new Date()), detached: true },
   { name: "protection check", cron: "30 4 * * 0", run: () => checkAllProtection(), detached: true },
   { name: "agent auto-update", cron: "*/10 * * * *", run: () => autoUpdateAgents(new Date()), detached: true },
 ];

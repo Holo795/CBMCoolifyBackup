@@ -28,6 +28,15 @@ snapshot, the snapshots list, the destinations page or **Settings → Disaster r
 are built from `BETTER_AUTH_URL`. A backup of a resource with no container on the host is
 marked *skipped*, not failed, and sends no alert (see [Backups](backups.md#resources-with-nothing-to-copy)).
 
+## External check
+
+Every alert comes from CBM itself: if the controller is down, nothing is sent. **Settings →
+External check** takes the ping URL of a monitor of yours (healthchecks.io, an Uptime Kuma *push*
+monitor, Cronitor...). CBM calls it every 5 minutes while it runs and at least one agent answers;
+the monitor alerts you when the calls stop - the controller, its database or every agent is down.
+Set the monitor's period to 5 minutes and its grace to 10 minutes or more. The page shows the
+last ping and its outcome. An install on hold after a recovery-file import doesn't ping.
+
 ## Why so many alerts
 
 They catch different failure modes:

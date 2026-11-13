@@ -133,6 +133,7 @@ export default async function SettingsPage() {
     };
   });
 
+  const schedulerState = await prisma.schedulerState.findUnique({ where: { id: "global" } }).catch(() => null);
   return (
     <SettingsView
       sso={sso}
@@ -140,6 +141,11 @@ export default async function SettingsPage() {
       twoFactor={twoFactor}
       tz={tz}
       alertWebhookUrl={setting?.alertWebhookUrl ?? ""}
+      ping={{
+        url: setting?.pingUrl ?? "",
+        lastAt: schedulerState?.lastPingAt ? formatDateTime(schedulerState.lastPingAt, tz) : null,
+        lastStatus: schedulerState?.lastPingStatus ?? null,
+      }}
       requireEmailVerification={setting?.requireEmailVerification ?? false}
       ready={ready}
       smtpCurrent={smtpCurrent}
