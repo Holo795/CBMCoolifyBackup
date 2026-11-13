@@ -23,3 +23,11 @@ test("a long pause replays at most the last 15 minutes", () => {
   assert.equal(out[0], M + 586);
   assert.equal(out[14], M + 600);
 });
+
+test("a failing self-backup is alerted once it has lasted an hour, once", async () => {
+  const { selfBackupFailureAlertDue } = await import("../src/lib/self-backup");
+  const since = new Date("2026-11-13T05:00:00Z");
+  assert.equal(selfBackupFailureAlertDue(new Date("2026-11-13T05:20:00Z"), since, null), false);
+  assert.equal(selfBackupFailureAlertDue(new Date("2026-11-13T06:00:00Z"), since, null), true);
+  assert.equal(selfBackupFailureAlertDue(new Date("2026-11-13T07:00:00Z"), since, new Date("2026-11-13T06:00:00Z")), false);
+});

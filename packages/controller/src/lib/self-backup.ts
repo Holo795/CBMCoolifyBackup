@@ -20,6 +20,16 @@ export const SELF_BACKUP_PATH = `${SELF_BACKUP_DIR}/${SELF_BACKUP_FILE}`;
 const THROTTLE_MS = 5 * 60_000;
 /** Safety re-run: guarantee at least one dump per day even without changes. */
 const SAFETY_MS = 24 * 60 * 60_000;
+/** After a failure, the next try comes this much later (it came every minute). */
+export const SELF_BACKUP_RETRY_MS = 10 * 60_000;
+/** A failure is alerted once it lasts this long (a host rebooting, a few
+ * minutes of network trouble, pass without an alert). */
+export const SELF_BACKUP_ALERT_AFTER_MS = 60 * 60_000;
+
+/** Pure: should this failure, failing since `since`, be alerted now? */
+export function selfBackupFailureAlertDue(now: Date, since: Date, alertedAt: Date | null): boolean {
+  return !alertedAt && now.getTime() - since.getTime() >= SELF_BACKUP_ALERT_AFTER_MS;
+}
 
 /* ------------------------- destination file transfer ------------------------- *
  * Controller-side upload/download of a single file, mirroring the connection
@@ -146,7 +156,6 @@ export async function runSelfBackup(
   if (!setting?.selfBackupEnabled || !setting.selfBackupDestinationId) {
     return { ok: false, error: new UserError("messages.selfBackupNotConfigured") };
   }
-  const wasOk = setting.selfBackupLastStatus === "ok" || setting.selfBackupLastStatus == null;
   const dest = await prisma.destination.findUnique({ where: { id: setting.selfBackupDestinationId } });
   if (!dest) return await fail(new UserError("messages.selfBackupDestGone"));
   if (dest.type === "local") return await fail(new UserError("messages.localDiesWithMachine"));
@@ -162,6 +171,7 @@ export async function runSelfBackup(
       where: { id: "global" },
       data: { selfBackupLastRunAt: new Date(), selfBackupLastStatus: "ok" },
     });
+    await failures({ selfBackupAttemptAt: new Date(), selfBackupFailingSince: null, selfBackupAlertedAt: null });
     return { ok: true };
   } catch (e) {
     return await fail((e as Error).message);
@@ -176,13 +186,28 @@ export async function runSelfBackup(
     await prisma.setting
       .update({ where: { id: "global" }, data: { selfBackupLastStatus: message.slice(0, 500) } })
       .catch(() => undefined);
-    // Alert once per failure episode (only when transitioning out of "ok").
-    if (opts?.alertOnFailure && wasOk) {
+    // Alerted once per failure episode, once it has lasted an hour (scheduled
+    // runs only; a manual run shows its error).
+    const now = new Date();
+    const state = await prisma.schedulerState.findUnique({ where: { id: "global" } }).catch(() => null);
+    const since = state?.selfBackupFailingSince ?? now;
+    const alert = !!opts?.alertOnFailure && selfBackupFailureAlertDue(now, since, state?.selfBackupAlertedAt ?? null);
+    await failures({ selfBackupAttemptAt: now, selfBackupFailingSince: since, ...(alert ? { selfBackupAlertedAt: now } : {}) });
+    if (alert) {
       const { notifySelfBackupProblem } = await import("./notify");
-      await notifySelfBackupProblem(message).catch(() => undefined);
+      const minutes = Math.round((now.getTime() - since.getTime()) / 60_000);
+      await notifySelfBackupProblem(`${message} (failing for ${minutes} min)`).catch(() => undefined);
     }
     return { ok: false, error };
   }
+}
+
+/** The failure bookkeeping, kept out of Setting (its changes trigger a self-backup). */
+async function failures(data: { selfBackupAttemptAt: Date; selfBackupFailingSince: Date | null; selfBackupAlertedAt?: Date | null }) {
+  await prisma.schedulerState
+    // (Created with the current minute: the scheduler replays the minutes after lastMinute.)
+    .upsert({ where: { id: "global" }, create: { id: "global", lastMinute: Math.floor(Date.now() / 60_000), ...data }, update: data })
+    .catch(() => undefined);
 }
 
 /**
@@ -240,6 +265,11 @@ export async function maybeSelfBackup(now: Date): Promise<void> {
 
   const last = setting.selfBackupLastRunAt?.getTime() ?? 0;
   if (now.getTime() - last < THROTTLE_MS) return;
+  // Failing: the next try 10 minutes after the last one, not every minute.
+  const state = await prisma.schedulerState.findUnique({ where: { id: "global" } }).catch(() => null);
+  if (state?.selfBackupFailingSince && state.selfBackupAttemptAt && now.getTime() - state.selfBackupAttemptAt.getTime() < SELF_BACKUP_RETRY_MS) {
+    return;
+  }
   const due = now.getTime() - last >= SAFETY_MS;
   if (!due && !(await metadataChangedSince(setting.selfBackupLastRunAt))) return;
 

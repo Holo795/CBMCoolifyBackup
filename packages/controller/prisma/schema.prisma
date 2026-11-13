@@ -585,6 +585,12 @@ model SchedulerState {
   // The external check (Setting.pingUrl): last ping and its outcome.
   lastPingAt     DateTime?
   lastPingStatus String?
+  // The self-backup's failures: last attempt (retried every 10 minutes, not
+  // every minute), since when it fails, and when that was alerted (after an
+  // hour of failing, once per episode).
+  selfBackupAttemptAt    DateTime?
+  selfBackupFailingSince DateTime?
+  selfBackupAlertedAt    DateTime?
 }
 
 // restic: bytes a repository really stores (deduplicated, compressed), measured

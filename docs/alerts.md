@@ -20,7 +20,7 @@ without saving it.
 | **Integrity check failed** | A destination's repository-level integrity check (weekly when opted in per destination, or *Check integrity*) failed. |
 | **Restore drill failed** | A restore drill (manual, scheduled or API) could not restore the snapshot into its sandbox, or one of its checks failed. |
 | **Mirror copy failed** | Copying a backup to its mirror destination failed. The alert says whether CBM tries again (hourly, 3 attempts per backup) or has stopped, leaving that backup without its second copy. |
-| **Self-backup problem** | The controller's metadata self-backup failed, or hasn't succeeded for over 26 hours. Sent once per failure episode. |
+| **Self-backup problem** | The controller's metadata self-backup has been failing for an hour (a failed attempt is retried every 10 minutes, so a host restarting or a short network cut passes without an alert), or hasn't succeeded for over 26 hours. Sent once per failure episode. |
 
 Each alert names what it's about — the resource and instance (up to 20 per message for
 missing / overdue / corrupt), the destination, or the self-backup — and links back to the
