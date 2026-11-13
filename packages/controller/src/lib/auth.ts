@@ -12,6 +12,7 @@ import { sendMail } from "./email";
 import { decideInviteSignup } from "./invitations";
 import { PASSWORD_BREACHED, REGISTRATION_CLOSED, SETUP_TOKEN_INVALID } from "./auth-errors";
 import { SETUP_TOKEN_HEADER, clearSetupToken, holdSetupToken, setupAuthorizes } from "./setup-token";
+import { trustedProxyList } from "./rate-limit";
 import { oauthTwoFactorGate, TRUST_DEVICE_MAX_AGE, CHALLENGE_MAX_AGE } from "./two-factor";
 
 /** Kept for the sign-in pages' types: the provider ids a button can carry. */
@@ -63,6 +64,16 @@ function authOptions(sso: SsoConfig[]) {
   // enables its limiter in production by default, and its default budget is
   // generous, so: always on, with strict per-IP rules on the sensitive paths
   // (normal session traffic keeps the default budget).
+  // The client's address behind the reverse proxy, the same way as the API's
+  // own limiter (lib/rate-limit): past the trusted proxies, or from the one
+  // header the proxy sets. Without either, Better Auth takes a lone
+  // X-Forwarded-For value as is and puts a chain in one shared bucket.
+  advanced: {
+    ipAddress: {
+      ...(trustedProxyList().length ? { trustedProxies: trustedProxyList() } : {}),
+      ...(process.env.CLIENT_IP_HEADER?.trim() ? { ipAddressHeaders: [process.env.CLIENT_IP_HEADER.trim().toLowerCase()] } : {}),
+    },
+  },
   rateLimit: {
     enabled: true,
     customRules: {

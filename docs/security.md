@@ -37,6 +37,10 @@ alerts if it stops being true. See
   agents until a new command is revealed (agents older than 2.8.0 enroll again at every start).
 - Agents make **outbound** connections only (they poll the controller) — nothing needs to be
   opened on your hosts.
+- An agent only talks to its controller over **HTTPS**, or plain HTTP to a private address (the
+  same host, a Docker network, a LAN). Its credential and the destination credentials and keys
+  its jobs carry never cross the internet in clear; `AGENT_ALLOW_HTTP=true` overrides it for a
+  link protected otherwise (VPN, tunnel).
 - Before a restore pins an image, the controller asks its registry (Docker Hub, ghcr.io…)
   whether the recorded digest still exists: an anonymous, read-only `HEAD` on the image manifest,
   nothing about your data. Without outbound access the digest is simply kept.
@@ -63,6 +67,19 @@ immediately. See [MCP server](mcp.md).
   (TLS, restricted network, strong `BETTER_AUTH_SECRET`).
 - Backups can contain your application data and secrets; secure your destinations accordingly
   (encryption at rest, restricted access).
+
+## Client address
+
+Sign-in, sign-up, password reset and the `/api/v1` API are rate-limited per client address. Behind
+a reverse proxy the controller only sees the proxy, so it reads `X-Forwarded-For` **from the
+right**: each proxy appends the address it received the request from, and the first entry that
+isn't a trusted proxy (`TRUSTED_PROXIES`) is the client. The leftmost entry is whatever the client
+sent, never trusted. With one proxy that sets the header (Traefik in Coolify), nothing needs to be
+configured; with several, list the inner ones in `TRUSTED_PROXIES`; behind Cloudflare, set
+`CLIENT_IP_HEADER=cf-connecting-ip`.
+
+Don't publish the controller's port directly on the internet: without a proxy in front, any
+client can write the header itself.
 
 ## Accounts & roles
 

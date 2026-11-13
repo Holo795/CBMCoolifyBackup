@@ -1,4 +1,4 @@
-import { loadConfig, type AgentConfig } from "./config.js";
+import { insecureControllerUrl, loadConfig, type AgentConfig } from "./config.js";
 import {
   setDockerBin,
   setHelperImage,
@@ -46,6 +46,11 @@ export async function startDaemon(): Promise<void> {
   if (self) setHelperImage(self.image);
 
   logger.info(`Agent starting (host=${cfg.hostname}, controller=${cfg.controllerUrl})`);
+  const insecure = insecureControllerUrl(cfg.controllerUrl);
+  if (insecure) {
+    logger.error(insecure);
+    process.exit(1);
+  }
 
   // Containers a previous run left paused/stopped (crash, kill) are resumed
   // first - before anything that needs the controller, which may be down in

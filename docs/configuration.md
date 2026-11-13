@@ -13,6 +13,8 @@
 | `COOLIFY_API_RATE_LIMIT` | — | `120` | Calls per minute CBM allows itself towards each Coolify instance. Coolify limits its API per user (its own `API_RATE_LIMIT`, 200 a minute by default); a call that still gets "429 Too Many Attempts" waits what Coolify asks and is retried. Lower it if you use the same Coolify token elsewhere. |
 | `AGENT_CONTROLLER_URL` | — | falls back to `BETTER_AUTH_URL` | URL agents dial to reach the controller, if it differs from the browser URL (e.g. `http://host.docker.internal:3000` in local dev). |
 | `SETUP_TOKEN` | — | random, printed in the logs | The token the first account (the admin) is created with. Unset, a random one is generated at each start while no account exists and printed in the logs with a sign-up link. |
+| `TRUSTED_PROXIES` | — | — | Comma-separated addresses or CIDR ranges of the reverse proxies in front of the controller (e.g. `10.0.1.5, 172.16.0.0/12`). The client's address, used by the sign-in and API rate limits, is the last `X-Forwarded-For` entry that isn't one of them. Unset, the last entry is taken: right behind a single proxy that sets the header (Traefik, as in Coolify). See [Client address](security.md#client-address). |
+| `CLIENT_IP_HEADER` | — | — | A single header your proxy sets to the client's address (`x-real-ip`, `cf-connecting-ip` behind Cloudflare), read instead of `X-Forwarded-For`. |
 | `PASSWORD_BREACH_CHECK` | — | `true` | Refuse new passwords (sign-up, change, reset) that appear in a known breach, via HaveIBeenPwned's k-anonymity API (only the first 5 characters of the password's SHA-1 leave the server). If the API can't be reached within 3 s the password is accepted. `false` turns it off. |
 
 Generate secrets:
@@ -115,7 +117,8 @@ over CBM — the field is then locked in the dialog and shows the host's value.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `CONTROLLER_URL` | `http://localhost:3000` | Where the agent reaches the controller. |
+| `CONTROLLER_URL` | `http://localhost:3000` | Where the agent reaches the controller. Must be `https://`, except to a private address (loopback, a LAN or Docker network, a single-label service name): the agent refuses to start otherwise. |
+| `AGENT_ALLOW_HTTP` | `false` | `true` lets the agent use plain `http://` to a public address, when the link is protected otherwise (VPN, tunnel). |
 | `ENROLLMENT_TOKEN` | — | The install token (instance card → **…** → **Install command**): exchanged on first start for the agent's own credential, kept in `AGENT_WORK_DIR`. It enrolls one agent, within 24 hours. |
 | `AGENT_TOKEN` | — | The agent's credential, given by hand. Without it the agent enrolls with `ENROLLMENT_TOKEN` and keeps the credential it gets in `AGENT_WORK_DIR` (`agent-identity.json`, readable by its owner only). |
 | `AGENT_HOSTNAME` | OS hostname | Identifies this agent (one agent per instance + hostname). |
