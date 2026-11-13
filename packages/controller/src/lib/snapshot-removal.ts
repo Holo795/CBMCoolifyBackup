@@ -47,13 +47,29 @@ export async function removeSnapshots(
       data: { status: "succeeded", deleteRequestedAt: null, error: null },
     });
   }
-  const snaps = found.filter((s) => !s.destination.protected);
+  // One a restore, a restore test or a mirror copy is reading waits for it to
+  // finish: deleting its files mid-read failed the restore after the resource
+  // was stopped. It is marked "deleting" (no new restore picks it) with the
+  // reason, and retryStuckDeletions deletes it once nothing reads it anymore.
+  const unprotected = found.filter((s) => !s.destination.protected);
+  const busy = await snapshotsBeingRead(unprotected.map((s) => s.id));
+  if (busy.size > 0) {
+    await prisma.snapshot.updateMany({
+      where: { id: { in: [...busy] } },
+      data: {
+        status: "deleting",
+        deleteRequestedAt: new Date(),
+        error: "Waiting for the restore, test or copy reading it to finish - deleted afterwards",
+      },
+    });
+  }
+  const snaps = unprotected.filter((s) => !busy.has(s.id));
 
   const noFiles = snaps.filter((s) => !hasFiles(s));
   if (noFiles.length > 0) await prisma.snapshot.deleteMany({ where: { id: { in: noFiles.map((s) => s.id) } } });
 
   const withFiles = snaps.filter(hasFiles);
-  if (withFiles.length === 0) return { deleting: 0, removed: noFiles.length, kept: kept.length };
+  if (withFiles.length === 0) return { deleting: busy.size, removed: noFiles.length, kept: kept.length };
   await prisma.snapshot.updateMany({
     where: { id: { in: withFiles.map((s) => s.id) } },
     data: { status: "deleting", deleteRequestedAt: new Date(), error: null },
@@ -89,7 +105,25 @@ export async function removeSnapshots(
       });
     }
   }
-  return { deleting: withFiles.length, removed: noFiles.length, kept: kept.length };
+  return { deleting: withFiles.length + busy.size, removed: noFiles.length, kept: kept.length };
+}
+
+/** Of these snapshots, those a running restore or restore test, or a queued or
+ * running mirror copy, reads. */
+export async function snapshotsBeingRead(ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const [restores, drills, mirrors] = await Promise.all([
+    prisma.restoreJob.findMany({ where: { snapshotId: { in: ids }, status: "running" }, select: { snapshotId: true } }),
+    prisma.restoreDrill.findMany({ where: { snapshotId: { in: ids }, status: "running" }, select: { snapshotId: true } }),
+    prisma.agentJob.findMany({ where: { type: "mirror", status: { in: ["queued", "running"] } }, select: { payload: true } }),
+  ]);
+  const wanted = new Set(ids);
+  const busy = new Set<string>([...restores, ...drills].map((r) => r.snapshotId));
+  for (const m of mirrors) {
+    const source = (m.payload as { sourceSnapshotId?: unknown } | null)?.sourceSnapshotId;
+    if (typeof source === "string" && wanted.has(source)) busy.add(source);
+  }
+  return busy;
 }
 
 /** A prune job finished: drop the rows it deleted, or keep them for a retry. */

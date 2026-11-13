@@ -9,8 +9,10 @@ import {
   notifyCorruptBackups,
   notifyIntegrityFailure,
   notifyDrillFailed,
+  notifyMirrorFailed,
   sendAlert,
 } from "@/lib/notify";
+import { MIRROR_ATTEMPTS, mirrorFailures } from "@/lib/mirror-catchup";
 import { enqueueMirror, redeployOnSnapshotVersion } from "@/lib/jobs";
 import { scrubPayload } from "@/lib/scrub";
 import { removeSnapshots, settlePrune } from "@/lib/snapshot-removal";
@@ -148,11 +150,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         },
       });
     } else {
+      // A late failure of a job already failed (and alerted) when it was
+      // stopped records the real error without a second alert.
+      const before = await prisma.snapshot.findUnique({ where: { id: job.snapshotId }, select: { status: true } });
       await prisma.snapshot.update({
         where: { id: job.snapshotId },
         data: { status: "failed", finishedAt: new Date(), error: result.error ?? "unknown error" },
       });
-      await notifyBackupFailed(job.snapshotId).catch(() => undefined);
+      if (before?.status !== "failed") await notifyBackupFailed(job.snapshotId).catch(() => undefined);
     }
   }
 
@@ -208,6 +213,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
     } else if (!succeeded) {
       console.error(`[mirror] job ${id} failed: ${result.error ?? "unknown error"}`);
+      // Alerted (it used to be only logged), and retried by the hourly
+      // catch-up up to MIRROR_ATTEMPTS times (lib/mirror-catchup). This job is
+      // already recorded as failed above, so it counts.
+      if (payload?.sourceSnapshotId) {
+        const target = payload.targetDestinationId
+          ? await prisma.destination.findUnique({ where: { id: payload.targetDestinationId }, select: { name: true } })
+          : null;
+        const attempt = await mirrorFailures(payload.sourceSnapshotId);
+        await notifyMirrorFailed(
+          payload.sourceSnapshotId,
+          target?.name ?? "the mirror destination",
+          result.error ?? "unknown error",
+          attempt,
+          MIRROR_ATTEMPTS,
+        ).catch(() => undefined);
+      }
     }
   }
 

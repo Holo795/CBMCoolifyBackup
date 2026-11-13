@@ -12,6 +12,7 @@ import { syncInstance } from "./discovery";
 import { getTimezone } from "./settings";
 import { cleanupJobHistory } from "./housekeeping";
 import { retryStuckDeletions } from "./snapshot-removal";
+import { catchUpMirrors } from "./mirror-catchup";
 import { autoUpdateAgents } from "./agent-update";
 
 /**
@@ -66,7 +67,7 @@ async function integrityCheckAllDestinations(): Promise<void> {
 async function drillAllResources(): Promise<void> {
   const setting = await prisma.setting.findUnique({ where: { id: "global" }, select: { drillsEnabled: true } });
   if (!setting?.drillsEnabled) return;
-  const resources = await prisma.resource.findMany({ where: { backupEnabled: true }, select: { id: true, name: true } });
+  const resources = await prisma.resource.findMany({ where: { backupEnabled: true, status: { not: "deleted" } }, select: { id: true, name: true } });
   for (const r of resources) {
     const latest = await prisma.snapshot.findFirst({
       // A configuration-only snapshot has nothing to test.
@@ -181,11 +182,12 @@ export async function tick(now = new Date()): Promise<number> {
     if (!due) continue;
 
     // backupEnabled is the single gate: a resource is in scheduled backups only
-    // when it's enabled.
+    // when it's enabled - and still in Coolify (a removed one keeps its setting
+    // for when it comes back).
     let resources;
     if (p.resourceId) {
       // Resource override.
-      resources = await prisma.resource.findMany({ where: { id: p.resourceId, backupEnabled: true } });
+      resources = await prisma.resource.findMany({ where: { id: p.resourceId, backupEnabled: true, status: { not: "deleted" } } });
     } else if (p.instanceId && p.serverUuid) {
       // Per-server schedule: enabled resources on this server WITHOUT their own
       // override policy.
@@ -195,7 +197,7 @@ export async function tick(now = new Date()): Promise<number> {
       });
       const skip = new Set(overrides.map((o) => o.resourceId));
       const all = await prisma.resource.findMany({
-        where: { instanceId: p.instanceId, serverUuid: p.serverUuid, backupEnabled: true },
+        where: { instanceId: p.instanceId, serverUuid: p.serverUuid, backupEnabled: true, status: { not: "deleted" } },
       });
       resources = all.filter((r) => !skip.has(r.id));
     } else if (p.instanceId) {
@@ -211,7 +213,7 @@ export async function tick(now = new Date()): Promise<number> {
         select: { serverUuid: true },
       });
       const coveredServers = new Set(serverScoped.map((s) => s.serverUuid));
-      const all = await prisma.resource.findMany({ where: { instanceId: p.instanceId, backupEnabled: true } });
+      const all = await prisma.resource.findMany({ where: { instanceId: p.instanceId, backupEnabled: true, status: { not: "deleted" } } });
       resources = all.filter((r) => !skip.has(r.id) && !(r.serverUuid && coveredServers.has(r.serverUuid)));
     } else {
       // A policy with neither a resource nor an instance is not used anymore.
@@ -272,6 +274,7 @@ const TASKS: Array<{ name: string; cron: string; run: () => Promise<unknown>; de
   { name: "job history cleanup", cron: "45 2 * * *", run: () => cleanupJobHistory(new Date()), detached: true },
   { name: "deletion retry", cron: "20 */6 * * *", run: () => retryStuckDeletions(new Date()), detached: true },
   { name: "mirror retention", cron: "40 3 * * *", run: () => applyAllMirrorRetention(), detached: true },
+  { name: "mirror catch-up", cron: "50 * * * *", run: () => catchUpMirrors(new Date()), detached: true },
   { name: "protection check", cron: "30 4 * * 0", run: () => checkAllProtection(), detached: true },
   { name: "agent auto-update", cron: "*/10 * * * *", run: () => autoUpdateAgents(new Date()), detached: true },
 ];

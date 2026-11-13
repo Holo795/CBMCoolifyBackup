@@ -34,7 +34,13 @@ test("keeps daily then weekly then monthly tiers", () => {
   assert.equal(keep.size, 4);
 });
 
-test("empty retention keeps nothing", () => {
-  const keep = computeKeepSet([snap("x", "2026-06-23T02:00:00Z")], 0, 0, 0);
-  assert.equal(keep.size, 0);
+test("an empty retention still keeps the newest snapshot", () => {
+  const keep = computeKeepSet(
+    [snap("old", "2026-06-22T02:00:00Z"), snap("new", "2026-06-23T02:00:00Z"), snap("older", "2026-06-21T02:00:00Z")],
+    0,
+    0,
+    0,
+  );
+  assert.deepEqual([...keep], ["new"]);
+  assert.equal(computeKeepSet([], 0, 0, 0).size, 0);
 });

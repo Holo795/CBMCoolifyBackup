@@ -114,33 +114,36 @@ async function createAgentJob(data: {
  *   1. an online agent whose serverUuid matches the resource's server;
  *   2. if the server is unknown (null) → any online agent of the instance
  *      (legacy / single-server behaviour);
- *   3. if exactly one online agent serves the instance → use it (single-server
- *      convenience, e.g. before auto-detection has run);
+ *   3. if exactly one online agent serves the instance and its own server isn't
+ *      known yet (before auto-detection has run) → use it;
  *   4. otherwise null - the caller raises a clear "no agent on server X" error.
+ *      Never an agent known to be on another server: it would find nothing of
+ *      the resource on its host and the backup would end "skipped".
  */
 async function pickAgent(instanceId: string | null, serverUuid?: string | null) {
-  if (serverUuid) {
-    const onServer = await prisma.agent.findFirst({
-      where: { instanceId, status: "online", serverUuid },
-      orderBy: { lastSeenAt: "desc" },
-    });
-    if (onServer) return onServer;
-  }
-
   const online = await prisma.agent.findMany({
     where: { instanceId, status: "online" },
     orderBy: { lastSeenAt: "desc" },
   });
+  return agentForServer(online, serverUuid);
+}
+
+/** The choice above over the instance's online agents, most recently seen first. */
+export function agentForServer<A extends { serverUuid: string | null }>(online: A[], serverUuid?: string | null): A | null {
+  if (serverUuid) {
+    const onServer = online.find((a) => a.serverUuid === serverUuid);
+    if (onServer) return onServer;
+  }
   if (!serverUuid) {
     // Unknown server: any ONLINE agent of the instance. Never an offline one (the
     // job would sit queued and run whenever it came back - possibly days later)
     // and never another instance's agent (it can't see this resource).
     return online[0] ?? null;
   }
-  // Server known but no agent matched it: only safe to fall back when there's a
-  // single online agent (it can only be the one host). Otherwise refuse rather
-  // than back up on the wrong server.
-  if (online.length === 1) return online[0];
+  // Server known but no agent matched it: only safe to fall back on a single
+  // online agent whose server isn't known yet (it can only be the one host).
+  // One known to be on another server is the wrong host, never a fallback.
+  if (online.length === 1 && !online[0].serverUuid) return online[0];
   return null;
 }
 
@@ -284,6 +287,28 @@ export async function enqueueBackup(resourceId: string, policyId?: string, runId
 }
 
 /**
+ * The Coolify server a "→ new" clone lands on: on the TARGET instance, the
+ * captured one if it's still there, else its mapped counterpart (multi-server
+ * targets), else the only/first server (single-server DR collapses
+ * everything). Without a captured config, on the same instance, Coolify
+ * clones next to the source: its own server. The restore goes to the agent
+ * of that server - the one whose Docker the clone's volumes are in.
+ */
+async function cloneTargetServer(
+  resource: { instanceId: string; serverUuid: string | null },
+  manifest: SnapshotManifest,
+  targetInstanceId?: string,
+): Promise<string | undefined> {
+  const migrating = !!targetInstanceId && targetInstanceId !== resource.instanceId;
+  const cfg = manifest.capturedConfig;
+  if (!cfg && !migrating) return resource.serverUuid ?? undefined;
+  const instance = await prisma.coolifyInstance.findUniqueOrThrow({ where: { id: targetInstanceId ?? resource.instanceId } });
+  const client = new CoolifyClient(instance.baseUrl, decryptSecret(instance.apiTokenEnc));
+  const serverMap = (instance.serverUuidMap as Record<string, string> | null) ?? undefined;
+  return client.resolveTargetServer(cfg?.serverUuid, serverMap);
+}
+
+/**
  * Clone a resource into a brand-new Coolify resource (same project/env/server,
  * new name) for a "restore → new" so the original is never touched. Returns the
  * descriptor the agent will resolve + restore into.
@@ -305,6 +330,9 @@ async function cloneForRestore(
   mapping: Record<string, string> = {},
   /** Run the image versions of the snapshot (default) or the references as written. */
   imageChoice: ImageChoice = "snapshot",
+  /** The server the clone goes on (see cloneTargetServer), chosen before the
+   * agent that fills it. */
+  targetServer?: string,
 ): Promise<{
   descriptor: ResourceDescriptor;
   changes: RemapChange[];
@@ -334,11 +362,9 @@ async function cloneForRestore(
   const projectName = cfg?.projectName ?? resource.projectName;
   const environmentName = cfg?.environmentName ?? resource.environment ?? "production";
   const type = resource.type as ResourceType;
-  // Land on a server that exists on the TARGET: the captured one if it's still
-  // there, else its mapped counterpart (multi-server targets), else the
-  // only/first server (single-server DR collapses everything).
-  const serverMap = (instance.serverUuidMap as Record<string, string> | null) ?? undefined;
-  const serverUuid = cfg || migrating ? await client.resolveTargetServer(cfg?.serverUuid, serverMap) : undefined;
+  // Without a captured config, on the same instance, Coolify is left to clone
+  // next to the source.
+  const serverUuid = cfg || migrating ? targetServer : undefined;
   // The clone usually keeps the source type, but a floating-tag docker-image app
   // is cloned as a digest-pinned service (see cloneApplication), so track it.
   let clonedType: ResourceType = type;
@@ -924,6 +950,9 @@ export async function enqueueRestore(
     where: { id: snapshotId },
     include: { destination: true, resource: { omit: { dumpPasswordEnc: false } } },
   });
+  // Only a complete snapshot: one being deleted can lose its files halfway
+  // through the restore, after the resource was stopped.
+  if (snapshot.status !== "succeeded") throw new UserError("messages.restoreNeedsSuccess");
   if (!snapshot.manifest) throw new UserError("messages.noManifestRestore");
   // The control-plane pseudo-resource has no Coolify counterpart to clone.
   if (target === "new_resource" && snapshot.resource.coolifyUuid.startsWith("coolify-self")) {
@@ -943,27 +972,36 @@ export async function enqueueRestore(
     throw new UserError("messages.localCrossInstance");
   }
 
-  // Prefer the agent that produced this snapshot (its files live on that host
-  // for a "local" destination); otherwise route to an agent on the resource's
-  // server. A migration instead runs on the TARGET instance — that's where the
-  // clone's volumes live, and ssh/s3 artifacts are reachable from anywhere.
+  const manifest = snapshot.manifest as unknown as SnapshotManifest;
+  // The restore runs on the host whose Docker gets the data: the resource's
+  // server in place, the server the clone will land on for "→ new" (on the
+  // TARGET instance for a migration - ssh/s3 artifacts are reachable from
+  // anywhere). Chosen before anything is cloned.
+  const server =
+    target === "new_resource"
+      ? ((await cloneTargetServer(snapshot.resource, manifest, targetInstanceId)) ?? null)
+      : snapshot.resource.serverUuid;
+  // The agent that produced this snapshot is preferred when it's on that
+  // server (its files live on its host for a "local" destination, the only
+  // agent that can read them).
   const producer = migrating ? null : await agentById(snapshot.agentId);
-  const agent = migrating
-    ? await pickAgent(targetInstanceId, null)
-    : producer && producer.status === "online"
-      ? producer
-      : await pickAgent(snapshot.resource.instanceId, snapshot.resource.serverUuid);
+  const producerFits =
+    !!producer &&
+    producer.status === "online" &&
+    (snapshot.destination.type === "local" || !server || !producer.serverUuid || producer.serverUuid === server);
+  const agent = producerFits
+    ? producer
+    : await pickAgent(migrating ? (targetInstanceId ?? null) : snapshot.resource.instanceId, server);
   if (!agent) {
     throw migrating
       ? new UserError("messages.noAgentOnTarget", { name: snapshot.resource.name })
       : new UserError("messages.noAgentForRestore", {
-          server: snapshot.resource.serverName ?? snapshot.resource.serverUuid ?? "",
+          server: (server === snapshot.resource.serverUuid ? snapshot.resource.serverName : null) ?? server ?? "",
           name: snapshot.resource.name,
         });
   }
 
   const enc = resolveEncryption(snapshot.destination);
-  const manifest = snapshot.manifest as unknown as SnapshotManifest;
 
   // "→ new": clone into a fresh Coolify resource and restore into it. The
   // volume map tells the agent which (uuid-swapped) volumes to fill.
@@ -977,7 +1015,14 @@ export async function enqueueRestore(
     // Point this clone at clones of resources already restored onto the same
     // instance (e.g. the restored DB), never back at the originals.
     const mapping = await cloneMappingsFor(cloneInstanceId, snapshot.resource.coolifyUuid);
-    const cloned = await cloneForRestore(snapshot.resource, manifest, targetInstanceId, mapping, imageChoice ?? "snapshot");
+    const cloned = await cloneForRestore(
+      snapshot.resource,
+      manifest,
+      targetInstanceId,
+      mapping,
+      imageChoice ?? "snapshot",
+      server ?? undefined,
+    );
     targetResource = cloned.descriptor;
     notes = cloned.notes;
     remapped = cloned.changes;
@@ -1332,6 +1377,14 @@ export async function enqueueMirror(sourceSnapshotId: string): Promise<{ queued:
   // Don't duplicate if this run was already mirrored (idempotent re-delivery).
   const existing = await prisma.snapshot.findFirst({ where: { mirrorOfId: snap.id }, select: { id: true } });
   if (existing) return { queued: false, reason: "already-mirrored" };
+  // Nor while a copy of it is queued or running (the hourly catch-up, the API).
+  const inFlight = await prisma.agentJob.findMany({
+    where: { type: "mirror", status: { in: ["queued", "running"] } },
+    select: { payload: true },
+  });
+  if (inFlight.some((j) => (j.payload as { sourceSnapshotId?: unknown } | null)?.sourceSnapshotId === snap.id)) {
+    return { queued: false, reason: "in-progress" };
+  }
 
   // The copy runs where the source files are reachable: the producing agent for
   // a "local" source, otherwise any online agent.

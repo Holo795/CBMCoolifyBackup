@@ -130,6 +130,24 @@ export async function notifyBackupFailed(snapshotId: string): Promise<void> {
   );
 }
 
+/** Notify that copying a backup to its mirror destination failed (best-effort),
+ * saying whether it will be retried (attempt out of attempts). */
+export async function notifyMirrorFailed(sourceSnapshotId: string, targetName: string, detail: string, attempt: number, attempts: number): Promise<void> {
+  const snap = await prisma.snapshot
+    .findUnique({ where: { id: sourceSnapshotId }, include: { resource: { include: { instance: true } } } })
+    .catch(() => null);
+  if (!snap) return;
+  const base = (env.authUrl || "").replace(/\/$/, "");
+  const link = base ? `\n${base}/snapshots/${snap.id}` : "";
+  const next =
+    attempt >= attempts
+      ? `No more automatic attempts (${attempt}/${attempts}): the second copy of this backup is missing.`
+      : `Retried automatically within the hour (attempt ${attempt}/${attempts}).`;
+  await sendAlert(
+    `🪞 Mirror copy failed - **${snap.resource.name}** (${snap.resource.instance.name}) to ${targetName}\n${detail.slice(0, 500)}\n${next}${link}`,
+  );
+}
+
 /** Notify that a restore drill could not prove a snapshot restorable (best-effort). */
 export async function notifyDrillFailed(snapshotId: string, detail: string): Promise<void> {
   const snap = await prisma.snapshot

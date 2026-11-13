@@ -34,3 +34,23 @@ test("handles empty and non-object payloads", () => {
   assert.deepEqual(scrubPayload({}), { scrubbed: true });
   assert.deepEqual(scrubPayload([1, 2]), { scrubbed: true });
 });
+
+test("keeps what a late result needs: the restore's redeploy flags and a prune's snapshots", () => {
+  assert.deepEqual(
+    scrubPayload({
+      id: "j2",
+      type: "restore",
+      target: "in_place",
+      restart: false,
+      destination: { secretKey: "SK" },
+      decryptionKey: "k1",
+    }),
+    { scrubbed: true, id: "j2", type: "restore", target: "in_place", restart: false },
+  );
+  assert.deepEqual(
+    scrubPayload({ type: "prune", snapshotIds: ["s1", "s2"], dirs: ["a/b"], destination: { password: "pw" } }),
+    { scrubbed: true, type: "prune", snapshotIds: ["s1", "s2"] },
+  );
+  // A list that isn't only ids is still dropped.
+  assert.deepEqual(scrubPayload({ snapshotIds: [{ password: "pw" }] }), { scrubbed: true });
+});

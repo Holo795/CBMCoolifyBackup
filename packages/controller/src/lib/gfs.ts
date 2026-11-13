@@ -1,4 +1,5 @@
-/** Pure grandfather-father-son retention selection (no I/O, easy to test). */
+/** Pure grandfather-father-son retention selection (no I/O, easy to test).
+ * The newest snapshot is always kept. */
 
 export function computeKeepSet(
   snaps: { id: string; at: Date }[],
@@ -27,6 +28,12 @@ export function computeKeepSet(
       seenMonth.add(monthKey);
       keep.add(s.id);
     }
+  }
+  // Never every copy: the newest is kept whatever the counts (a 0/0/0
+  // retention saved before it was refused would otherwise delete each backup
+  // as soon as it succeeded).
+  if (snaps.length > 0) {
+    keep.add(snaps.reduce((a, b) => (b.at.getTime() > a.at.getTime() ? b : a)).id);
   }
   return keep;
 }

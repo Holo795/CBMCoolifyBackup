@@ -107,6 +107,7 @@ export const en = {
   invalidCron: 'Invalid cron expression "{cron}" (5 fields: minute hour day month weekday)',
   unknownMode: "Unknown backup mode",
   invalidRetention: "Retention ({period}) must be a whole number between 0 and 1000",
+  retentionEmpty: "Keep at least one daily, weekly or monthly backup: with 0 / 0 / 0, every backup would be deleted as soon as it finished",
   retentionPeriod: { daily: "daily", weekly: "weekly", monthly: "monthly" },
 
   // Hooks
@@ -143,6 +144,7 @@ export const en = {
   localCrossInstance:
     "This snapshot is stored on a 'local' destination (files on the source host), so it can't be restored onto another instance. Use an SSH/S3 destination.",
   noManifestRestore: "Snapshot has no manifest; cannot restore",
+  restoreNeedsSuccess: "Only a successful snapshot can be restored (this one failed, is running or is being deleted)",
   controlPlaneNoClone: 'A Coolify control-plane backup can only be restored in place, not "→ new".',
   cloneUnsupportedType: 'Restore → new resource is not supported for type "{type}"',
   appCantClone: 'Application "{name}" can\'t be "→ new" cloned (no git repo and no docker image)',
@@ -289,6 +291,7 @@ export const fr: typeof en = {
   invalidCron: "Expression cron invalide « {cron} » (5 champs : minute heure jour mois jour-de-semaine)",
   unknownMode: "Mode de sauvegarde inconnu",
   invalidRetention: "La conservation ({period}) doit être un nombre entier entre 0 et 1000",
+  retentionEmpty: "Conservez au moins une sauvegarde quotidienne, hebdomadaire ou mensuelle : avec 0 / 0 / 0, chaque sauvegarde serait supprimée dès sa fin",
   retentionPeriod: { daily: "quotidienne", weekly: "hebdomadaire", monthly: "mensuelle" },
 
   hookTooLong: "Une commande de hook est trop longue (4000 caractères max.)",
@@ -325,6 +328,7 @@ export const fr: typeof en = {
   localCrossInstance:
     "Ce snapshot est stocké sur une destination « local » (fichiers sur l'hôte source) : il ne peut donc pas être restauré sur une autre instance. Utilisez une destination SSH/S3.",
   noManifestRestore: "Le snapshot n'a pas de manifeste ; restauration impossible",
+  restoreNeedsSuccess: "Seul un snapshot réussi peut être restauré (celui-ci a échoué, est en cours ou en suppression)",
   controlPlaneNoClone:
     "Une sauvegarde du plan de contrôle Coolify ne peut être restaurée que sur place, pas « → new ».",
   cloneUnsupportedType: "La restauration → new n'est pas prise en charge pour le type « {type} »",

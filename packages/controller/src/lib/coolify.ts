@@ -852,9 +852,11 @@ export class CoolifyClient {
 
   private async envMap(): Promise<Map<number, EnvInfo>> {
     const map = new Map<number, EnvInfo>();
-    try {
-      const projects = await this.get<CoolifyProjectRaw[]>("/api/v1/projects");
-      for (const p of projects ?? []) {
+    {
+      // Fails the discovery when it fails: without it every resource would be
+      // stored with an empty project and environment.
+      const projects = await this.list<CoolifyProjectRaw>("/api/v1/projects");
+      for (const p of projects) {
         // The list endpoint usually omits nested environments; fetch detail.
         let envs = p.environments;
         let name = p.name;
@@ -871,8 +873,6 @@ export class CoolifyClient {
           }
         }
       }
-    } catch {
-      /* projects endpoint optional */
     }
     return map;
   }
@@ -897,19 +897,32 @@ export class CoolifyClient {
     const envs = await this.envMap();
     const out: CoolifyResource[] = [];
 
-    const apps = await this.get<CoolifyRaw[]>("/api/v1/applications").catch(() => []);
-    for (const a of apps ?? []) {
+    // A list that fails fails the whole discovery: an empty list taken for
+    // "nothing there" made every application (or database) look deleted.
+    for (const a of await this.list("/api/v1/applications")) {
       out.push(this.normalize(a, "application", envs));
     }
-    const dbs = await this.get<CoolifyRaw[]>("/api/v1/databases").catch(() => []);
-    for (const d of dbs ?? []) {
+    for (const d of await this.list("/api/v1/databases")) {
       out.push(this.normalize(d, undefined, envs));
     }
-    const svcs = await this.get<CoolifyRaw[]>("/api/v1/services").catch(() => []);
-    for (const s of svcs ?? []) {
+    for (const s of await this.list("/api/v1/services")) {
       out.push(this.normalize(s, "service", envs));
     }
     return out;
+  }
+
+  /** A Coolify list: [] only when the endpoint doesn't exist (older Coolify);
+   * any other error or a body that isn't a list throws. */
+  private async list<T = CoolifyRaw>(path: string): Promise<T[]> {
+    const res = await this.request(path);
+    if (res.status === 404) {
+      await res.body?.cancel().catch(() => undefined);
+      return [];
+    }
+    if (!res.ok) throw new Error(`Coolify GET ${path} -> ${res.status} ${(await res.text().catch(() => "")).slice(0, 200)}`);
+    const body = (await res.json()) as unknown;
+    if (!Array.isArray(body)) throw new Error(`Coolify GET ${path}: expected a list, got ${JSON.stringify(body).slice(0, 200)}`);
+    return body as T[];
   }
 
   private normalize(

@@ -899,6 +899,10 @@ async function scheduleError(data: ReturnType<typeof scheduleData>): Promise<str
       return t("messages.invalidRetention", { period: t(`messages.retentionPeriod.${k}`) });
     }
   }
+  // 0/0/0 would delete every backup as soon as it succeeded.
+  if (data.mode === "backup" && data.retentionDaily + data.retentionWeekly + data.retentionMonthly === 0) {
+    return t("messages.retentionEmpty");
+  }
   return null;
 }
 

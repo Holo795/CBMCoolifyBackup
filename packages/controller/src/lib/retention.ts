@@ -19,10 +19,10 @@ export async function applyRetention(policyId: string): Promise<{ deleted: numbe
   const where = policy.resourceId
     ? { id: policy.resourceId }
     : policy.instanceId && policy.serverUuid
-      ? { instanceId: policy.instanceId, serverUuid: policy.serverUuid, backupEnabled: true }
+      ? { instanceId: policy.instanceId, serverUuid: policy.serverUuid, backupEnabled: true, status: { not: "deleted" } }
       : policy.instanceId
-        ? { instanceId: policy.instanceId, backupEnabled: true }
-        : { backupEnabled: true };
+        ? { instanceId: policy.instanceId, backupEnabled: true, status: { not: "deleted" } }
+        : { backupEnabled: true, status: { not: "deleted" } };
   const resources = await prisma.resource.findMany({ where, select: { id: true, instanceId: true } });
 
   let deleted = 0;

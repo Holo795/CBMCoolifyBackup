@@ -1,4 +1,6 @@
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "./prisma";
+import { scrubPayload } from "./scrub";
 import { notifyBackupFailed } from "./notify";
 import { AGENT_ONLINE_MS } from "./agent-status";
 
@@ -100,6 +102,7 @@ export async function reaper(now = new Date(), opts: ReaperOptions = {}): Promis
       type: true,
       snapshotId: true,
       restoreId: true,
+      payload: true,
       claimedAt: true,
       timeLimitMs: true,
       agent: { select: { status: true, lastSeenAt: true } },
@@ -118,7 +121,7 @@ export async function reaper(now = new Date(), opts: ReaperOptions = {}): Promis
   // in-place restore days after it was asked for.
   const queued = await prisma.agentJob.findMany({
     where: { status: "queued", createdAt: { lt: new Date(now.getTime() - MIN_QUEUE_TTL_MS) } },
-    select: { id: true, type: true, snapshotId: true, restoreId: true, createdAt: true },
+    select: { id: true, type: true, snapshotId: true, restoreId: true, payload: true, createdAt: true },
   });
   let expired = 0;
   for (const j of queued) {
@@ -179,7 +182,7 @@ export function lostJobIds(
 export async function releaseLostJobs(agentId: string, activeIds: string[], now = new Date()): Promise<number> {
   const running = await prisma.agentJob.findMany({
     where: { agentId, status: "running" },
-    select: { id: true, type: true, snapshotId: true, restoreId: true, claimedAt: true },
+    select: { id: true, type: true, snapshotId: true, restoreId: true, payload: true, claimedAt: true },
   });
   const lost = new Set(lostJobIds(running, activeIds, now));
   let n = 0;
@@ -196,14 +199,22 @@ export async function releaseLostJobs(agentId: string, activeIds: string[], now 
  * job had already moved on.
  */
 async function failJob(
-  j: { id: string; type: string; snapshotId: string | null; restoreId: string | null },
+  j: { id: string; type: string; snapshotId: string | null; restoreId: string | null; payload: Prisma.JsonValue },
   from: "queued" | "running",
   reason: string,
   now: Date,
 ): Promise<boolean> {
   const upd = await prisma.agentJob.updateMany({
     where: { id: j.id, status: from },
-    data: { status: "failed", error: reason, finishedAt: now, payload: { scrubbed: true, type: j.type } },
+    // Its credentials go, but not what a late result still needs: whether to
+    // redeploy after an in-place restore, a mirror copy's source and target, a
+    // prune's snapshots. Wiping all of it left a restored resource stopped.
+    data: {
+      status: "failed",
+      error: reason,
+      finishedAt: now,
+      payload: { ...scrubPayload(j.payload), type: j.type } as Prisma.InputJsonValue,
+    },
   });
   if (upd.count === 0) return false;
   if (j.snapshotId) {

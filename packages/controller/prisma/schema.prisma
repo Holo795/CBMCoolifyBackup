@@ -197,6 +197,9 @@ model Resource {
   environmentUuid String?
   buildPack    String?
   status       String        @default("unknown")
+  // Complete discoveries in a row that didn't list this resource. It is taken
+  // as removed from Coolify only after several, never on one listing.
+  missingSyncs Int           @default(0)
   // Which Coolify server this resource is deployed on (from the Coolify API).
   // Drives which agent backs it up in a multi-server instance.
   serverUuid   String?
