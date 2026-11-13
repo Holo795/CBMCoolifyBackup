@@ -26,6 +26,13 @@ export const en = {
     integrityFailed: "integrity failed",
     noAgent: "no agent to verify",
     mirrorsTo: "mirrors to {name}",
+    hostKey: "host key known",
+  },
+  hostKeys: {
+    forget: "Forget host keys",
+    forgetTitle: "Forget the SSH host keys of “{name}”?",
+    forgetBody:
+      "CBM refuses an SSH server whose host key isn't the one it learned at the first connection: someone may be in the middle. Forget the keys only if you know the server changed (reinstalled, new key). The next connection, a test or a job, learns the new ones.",
   },
   verify: {
     label: "Verify",
@@ -226,6 +233,13 @@ export const fr: typeof en = {
     integrityFailed: "intégrité en échec",
     noAgent: "aucun agent pour vérifier",
     mirrorsTo: "miroir vers {name}",
+    hostKey: "clé d'hôte connue",
+  },
+  hostKeys: {
+    forget: "Oublier les clés d'hôte",
+    forgetTitle: "Oublier les clés d'hôte SSH de « {name} » ?",
+    forgetBody:
+      "CBM refuse un serveur SSH dont la clé d'hôte n'est pas celle apprise à la première connexion : quelqu'un pourrait s'être placé au milieu. N'oubliez les clés que si vous savez que le serveur a changé (réinstallé, nouvelle clé). La prochaine connexion, un test ou un job, apprend les nouvelles.",
   },
   verify: {
     label: "Vérifier",

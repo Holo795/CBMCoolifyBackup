@@ -17,6 +17,13 @@ repository passwords — are **AES-256-GCM encrypted at rest** with your `MASTER
 - **restic engine** — the repository is always encrypted with a random per-destination password
   (also stored encrypted with `MASTER_KEY`).
 
+## SSH host keys
+
+CBM checks the host key of SSH destinations and jump hosts: the first one seen is kept (trust on
+first use, at the destination's first test or job), then a different one is refused and the job
+fails with both fingerprints. An admin forgets the keys of a destination whose server really
+changed. Before 2.8.0, every key was accepted. See [Destinations](destinations.md#ssh--sftp).
+
 ## Protection against deletion
 
 CBM holds every destination's credentials, so a compromised CBM could delete backups. Mark the

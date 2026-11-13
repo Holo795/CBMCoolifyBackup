@@ -24,6 +24,7 @@ import { decryptSecret, encryptSecret } from "./crypto";
 import { effectivePolicy } from "./schedule";
 import { CoolifyClient, GENERATED_SECRET, type AppVolume, type DbEngine, type CloneEngine, type DbConfig, type CoolifyRaw } from "./coolify";
 import { syncInstance } from "./discovery";
+import { storedHostKeys, withHostKeys } from "./ssh-hostkeys";
 import { remapEnv, type RemapChange } from "./remap";
 import { UserError } from "./user-error";
 import { composePicker, imageExists, pinCompose, resolveImages, snapshotImages, type ImageChoice } from "./image-pin";
@@ -41,6 +42,8 @@ export function resolveDestination(dest: Destination): ResolvedDestination {
   if (d.type === "ssh") {
     d.privateKey = normalizePrivateKey(d.privateKey);
     d.jumpPrivateKey = normalizePrivateKey(d.jumpPrivateKey);
+    // The host keys it knows: enforced by whoever connects (lib/ssh-hostkeys).
+    return withHostKeys(d, storedHostKeys(dest.sshHostKeys));
   }
   return d;
 }

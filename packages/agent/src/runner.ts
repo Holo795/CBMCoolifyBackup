@@ -1,4 +1,5 @@
 import { redactSecrets, type Job, type JobResult, type JobEvent } from "@cbm/shared";
+import { hostKeysSeenFor } from "./hostkeys.js";
 import type { AgentConfig } from "./config.js";
 import { runBackup, type Emit } from "./backup.js";
 import { runRestore } from "./restore.js";
@@ -19,6 +20,17 @@ export const BACKUP_RETRY_DELAY_MS = 30_000;
  * forward to the controller). Returns the final JobResult.
  */
 export async function executeJob(
+  job: Job,
+  workDir: string,
+  onEvent?: (e: JobEvent) => void,
+): Promise<JobResult> {
+  const result = await executeJobOnce(job, workDir, onEvent);
+  // The SSH host keys its connections were offered (see hostkeys.ts).
+  const sshHostKeys = hostKeysSeenFor(job);
+  return sshHostKeys ? { ...result, sshHostKeys } : result;
+}
+
+async function executeJobOnce(
   job: Job,
   workDir: string,
   onEvent?: (e: JobEvent) => void,

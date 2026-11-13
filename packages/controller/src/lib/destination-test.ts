@@ -8,6 +8,8 @@ export type TestMsg = { key: string; vars?: MsgVars };
  * `error` is the raw (untranslatable) failure from the client libraries. */
 export async function testDestination(
   dest: ResolvedDestination,
+  /** SSH: the host keys offered (to learn the first ones). */
+  seen: Record<string, string> = {},
 ): Promise<{ ok: boolean; detail?: TestMsg; error?: string | TestMsg }> {
   try {
     if (dest.type === "local") {
@@ -26,32 +28,8 @@ export async function testDestination(
         const problem = await sshKeyProblem(key);
         if (problem) return { ok: false, error: { key: msg, vars: { problem } } };
       }
-      const mod = await import("ssh2-sftp-client");
-      const client = new mod.default();
-      const auth = { username: dest.username, password: dest.password, privateKey: dest.privateKey };
-      let jump: import("ssh2").Client | null = null;
-      if (dest.jumpHost) {
-        const { Client } = await import("ssh2");
-        jump = new Client();
-        const j = jump;
-        await new Promise<void>((resolve, reject) => {
-          j.on("ready", () => resolve())
-            .on("error", reject)
-            .connect({
-              host: dest.jumpHost,
-              port: dest.jumpPort,
-              username: dest.jumpUsername || dest.username,
-              password: dest.jumpPassword || dest.password,
-              privateKey: dest.jumpPrivateKey || dest.privateKey,
-            });
-        });
-        const sock = await new Promise<import("stream").Duplex>((resolve, reject) => {
-          j.forwardOut("127.0.0.1", 0, dest.host, dest.port, (err, stream) => (err ? reject(err) : resolve(stream)));
-        });
-        await client.connect({ sock, ...auth });
-      } else {
-        await client.connect({ host: dest.host, port: dest.port, ...auth });
-      }
+      const { connectSftp } = await import("./ssh-hostkeys");
+      const { client, close } = await connectSftp(dest, seen);
       try {
         const list = await client.list(dest.basePath).catch(() => []);
         const vars = { host: dest.host, port: dest.port, count: list.length, path: dest.basePath };
@@ -59,8 +37,7 @@ export async function testDestination(
           ? { ok: true, detail: { key: "messages.sshTestOkVia", vars: { ...vars, jump: dest.jumpHost } } }
           : { ok: true, detail: { key: "messages.sshTestOk", vars } };
       } finally {
-        await client.end().catch(() => undefined);
-        jump?.end();
+        await close();
       }
     }
 

@@ -15,6 +15,7 @@ import {
 import { MIRROR_ATTEMPTS, mirrorFailures } from "@/lib/mirror-catchup";
 import { enqueueMirror, redeployOnSnapshotVersion } from "@/lib/jobs";
 import { scrubPayload } from "@/lib/scrub";
+import { learnHostKeys } from "@/lib/ssh-hostkeys";
 import { removeSnapshots, settlePrune } from "@/lib/snapshot-removal";
 import { resticPartIds } from "@cbm/shared";
 import { applyRetention, applyMirrorRetention } from "@/lib/retention";
@@ -63,6 +64,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     where: { id },
     data: { status: result.status, error: result.error, finishedAt: new Date() },
   });
+  // SSH host keys the agent met for the first time (lib/ssh-hostkeys).
+  await learnHostKeys(parsed.data.sshHostKeys).catch((e) => console.error("[ssh] keeping host keys failed:", (e as Error).message));
 
   if (job.type === "backup" && job.snapshotId) {
     if (succeeded && result.manifest) {

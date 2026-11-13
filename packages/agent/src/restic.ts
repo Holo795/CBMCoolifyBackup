@@ -1,7 +1,8 @@
-import { readdir, mkdtemp, writeFile, rm } from "node:fs/promises";
+import { readdir, mkdtemp, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
-import { normalizePrivateKey, type ResolvedDestination } from "@cbm/shared";
+import { knownHostsLine, normalizePrivateKey, parseKnownHosts, type ResolvedDestination } from "@cbm/shared";
+import { recordHostKey } from "./hostkeys.js";
 import { runCapture, type RunResult } from "./proc.js";
 import { getSettings } from "./settings.js";
 
@@ -81,11 +82,19 @@ function shq(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
+// accept-new: a host key already in the file (the one the controller knows)
+// must match - a changed one is refused; a host with none known is accepted and
+// its key read back from the file afterwards (see hostkeys.ts). Unhashed, so
+// the file says which host each key is for.
 const SSH_OPTS = (knownHosts: string) => [
   "-o",
   "StrictHostKeyChecking=accept-new",
   "-o",
   `UserKnownHostsFile=${knownHosts}`,
+  "-o",
+  "GlobalKnownHostsFile=/dev/null",
+  "-o",
+  "HashKnownHosts=no",
   "-o",
   "ConnectTimeout=20",
   // Without it, ssh's "Permanently added '<host>' to the list of known hosts"
@@ -143,7 +152,11 @@ export async function resticContext(dest: ResolvedDestination, password: string,
     await writeFile(p, withNewline && !content.endsWith("\n") ? `${content}\n` : content, { mode: 0o600 });
     return p;
   };
-  const knownHosts = await secretFile("known_hosts", "", false);
+  const known = [
+    ...(dest.hostKey ? [knownHostsLine(dest.host, dest.port, dest.hostKey)] : []),
+    ...(dest.jumpHost && dest.jumpHostKey ? [knownHostsLine(dest.jumpHost, dest.jumpPort, dest.jumpHostKey)] : []),
+  ];
+  const knownHosts = await secretFile("known_hosts", known.length ? `${known.join("\n")}\n` : "", false);
 
   // Build the auth prefix (sshpass) + key option for one hop.
   const hop = async (tag: string, key?: string, pwd?: string): Promise<{ prefix: string[]; keyOpt: string[] }> => {
@@ -200,6 +213,12 @@ export async function resticContext(dest: ResolvedDestination, password: string,
     sftp: { user: dest.username, host: dest.host, port: dest.port, path: posix.join(dest.basePath, "restic-repo"), connect },
     paths: [tmp],
     cleanup: async () => {
+      // The keys ssh accepted (known, or learned now), reported with the result.
+      const text = await readFile(knownHosts, "utf8").catch(() => "");
+      for (const e of parseKnownHosts(text)) {
+        const [h, p] = [e.id.slice(0, e.id.lastIndexOf(":")), Number(e.id.slice(e.id.lastIndexOf(":") + 1))];
+        recordHostKey(h, p, e.key);
+      }
       await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
     },
   };
@@ -273,10 +292,22 @@ export async function restic(ctx: ResticCtx, args: string[]): Promise<ResticRun>
     return runCapture(RESTIC, [...ctx.args, ...args], { env: ctx.env, onStderr: watch, onStdout: watch });
   };
   const r = await run();
+  if (r.code !== 0) r.stderr = explainHostKey(r.stderr);
   if (r.code === 0 || !refusedByStaleLock(r.stderr)) return r;
   const { resticUnlock } = await import("./restic-helper.js");
   await resticUnlock(ctx, agentWorkDir());
   return run();
+}
+
+/** ssh refused the host key the controller knows: say so first (its own
+ * message, with the offered fingerprint, follows). */
+export function explainHostKey(stderr: string): string {
+  if (!/REMOTE HOST IDENTIFICATION HAS CHANGED|Host key verification failed/i.test(stderr)) return stderr;
+  return (
+    "The SSH server's host key isn't the one CBM knows for it: connection refused. If the server was reinstalled " +
+    "or its key rotated, forget the known key on the Destinations page (the next connection learns the new one). " +
+    stderr
+  );
 }
 
 // Serialise repo initialisation per repository so concurrent jobs (the agent

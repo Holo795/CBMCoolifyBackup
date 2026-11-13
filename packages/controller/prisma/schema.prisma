@@ -270,6 +270,9 @@ model Destination {
   integrityCheckEnabled Boolean @default(false)
   lastIntegrityAt      DateTime?
   lastIntegrityStatus  String?   // "ok" | an error detail
+  // SSH host keys by "host:port" ("<type> <base64>"), the target's and the jump
+  // host's: learned at the first connection, then enforced (lib/ssh-hostkeys).
+  sshHostKeys          Json?
   // Mirror: every backup written here is also copied to this destination, for a
   // second independent copy (redundancy). Null = no mirror.
   mirrorToId      String?

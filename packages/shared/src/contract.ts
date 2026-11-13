@@ -26,6 +26,11 @@ export const SshDestination = z.object({
   jumpUsername: z.string().optional(),
   jumpPassword: z.string().optional(),
   jumpPrivateKey: z.string().optional(),
+  // Host keys known for the target and the jump host ("<type> <base64>"):
+  // a different one is refused; none yet, the first seen is accepted and
+  // reported back (JobResult.sshHostKeys).
+  hostKey: z.string().optional(),
+  jumpHostKey: z.string().optional(),
 });
 
 export const S3Destination = z.object({
@@ -753,6 +758,10 @@ export const JobResult = z.object({
         .optional(),
     })
     .optional(),
+  /** SSH host keys the agent was offered, by "host:port" ("<type> <base64>"):
+   * the controller keeps the first one of a destination, and asks an admin
+   * when one changes. */
+  sshHostKeys: z.record(z.string().max(300), z.string().max(8000)).optional(),
   /** For an update-agent job: the version before and after. */
   update: z.object({ from: z.string().max(50), to: z.string().max(50) }).optional(),
   /** For a restore-drill job: the per-artifact outcome. */
@@ -768,3 +777,42 @@ export type JobResult = z.infer<typeof JobResult>;
 
 /* Re-export job/status enums for convenience. */
 export { JobType, JobStatus };
+
+/** How a host key is filed: "host:port". */
+export function sshHostId(host: string, port: number | undefined): string {
+  return `${host}:${port ?? 22}`;
+}
+
+/** One OpenSSH known_hosts line for a key ("<type> <base64>"). */
+export function knownHostsLine(host: string, port: number | undefined, key: string): string {
+  const p = port ?? 22;
+  return `${p === 22 ? host : `[${host}]:${p}`} ${key}`;
+}
+
+/** The entries of an OpenSSH known_hosts file (unhashed names only). */
+export function parseKnownHosts(text: string): Array<{ id: string; key: string }> {
+  const out: Array<{ id: string; key: string }> = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#") || line.startsWith("|")) continue;
+    const [names, type, data] = line.split(/\s+/);
+    if (!names || !type || !data) continue;
+    for (const name of names.split(",")) {
+      const m = /^\[(.+)\]:(\d+)$/.exec(name);
+      out.push({ id: m ? sshHostId(m[1]!, Number(m[2])) : sshHostId(name, 22), key: `${type} ${data}` });
+    }
+  }
+  return out;
+}
+
+/**
+ * The host key algorithms to ask for, given the key known for a host: the
+ * same type only. A server holds several keys (ed25519, ecdsa, rsa) and two
+ * clients may each prefer another; asking for the known type avoids taking a
+ * different key of the same server for a changed one. None known: any.
+ */
+export function hostKeyAlgorithms(known: string | undefined): string[] | undefined {
+  const type = known?.trim().split(/\s+/)[0];
+  if (!type) return undefined;
+  return type === "ssh-rsa" ? ["rsa-sha2-512", "rsa-sha2-256", "ssh-rsa"] : [type];
+}

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { fingerprint, storedHostKeys } from "@/lib/ssh-hostkeys";
 import { DestinationsView, type DestinationItem } from "./destinations-view";
 import { DESTINATION_SECRETS } from "@/lib/public-fields";
 import { repoUsageByDestination } from "@/lib/storage-usage";
@@ -26,6 +27,8 @@ export default async function DestinationsPage() {
     // restic stores identical data once: what the repository really takes.
     disk: dest.engine === "restic" ? (repoUsage.get(dest.id) ?? null) : null,
     missing: missingByDest.get(dest.id) ?? 0,
+    // SSH: the host keys learned (enforced from then on), as fingerprints.
+    hostKeys: Object.entries(storedHostKeys(dest.sshHostKeys)).map(([host, key]) => ({ host, fingerprint: fingerprint(key) })),
   }));
   // On disk where measured, the logical size elsewhere (tar: the same).
   const globalBytes = items.reduce((n, i) => n + (i.disk ? BigInt(i.disk.bytes) : BigInt(i.bytes)), 0n);

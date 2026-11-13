@@ -10,6 +10,7 @@ import {
   checkIntegrityNow,
   setDestinationProtection,
   checkDestinationProtection,
+  forgetHostKeys,
 } from "@/app/actions";
 import { ActionsMenu, type MenuAction } from "@/components/actions-menu";
 import { IntegrityToggle } from "@/components/integrity-toggle";
@@ -29,6 +30,7 @@ import {
   HardDrive,
   Lock,
   PlugZap,
+  KeyRound,
   ShieldCheck,
   ShieldAlert,
   ShieldHalf,
@@ -51,6 +53,8 @@ export type DestinationItem = {
   /** restic: what the repository really stores, once measured. */
   disk: { bytes: number; measuredAt: Date } | null;
   missing: number;
+  /** SSH: host keys learned, by host:port. */
+  hostKeys: Array<{ host: string; fingerprint: string }>;
 };
 
 const TYPE_ICON = { local: FolderOpen, ssh: Server, s3: Cloud } as const;
@@ -95,7 +99,7 @@ export async function DestinationsView({
         />
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
-          {items.map(({ dest: d, bytes, disk, missing }) => {
+          {items.map(({ dest: d, bytes, disk, missing, hostKeys }) => {
             const Icon = TYPE_ICON[d.type as keyof typeof TYPE_ICON] ?? HardDrive;
             const empty = d._count.snapshots === 0;
             const menu: MenuAction[] = [
@@ -122,6 +126,19 @@ export async function DestinationsView({
                     { label: t("common.test"), icon: <PlugZap />, action: testDestinationAction.bind(null, d.id), successMsg: t("destinations.reachable") },
                     ...(d.type === "s3"
                       ? [{ label: t("destinations.protection.check"), icon: <ShieldCheck />, action: checkDestinationProtection.bind(null, d.id) }]
+                      : []),
+                    ...(d.type === "ssh" && hostKeys.length > 0
+                      ? [
+                          {
+                            kind: "delete",
+                            label: t("destinations.hostKeys.forget"),
+                            icon: <KeyRound />,
+                            action: forgetHostKeys.bind(null, d.id),
+                            confirmWord: d.name,
+                            title: t("destinations.hostKeys.forgetTitle", { name: d.name }),
+                            body: <>{t("destinations.hostKeys.forgetBody")}</>,
+                          } satisfies MenuAction,
+                        ]
                       : []),
                     { kind: "separator" },
                     {
@@ -259,6 +276,15 @@ export async function DestinationsView({
                       <Badge tone="danger">
                         <AlertTriangle /> {t("destinations.badge.missing", { count: missing })}
                       </Badge>
+                    )}
+                    {hostKeys.length > 0 && (
+                      <Tooltip content={hostKeys.map((k) => `${k.host} ${k.fingerprint}`).join(" · ")}>
+                        <span tabIndex={0}>
+                          <Badge>
+                            <KeyRound /> {t("destinations.badge.hostKey")}
+                          </Badge>
+                        </span>
+                      </Tooltip>
                     )}
                     {d.lastIntegrityStatus === "ok" && (
                       <Badge tone="success">

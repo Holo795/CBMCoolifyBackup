@@ -31,37 +31,14 @@ async function withSftp<T>(
   dest: Extract<ResolvedDestination, { type: "ssh" }>,
   fn: (client: import("ssh2-sftp-client")) => Promise<T>,
 ): Promise<T> {
-  const mod = await import("ssh2-sftp-client");
-  const client = new mod.default();
-  const auth = { username: dest.username, password: dest.password, privateKey: dest.privateKey };
-  let jump: import("ssh2").Client | null = null;
-  if (dest.jumpHost) {
-    const { Client } = await import("ssh2");
-    jump = new Client();
-    const j = jump;
-    await new Promise<void>((resolve, reject) => {
-      j.on("ready", () => resolve())
-        .on("error", reject)
-        .connect({
-          host: dest.jumpHost,
-          port: dest.jumpPort,
-          username: dest.jumpUsername || dest.username,
-          password: dest.jumpPassword || dest.password,
-          privateKey: dest.jumpPrivateKey || dest.privateKey,
-        });
-    });
-    const sock = await new Promise<import("stream").Duplex>((resolve, reject) => {
-      j.forwardOut("127.0.0.1", 0, dest.host, dest.port, (err, stream) => (err ? reject(err) : resolve(stream)));
-    });
-    await client.connect({ sock, ...auth });
-  } else {
-    await client.connect({ host: dest.host, port: dest.port, ...auth });
-  }
+  const { connectSftp, learnHostKeys } = await import("./ssh-hostkeys");
+  const seen: Record<string, string> = {};
+  const { client, close } = await connectSftp(dest, seen);
   try {
     return await fn(client);
   } finally {
-    await client.end().catch(() => undefined);
-    jump?.end();
+    await close();
+    await learnHostKeys(seen).catch(() => undefined);
   }
 }
 

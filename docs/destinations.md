@@ -38,6 +38,15 @@ that isn't directly reachable (e.g. a private IP behind a gateway):
   credentials if left blank);
 - **the agent's host** must be able to reach the jump host (not your laptop).
 
+**Host keys.** CBM learns the SSH host key of the server (and of the jump host) at the first
+connection - the destination's **Test**, or the first job - and from then on refuses a server
+offering another key: someone may be in the middle, waiting for the password or the backups. The
+card then shows *host key known* (its tooltip gives the SHA256 fingerprints, to compare with
+`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the server). If the server really changed
+(reinstalled, new key), an admin uses **Forget host keys** in the card's **…** menu; the next
+connection learns the new ones. Run **Test** right after creating an SSH destination, so the key
+is learned from where you trust the network.
+
 ### S3 (and S3-compatible)
 Bucket, region (default `us-east-1`), optional prefix, optional endpoint (MinIO etc.), access
 key ID, secret access key, and "force path-style" for MinIO. Reachable from any agent.

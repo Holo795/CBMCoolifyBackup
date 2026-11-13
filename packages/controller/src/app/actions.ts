@@ -791,7 +791,14 @@ export async function testDestinationAction(id: string) {
   await requireRole("admin");
   const dest = await prisma.destination.findUniqueOrThrow({ where: { id } });
   const { testDestination } = await import("@/lib/destination-test");
-  const result = await testDestination(resolveDestination(dest));
+  const seen: Record<string, string> = {};
+  const result = await testDestination(resolveDestination(dest), seen);
+  // The first test of an SSH destination learns its host keys (then enforced).
+  if (result.ok) {
+    const { learnHostKeys } = await import("@/lib/ssh-hostkeys");
+    await learnHostKeys(seen);
+    revalidatePath("/destinations");
+  }
   const t = await getT();
   const text = (m: string | { key: string; vars?: Record<string, string | number> } | undefined) =>
     m === undefined ? undefined : typeof m === "string" ? m : t(m.key, m.vars);
@@ -1088,6 +1095,14 @@ export async function setDestinationProtection(destinationId: string, fd: FormDa
   } catch (e) {
     return { error: errorText(e, t) };
   }
+}
+
+/** Forget an SSH destination's known host keys: the next connection learns new ones. */
+export async function forgetHostKeys(destinationId: string): Promise<{ ok?: boolean; error?: string }> {
+  await requireRole("admin");
+  await prisma.destination.update({ where: { id: destinationId }, data: { sshHostKeys: Prisma.DbNull } });
+  revalidatePath("/destinations");
+  return { ok: true };
 }
 
 /** Check now that an S3 destination is protected from deletion by CBM's own key. */

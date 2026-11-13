@@ -1,4 +1,5 @@
 import { copyFile, mkdir } from "node:fs/promises";
+import { algorithmsFor, hostKeyChangedError, hostVerifier } from "./hostkeys.js";
 import { createReadStream, createWriteStream } from "node:fs";
 import { dirname, join, posix } from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -84,6 +85,7 @@ function localTransfer(basePath: string): Transfer {
 }
 
 /* ------------------------------ ssh ------------------------------ */
+// Host keys: see hostkeys.ts (known one enforced, first one learned).
 
 function sshTransfer(dest: Extract<ResolvedDestination, { type: "ssh" }>): Promise<Transfer> {
   return (async () => {
@@ -109,16 +111,24 @@ function sshTransfer(dest: Extract<ResolvedDestination, { type: "ssh" }>): Promi
             username: dest.jumpUsername || dest.username,
             password: dest.jumpPassword || dest.password,
             privateKey: normalizePrivateKey(dest.jumpPrivateKey || dest.privateKey),
+            hostVerifier: hostVerifier(dest.jumpHost!, dest.jumpPort, dest.jumpHostKey),
+            ...algorithmsFor(dest.jumpHostKey),
           });
+      }).catch((e) => {
+        throw hostKeyChangedError(dest.jumpHost!, dest.jumpPort) ?? e;
       });
       const sock = await new Promise<import("stream").Duplex>((resolve, reject) => {
         j.forwardOut("127.0.0.1", 0, dest.host, dest.port, (err, stream) =>
           err ? reject(err) : resolve(stream),
         );
       });
-      await client.connect({ sock, ...targetAuth });
+      await client.connect({ sock, ...targetAuth, hostVerifier: hostVerifier(dest.host, dest.port, dest.hostKey), ...algorithmsFor(dest.hostKey) }).catch((e: unknown) => {
+        throw hostKeyChangedError(dest.host, dest.port) ?? e;
+      });
     } else {
-      await client.connect({ host: dest.host, port: dest.port, ...targetAuth });
+      await client.connect({ host: dest.host, port: dest.port, ...targetAuth, hostVerifier: hostVerifier(dest.host, dest.port, dest.hostKey), ...algorithmsFor(dest.hostKey) }).catch((e: unknown) => {
+        throw hostKeyChangedError(dest.host, dest.port) ?? e;
+      });
     }
     const abs = (rel: string) => posix.join(dest.basePath, rel);
     return {
