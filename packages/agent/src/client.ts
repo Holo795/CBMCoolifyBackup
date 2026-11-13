@@ -75,6 +75,8 @@ export async function sendResult(cfg: AgentConfig, result: JobResult): Promise<v
 /** Send a heartbeat; returns the controller's answer (settings), or null. */
 export async function heartbeat(cfg: AgentConfig, data: HeartbeatRequest): Promise<HeartbeatResponse | null> {
   const res = await req(cfg, "/api/agents/heartbeat", { method: "POST", body: JSON.stringify(data) }).catch(() => null);
+  // The credential refused: the caller enrolls again (see daemon).
+  if (res?.status === 401) throw new Error("heartbeat refused: 401");
   if (!res?.ok) return null;
   const parsed = HeartbeatResponse.safeParse(await res.json().catch(() => null));
   return parsed.success ? parsed.data : null;

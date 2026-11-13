@@ -138,6 +138,11 @@ model CoolifyInstance {
   enrollTokenHash   String?    @unique // sha256 of the per-instance enrollment token; plaintext is shown once and never stored
   enrollTokenHint   String     @default("") // masked display of the current token, e.g. cbm_ab12…7f4c
   enrollTokenSetAt  DateTime?  // when the current enrollment token was last generated
+  // Tokens revealed from 2.8.0 enroll ONE agent, within 24 h, then stop working
+  // (agents keep their own credential since). One from before (false) stays
+  // reusable until a new command is revealed: older agents enroll at each start.
+  enrollTokenSingleUse Boolean @default(false)
+  enrollTokenExpiresAt DateTime?
   // Restore-time server remap when THIS instance is the target and has several
   // servers: { <source server uuid>: <this instance's server uuid> }. Unmapped
   // sources fall back to the first server; single-server targets ignore it.

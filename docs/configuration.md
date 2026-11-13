@@ -92,8 +92,8 @@ over CBM — the field is then locked in the dialog and shows the host's value.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `CONTROLLER_URL` | `http://localhost:3000` | Where the agent reaches the controller. |
-| `ENROLLMENT_TOKEN` | — | The instance's enrollment token (instance card → **…** → **Install command**); exchanged for a bearer token on first start. |
-| `AGENT_TOKEN` | — | Bearer token (set automatically after enrollment). |
+| `ENROLLMENT_TOKEN` | — | The install token (instance card → **…** → **Install command**): exchanged on first start for the agent's own credential, kept in `AGENT_WORK_DIR`. It enrolls one agent, within 24 hours. |
+| `AGENT_TOKEN` | — | The agent's credential, given by hand. Without it the agent enrolls with `ENROLLMENT_TOKEN` and keeps the credential it gets in `AGENT_WORK_DIR` (`agent-identity.json`, readable by its owner only). |
 | `AGENT_HOSTNAME` | OS hostname | Identifies this agent (one agent per instance + hostname). |
 | `AGENT_SERVER_UUID` | — | Pin this agent to a Coolify server (disables auto-detection). Usually left unset. |
 | `AGENT_CONCURRENCY` **(CBM)** | `2` | How many jobs the agent runs at once (1–16). |

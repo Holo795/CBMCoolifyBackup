@@ -18,6 +18,7 @@ import { applyCbmSettings, getSettings, lockedByEnv } from "./settings.js";
 import * as client from "./client.js";
 import { runJobForController } from "./runner.js";
 import { initHeldContainers } from "./held.js";
+import { loadAgentToken, saveAgentToken } from "./identity.js";
 import { sweepOrphanedStages } from "./disk.js";
 import { deliverResult, flushPendingResults, pendingResultIds } from "./outbox.js";
 import { PollHealth, withQuickRetries } from "./poll-health.js";
@@ -46,29 +47,9 @@ export async function startDaemon(): Promise<void> {
 
   logger.info(`Agent starting (host=${cfg.hostname}, controller=${cfg.controllerUrl})`);
 
-  // Register if we don't have a token yet.
-  if (!cfg.agentToken) {
-    if (!cfg.enrollmentToken) {
-      throw new Error("No AGENT_TOKEN and no ENROLLMENT_TOKEN - cannot register");
-    }
-    try {
-      const res = await withRetry("register", () => client.register(cfg));
-      cfg.agentToken = res.agentToken;
-      logger.info(`Registered as agent ${res.agentId}`);
-    } catch (e) {
-      if (/\b401\b/.test((e as Error).message)) {
-        logger.error(
-          "Enrollment token was rejected (invalid or rotated). Reveal a NEW install command in the " +
-            "controller UI and re-run it on this host to reconfigure the agent.",
-        );
-        process.exit(1);
-      }
-      throw e;
-    }
-  }
-
-  // Containers a previous run left paused/stopped (crash, kill) are resumed now,
-  // and on SIGTERM before exiting (see held.ts).
+  // Containers a previous run left paused/stopped (crash, kill) are resumed
+  // first - before anything that needs the controller, which may be down in
+  // the same incident - and on SIGTERM before exiting (see held.ts).
   initHeldContainers(cfg.workDir);
   await recoverHeldContainers((m) => logger.warn(m));
   await sweepOrphanedStages(cfg.workDir, (m) => logger.info(m));
@@ -80,6 +61,27 @@ export async function startDaemon(): Promise<void> {
       logger.info(`${sig} received - resuming any container paused or stopped by a running job, then exiting`);
       void recoverHeldContainers((m) => logger.warn(m)).finally(() => process.exit(0));
     });
+  }
+
+  // Its own credential: AGENT_TOKEN, else the one kept from its enrollment,
+  // else enroll now with the install token (see identity.ts).
+  if (!cfg.agentToken) cfg.agentToken = (await loadAgentToken(cfg.workDir, cfg.controllerUrl)) ?? "";
+  if (!cfg.agentToken) {
+    if (!cfg.enrollmentToken) {
+      throw new Error("No AGENT_TOKEN and no ENROLLMENT_TOKEN - cannot register");
+    }
+    try {
+      await enroll(cfg);
+    } catch (e) {
+      if (/\b401\b/.test((e as Error).message)) {
+        logger.error(
+          "The install token was rejected (already used, expired or rotated). Reveal a NEW install command in the " +
+            "controller UI and re-run it on this host.",
+        );
+        process.exit(1);
+      }
+      throw e;
+    }
   }
 
   // Results a previous run couldn't deliver.
@@ -182,16 +184,8 @@ async function updateSelf(job: Extract<Awaited<ReturnType<typeof client.poll>>["
         drain: () => (draining = true),
         resume: () => (draining = false),
       },
-      reregister: async () => {
-        if (!cfg.enrollmentToken) return;
-        try {
-          cfg.agentToken = (await client.register(cfg)).agentToken;
-        } catch (e) {
-          if (/\b401\b/.test((e as Error).message))
-            throw new Error("This host's install token was rotated since the agent was installed: re-run the install command to update it.");
-          throw e;
-        }
-      },
+      // The new container reads the credential kept in the shared work dir.
+      reregister: () => saveAgentToken(cfg.workDir, cfg.controllerUrl, cfg.agentToken),
     });
   } catch (e) {
     const message = (e as Error).message;
@@ -238,14 +232,41 @@ async function heartbeatLoop(cfg: AgentConfig): Promise<void> {
           logger.info(`Settings from CBM: ${changed.map((k) => `${k}=${s[k]}`).join(", ")}`);
         }
       }
-    } catch {
-      /* ignore */
+    } catch (e) {
+      // Its credential refused (the agent was removed from CBM): enroll again
+      // if the install token still works, at most every 10 minutes.
+      if (/\b401\b/.test((e as Error).message)) await reenroll(cfg);
     }
     // Resend results kept while the controller was unreachable. (No periodic
     // container recovery here: it could unpause a container mid-backup freeze.)
     await flushPendingResults(cfg.workDir, (r) => client.sendResult(cfg, r), (m) => logger.info(m)).catch(() => undefined);
     await sleep(cfg.heartbeatIntervalMs);
   }
+}
+
+/** Enroll with the install token and keep the credential it gives. */
+async function enroll(cfg: AgentConfig): Promise<void> {
+  const res = await withRetry("register", () => client.register(cfg));
+  cfg.agentToken = res.agentToken;
+  await saveAgentToken(cfg.workDir, cfg.controllerUrl, res.agentToken).catch((e) =>
+    logger.warn(`Could not keep the agent's credential in ${cfg.workDir} (${(e as Error).message}): it will enroll again at its next start`),
+  );
+  logger.info(`Registered as agent ${res.agentId}`);
+}
+
+let lastReenroll = 0;
+async function reenroll(cfg: AgentConfig): Promise<void> {
+  if (Date.now() - lastReenroll < 10 * 60_000) return;
+  lastReenroll = Date.now();
+  if (!cfg.enrollmentToken) {
+    logger.error("The controller refused this agent's credential and there's no install token to enroll again: re-run the install command.");
+    return;
+  }
+  await enroll(cfg).catch((e) =>
+    logger.error(
+      `The controller refused this agent's credential, and enrolling again failed (${describeHttpError(e)}): re-run the install command.`,
+    ),
+  );
 }
 
 async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 30): Promise<T> {

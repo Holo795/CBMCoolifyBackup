@@ -297,7 +297,7 @@ export async function InstancesView({
                         <>
                           {" "}
                           ·{" "}
-                          <Tooltip content={t("instances.enrollTokenTitle")}>
+                          <Tooltip content={t(enrollTokenState(i))}>
                             <span tabIndex={0}>
                               <Code className="text-[11px]">{i.enrollTokenHint}</Code>
                             </span>
@@ -368,4 +368,11 @@ export async function InstancesView({
       )}
     </div>
   );
+}
+
+/** What the install token shown on an instance card can still do. */
+function enrollTokenState(i: { enrollTokenSingleUse: boolean; enrollTokenExpiresAt: Date | string | null }) {
+  if (!i.enrollTokenSingleUse) return "instances.enrollTokenLegacy" as const;
+  const exp = i.enrollTokenExpiresAt ? new Date(i.enrollTokenExpiresAt) : null;
+  return exp && exp > new Date() ? ("instances.enrollTokenPending" as const) : ("instances.enrollTokenUsed" as const);
 }

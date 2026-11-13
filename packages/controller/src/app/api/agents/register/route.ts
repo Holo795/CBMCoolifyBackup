@@ -21,12 +21,23 @@ export async function POST(req: Request) {
   // hash is stored, so we match on the hash. A token that matches nothing
   // (rotated/revoked) is rejected so the agent reconfigures with a freshly
   // revealed install command.
-  const byToken = await prisma.coolifyInstance.findFirst({
-    where: { enrollTokenHash: sha256Hex(data.enrollmentToken) },
-  });
-  if (!byToken) {
+  const hash = sha256Hex(data.enrollmentToken);
+  const byToken = await prisma.coolifyInstance.findFirst({ where: { enrollTokenHash: hash } });
+  // A single-use token works once, within its validity: it is consumed here,
+  // atomically, so two hosts racing with it can't both enroll.
+  const usable =
+    byToken &&
+    (!byToken.enrollTokenSingleUse ||
+      ((!byToken.enrollTokenExpiresAt || byToken.enrollTokenExpiresAt > new Date()) &&
+        (
+          await prisma.coolifyInstance.updateMany({
+            where: { id: byToken.id, enrollTokenHash: hash },
+            data: { enrollTokenHash: null, enrollTokenExpiresAt: null },
+          })
+        ).count === 1));
+  if (!byToken || !usable) {
     return NextResponse.json(
-      { error: "enrollment token invalid or rotated - reveal a new install command in the controller" },
+      { error: "install token invalid, already used, expired or rotated - reveal a new install command in the controller" },
       { status: 401 },
     );
   }

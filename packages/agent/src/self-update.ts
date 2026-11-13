@@ -160,7 +160,7 @@ export type UpdateDeps = {
   /** Resolves once the event reached CBM (or failed to): the agent's token
    * changes when it registers again, and it stops right after the handover. */
   emit: (level: "info" | "warn" | "error", message: string, progress?: number) => Promise<void>;
-  /** Register again with the install token (a rotated one fails here, before anything changes). */
+  /** Keep the agent's credential in the work dir, where the new container reads it. */
   reregister: () => Promise<void>;
   sleep?: (ms: number) => Promise<void>;
 };

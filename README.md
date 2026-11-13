@@ -270,8 +270,8 @@ Being upfront so you don't lose data by surprise.
 
 - Secrets (Coolify tokens, SSH/S3 creds, encryption & restic keys) are **AES‑256‑GCM
   encrypted at rest** with `MASTER_KEY` (falls back to `BETTER_AUTH_SECRET`).
-- Agents authenticate with a bearer token (sha256‑hashed in the DB); enrollment tokens are
-  per instance, shown once, and rotated on every reveal. API tokens (MCP) are likewise shown
+- Agents authenticate with a bearer token (sha256‑hashed in the DB) they keep themselves;
+  install tokens are per instance, shown once, and enroll one agent within 24 hours. API tokens (MCP) are likewise shown
   once and stored only as a hash.
 - **Role‑based access** (admin / operator / viewer) is enforced on every mutating action
   server‑side; invitation links are single‑use, expiring, and stored only as a sha256 hash.

@@ -29,9 +29,12 @@ alerts if it stops being true. See
 
 - Agents authenticate to the controller with a **bearer token**, stored only as a sha256 hash in
   the database.
-- **Enrollment tokens** (instance card → **…** → **Install command** → "Reveal install command")
-  are per-instance, shown **once**, and matched by hash. Revealing again rotates the token and
-  invalidates the old one.
+- **Install tokens** (instance card → **…** → **Install command** → "Reveal install command")
+  are per-instance, shown **once**, and matched by hash. One enrolls a single agent, within 24
+  hours, then stops working; revealing a new one also invalidates the previous one. Each agent
+  keeps its own credential (in its work dir, readable by its owner only), so a used or rotated
+  install token never affects it. A token revealed before 2.8.0 keeps working for any number of
+  agents until a new command is revealed (agents older than 2.8.0 enroll again at every start).
 - Agents make **outbound** connections only (they poll the controller) — nothing needs to be
   opened on your hosts.
 - Before a restore pins an image, the controller asks its registry (Docker Hub, ghcr.io…)

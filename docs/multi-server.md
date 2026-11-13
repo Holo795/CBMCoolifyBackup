@@ -4,8 +4,8 @@ A single Coolify panel can manage several servers. CBM handles this natively.
 
 ## How it works
 
-- **One agent per server.** Run the (same) install command on each Docker host. The enrollment
-  token is per instance, shared across its servers.
+- **One agent per server.** Reveal an install command for each Docker host and run it there: a
+  command enrolls one agent, within 24 hours.
 - **Server captured per resource.** On sync, CBM records which Coolify server each resource is
   deployed on (from the Coolify API). The **Resources** list shows it under each name, can be
   filtered by Coolify instance and by server, and can be grouped by either (a header per group,

@@ -398,12 +398,15 @@ export async function connectInstance(fd: FormData) {
   return warning ? { ok: true, warning } : { ok: true };
 }
 
+/** How long a revealed install command can enroll its agent. */
+const ENROLL_TOKEN_TTL_MS = 24 * 3600_000;
+
 /**
  * Generate a fresh per-instance enrollment token and return the install
  * command containing it. The plaintext is shown to the operator exactly once:
  * only its sha256 hash + a masked hint are stored, so it can never be
- * re-displayed. Revealing again rotates the token, invalidating the previous
- * one (the agent on that host must then be reconfigured with the new command).
+ * re-displayed. It enrolls ONE agent, within 24 hours; agents keep their own
+ * credential afterwards, so revealing a new one never affects them.
  */
 export async function revealInstallCommand(
   instanceId: string,
@@ -413,7 +416,13 @@ export async function revealInstallCommand(
   const hint = `${token.slice(0, 8)}…${token.slice(-4)}`;
   await prisma.coolifyInstance.update({
     where: { id: instanceId },
-    data: { enrollTokenHash: sha256Hex(token), enrollTokenHint: hint, enrollTokenSetAt: new Date() },
+    data: {
+      enrollTokenHash: sha256Hex(token),
+      enrollTokenHint: hint,
+      enrollTokenSetAt: new Date(),
+      enrollTokenSingleUse: true,
+      enrollTokenExpiresAt: new Date(Date.now() + ENROLL_TOKEN_TTL_MS),
+    },
   });
 
   const base = (env.agentControllerUrl || env.authUrl).replace(/\/$/, "");

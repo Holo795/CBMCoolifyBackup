@@ -84,8 +84,9 @@ backed up as before if it comes back. The sync button on the instance card re-sy
 ## 4. Install an agent on each Docker host
 
 On the instance card, open the **…** menu → **Install command**, then click **Reveal install
-command** to get the enrollment token (shown once; revealing again rotates it), and run the
-one-liner **on each host** you want to back up:
+command** and run the one-liner on the host you want to back up. The command holds an install
+token, shown once, that enrolls **one** agent within 24 hours: reveal a new command for each
+host. Revealing a new one never affects the agents already installed.
 
 ```bash
 curl -fsSL https://cbm.example.com/install.sh | CBM_TOKEN=cbm_… sh
@@ -105,7 +106,12 @@ This starts the `cbm-agent` container with:
 - a `cbm-agent-work` volume for its work dir (`/var/lib/cbm-agent`): staging stays off the
   container's own layer, and its pending results and its record of the containers it paused
   survive a reinstall (the next agent resumes anything an interrupted job left paused or stopped),
-- the enrollment token, which it exchanges for a bearer token on first start.
+- the install token, which it exchanges for its own credential on first start. The agent keeps
+  that credential in its work dir and uses it from then on: restarts, reinstalls on the same
+  volume and updates don't need the install token again.
+
+An agent first resumes any container an interrupted job left paused or stopped, then contacts the
+controller: an application is never left frozen because the controller can't be reached.
 
 The agent is installed **directly** (not through the Coolify API) because Coolify's deploy
 path would strip the Docker socket mount the agent needs. Re-running the command reconfigures
@@ -144,7 +150,7 @@ in an agent's **…** menu (admin), queues the update:
 1. the agent finishes the jobs it is running and takes no new one (jobs queued meanwhile wait
    for the new agent);
 2. it pulls the controller's version of its own image (`<its repository>:<controller version>`,
-   so a registry mirror stays one), and checks that its install token is still valid;
+   so a registry mirror stays one), and keeps its credential in its work dir for the new agent;
 3. a short-lived `cbm-agent-updater` container creates the new agent with the same settings as
    the current one (environment, volumes, restart policy, DNS, networks and their aliases,
    labels, limits), stops the current one and starts the new one - a few seconds without an
