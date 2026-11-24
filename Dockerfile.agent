@@ -14,7 +14,7 @@ RUN npm run build --workspace @cbm/shared && npm run build --workspace @cbm/agen
   && npm ci -w @cbm/shared -w @cbm/agent --omit=dev --ignore-scripts --no-audit --no-fund
 
 # restic is pinned to an upstream release rather than whatever Alpine ships.
-FROM restic/restic:0.19.1 AS restic
+FROM restic/restic:0.20.0 AS restic
 
 FROM node:24-alpine AS runtime
 # docker-cli: the agent shells out to `docker` for exec/tar/inspect.
